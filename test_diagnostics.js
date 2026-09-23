@@ -1,0 +1,12 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const main = fs.readFileSync('main/index.js', 'utf8');
+const preload = fs.readFileSync('main/preload.js', 'utf8');
+const renderer = fs.readFileSync('renderer/js/diagnostics.js', 'utf8');
+assert(main.includes("ipcMain.handle('diag:recentLogs'"));
+assert(main.includes("replaceAll(home, '<USER>')"));
+assert(preload.includes("getRecentLogs: () => ipcRenderer.invoke('diag:recentLogs')"));
+assert(renderer.includes('window.poroSession?.snapshot()'));
+assert(renderer.includes('shortIdentity'));
+console.log('脱敏诊断中心测试通过');

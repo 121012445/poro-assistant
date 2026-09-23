@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data: https://raw.communitydragon.org">
+<title>Poro 海斗强化推荐</title>
+<style>
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; color:#f5f0e7; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; user-select:none; }
+  .panel { box-sizing:border-box; width:100%; height:100%; padding:12px 13px; border-radius:15px; overflow:hidden;
+    background:linear-gradient(145deg,rgba(15,36,49,.96),rgba(24,24,37,.94)); border:1px solid rgba(91,220,217,.48);
+    box-shadow:0 12px 32px rgba(0,0,0,.36),inset 0 1px rgba(255,255,255,.08); }
+  .head { display:flex; align-items:center; gap:8px; height:28px; }
+  .poro { width:22px; height:22px; border-radius:50%; display:grid; place-items:center; background:#e9fbfa; color:#177f91; font-size:13px; font-weight:900; }
+  .title { font-size:14px; font-weight:800; letter-spacing:.02em; }
+  .champion { margin-left:auto; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#91d8e1; font-size:11px; }
+  .list { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .item { min-height:53px; display:grid; grid-template-columns:28px 38px minmax(0,1fr) auto; align-items:center; gap:8px; padding:5px 9px 5px 5px; box-sizing:border-box;
+    border-radius:10px; border:1px solid rgba(255,255,255,.09); background:rgba(255,255,255,.065); }
+  .item.best { background:linear-gradient(90deg,rgba(31,185,174,.25),rgba(255,255,255,.07)); border-color:rgba(71,225,203,.55); }
+  .rank { width:25px; height:25px; border-radius:8px; display:grid; place-items:center; background:rgba(255,255,255,.10); color:#b9d7dc; font-weight:900; font-size:12px; }
+  .best .rank { color:#102d31; background:#61e0d0; }
+  .icon { width:34px; height:34px; object-fit:contain; border-radius:7px; background:rgba(0,0,0,.28); }
+  .copy { min-width:0; }
+  .name { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:700; }
+  .copy small { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#9db1b7; font-size:9px; }
+  .meta { text-align:right; color:#aab8bd; font-size:10px; line-height:1.28; white-space:nowrap; }
+  .meta b { display:block; color:#f4d48a; font-size:12px; }
+  .meta em { display:inline-block; margin-top:3px; padding:1px 5px; border-radius:5px; color:#b9c8cc; background:rgba(255,255,255,.08); font-size:9px; font-style:normal; }
+  .meta em.high { color:#67e1c7; background:rgba(52,190,158,.14); }
+  .meta em.medium { color:#f4d48a; background:rgba(224,176,78,.13); }
+  .foot { margin-top:7px; padding-left:3px; color:#8fa4aa; font-size:10px; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="head"><span class="poro">P</span><span class="title">本轮强化推荐</span><span class="champion" id="champion"></span></div>
+    <div class="list" id="list"></div>
+    <div class="foot" id="state">F6 重新识别 · 仅提示，不会自动选择</div>
+  </div>
+  <script src="js/augment-overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>Poro 备战区浮窗</title>
+<style>
+  /* 独立窗口: 透明底 + 圆角面板。浮在客户端之上, 所以用深色底 + 亮字保证可读。 */
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #EDEDE8;
+    font-size: 12px;
+    user-select: none;
+    cursor: default;
+  }
+  .panel {
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    background: rgba(18, 20, 24, 0.93);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    overflow: hidden;
+  }
+  /* 拖拽区: 只有这条标题栏能拖, 按钮区必须 no-drag 否则点不动 */
+  .bar {
+    -webkit-app-region: drag;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 8px 7px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex: 0 0 auto;
+  }
+  .bar .dot { width: 6px; height: 6px; border-radius: 50%; background: #EF9F27; flex: 0 0 auto; }
+  .bar .dot.on { background: #639922; }
+  .bar .title { flex: 1; font-size: 12px; font-weight: 500; letter-spacing: .02em; }
+  .bar .hide {
+    -webkit-app-region: no-drag;
+    width: 18px; height: 18px; line-height: 16px; text-align: center;
+    border-radius: 5px; border: 1px solid transparent;
+    color: #B4B2A9; font-size: 14px; cursor: pointer;
+  }
+  .bar .hide:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  .list {
+    -webkit-app-region: no-drag;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .list::-webkit-scrollbar { width: 6px; }
+  .list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+  .item {
+    display: flex; align-items: center; gap: 6px;
+    width: 100%; box-sizing: border-box;
+    padding: 7px 9px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.07);
+    color: #EDEDE8;
+    font-family: inherit; font-size: 12px; text-align: left;
+    cursor: pointer;
+  }
+  .item:hover { background: rgba(255, 255, 255, 0.15); border-color: rgba(255, 255, 255, 0.3); }
+  .item:active { transform: translateY(1px); }
+  .item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .tag {
+    flex: 0 0 auto; font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.12); color: #B4B2A9;
+  }
+  .item .tag.subset { background: rgba(99, 153, 34, 0.28); color: #C0DD97; }
+  .empty { color: #888780; font-size: 11px; padding: 6px 3px; line-height: 1.5; }
+  .state {
+    -webkit-app-region: no-drag;
+    flex: 0 0 auto;
+    padding: 6px 9px 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11px; line-height: 1.45; color: #B4B2A9;
+    max-height: 52px; overflow-y: auto;
+  }
+  .state.positive { color: #97C459; }
+  .state.negative { color: #F09595; }
+  .state.accent { color: #85B7EB; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="bar">
+      <span class="dot" id="dot"></span>
+      <span class="title" id="title">备战区</span>
+      <span class="hide" id="hide" title="收起（下次进选人自动出现）">×</span>
+    </div>
+    <div class="list" id="list"><div class="empty">等待选人…</div></div>
+    <div class="state" id="state"></div>
+  </div>
+  <script src="js/overlay.js"></script>
+</body>
+</html>

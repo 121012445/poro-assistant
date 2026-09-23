@@ -1,0 +1,11 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const context = vm.createContext({ window: {}, Map, Math, Number, String, Date });
+vm.runInContext(fs.readFileSync('renderer/js/performance.js', 'utf8'), context);
+const perf = context.window.poroPerf;
+for (const ms of [10, 20, 30, 40, 100]) perf.record('home.load', ms);
+const summary = perf.summary()['home.load'];
+assert.deepStrictEqual(JSON.parse(JSON.stringify(summary)), { count: 5, last: 100, p50: 30, p95: 100 });
+console.log('本地性能指标测试通过');

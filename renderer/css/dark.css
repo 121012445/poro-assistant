@@ -1,0 +1,58 @@
+/* 深色主题: body.dark 下重定义变量, 大部分组件自动跟随 */
+body.dark {
+  --bg-primary: #14161c;
+  --bg-secondary: #1a1d25;
+  --bg-card: #1e222c;
+  --bg-hover: #262b38;
+  --border: #2e3442;
+  --text-primary: #e2e6ee;
+  --text-secondary: #aab3c5;
+  --text-muted: #76809a;
+  --accent: #4aa3e8;
+  --accent-deep: #2c7fc4;
+  --accent2: #2a4a66;
+  --positive: #3ecf7a;
+  --negative: #ef6b5e;
+  --warning: #f0a84b;
+  --gradient-gold: linear-gradient(135deg, #2a3a4c 0%, #1e2836 50%, #2a3a4c 100%);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  --shadow-soft: 0 5px 18px rgba(0, 0, 0, 0.24);
+  background: #14161c;
+  color: #e2e6ee;
+}
+
+/* 深色下局部微调 (浅色模板里硬编码的白底/浅底组件) */
+body.dark .modal-content,
+body.dark .bg-champ-list,
+body.dark .bg-champ-option { background: #232834; color: #e2e6ee; }
+body.dark .bg-champ-option:hover { background: #2c3342; }
+body.dark .tool-input,
+body.dark .tool-select,
+body.dark input[type="text"],
+body.dark input[type="password"],
+body.dark select {
+  background: #141821; color: #e2e6ee; border-color: #2e3442;
+}
+body.dark .tool-input::placeholder { color: #5a6478; }
+body.dark .switch { background: #333b4c; }
+body.dark .placeholder-svg { background: #262b38; }
+body.dark img { opacity: 0.98; }
+/* 深色主题下把 JS 生成的浅色英雄占位图替换为深色底 (通过 filter 近似) */
+body.dark .champ-icon,
+body.dark .ako-champ,
+body.dark .ak-champ,
+body.dark .lp-champ { background: #232834; border-radius: 50%; }
+body.dark .lp-team { background: rgba(30, 34, 44, .72); }
+body.dark .lp-blue .lp-team-head { background: linear-gradient(100deg, #183a55, #202d3d); color: #74c9f5; }
+body.dark .lp-red .lp-team-head { background: linear-gradient(100deg, #4b292d, #35272b); color: #ef9a95; }
+body.dark .lp-row { background: var(--bg-card); border-color: #344657; color: var(--text-primary); }
+body.dark .lp-red .lp-row { border-color: #554044; }
+body.dark .lp-overview { background: var(--bg-hover); border-color: var(--border); }
+body.dark .lp-flash { background: #203d50; border-color: #345f78; color: #7acaf1; }
+body.dark .lp-flash.mixed { background: #4a3b21; border-color: #705a30; color: #ffd27a; }
+body.dark .ri-win { background: #20374d; border-color: #315773; border-left-color: #4aa3e8; }
+body.dark .ri-loss { background: #492d30; border-color: #684045; border-left-color: #ef6b5e; }
+body.dark .lp-self { background: linear-gradient(180deg, #33301f, var(--bg-card)) !important; }
+body.dark ::-webkit-scrollbar { width: 8px; height: 8px; }
+body.dark ::-webkit-scrollbar-thumb { background: #333b4c; border-radius: 4px; }
+body.dark ::-webkit-scrollbar-track { background: transparent; }
