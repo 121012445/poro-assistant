@@ -171,7 +171,8 @@ async function init() {
         // 首页若已用空映射渲染过 (占位图标), 用真实数据重渲染列表
         if (homeStatsLoaded && homeGamesData && homeGamesData.length) {
           renderHomeModeFilter();
-          renderHomeGameList();
+          // 静态资源可能刚好在用户查看详情时完成。不要因此替换整批战绩卡片。
+          if (typeof isHomeGameDetailExpanded !== 'function' || !isHomeGameDetailExpanded()) renderHomeGameList();
           refreshHomeChampionRows();
           if (typeof refreshHomeFunStats === 'function') refreshHomeFunStats();
         }

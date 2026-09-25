@@ -95,6 +95,19 @@ const HOME_SEARCH_HISTORY_LIMIT = 10;
 let homeSearchHistory = [];
 let homeSearchDraft = '';
 let homeScrollSnapshot = null;
+// 自动补刷可以和用户打开详情并发。详情展开期间不替换首页 DOM；否则异步请求
+// 返回时会把 .ako-card 整批重建，表现为“详情自己合上”。关闭详情后再从新缓存补绘。
+let homeRenderDeferred = false;
+
+function isHomeGameDetailExpanded() {
+  return !!document.querySelector('#playerPanel .ako-card.expanded');
+}
+
+function resumeDeferredHomeRefresh() {
+  if (!homeRenderDeferred || isHomeGameDetailExpanded()) return;
+  homeRenderDeferred = false;
+  setTimeout(() => loadHomeStats(true), 0);
+}
 
 function homeScrollContainer() {
   return document.querySelector('.main-content');
@@ -927,6 +940,8 @@ function renderHomeGameList() {
     ? `<button class="btn-secondary" style="width:100%;margin:8px 0;" onclick="loadMoreHomeGames()" ${homeGameRemoteState?.loading ? 'disabled' : ''}>${homeGameRemoteState?.loading ? '正在加载更多战绩...' : `继续加载 (${visible.length}/${totalHint})`}</button>`
     : '';
   el.innerHTML = visible.map(g => buildHomeGameCard(g, { puuid: homeGamesOwner })).join('') + more;
+  // 用户主动筛选/加载更多也可能移除原展开节点；此时不能让延迟刷新永久挂起。
+  resumeDeferredHomeRefresh();
 }
 async function loadMoreHomeGames() {
   const desired = homeGameVisible + HOME_GAME_PAGE_SIZE;
@@ -1254,6 +1269,13 @@ async function loadHomeStats(force, opts) {
     games = (games || []).filter(g => !!findProfileParticipant(g, s));
     for (const game of games) if (!game.platformId && targetPlatformId) game.platformId = targetPlatformId;
     const server = SERVER_NAMES[targetPlatformId] || targetPlatformId || "";
+    // 请求可能在详情展开前已经发出，因此只在轮询入口判断还不够。提交 DOM 前再次检查，
+    // 同一玩家详情仍打开时保留当前节点；网络结果已经写入缓存，关闭后可立即补绘。
+    if (homeGamesOwner === s.puuid && isHomeGameDetailExpanded()) {
+      homeRenderDeferred = true;
+      restoreHomeScroll(s.puuid);
+      return;
+    }
     if (!games.length) {
       renderEmptyPlayerHome(
         panel,
@@ -1561,7 +1583,12 @@ function fmtNumLocal(n) { return Number(n || 0).toLocaleString('en-US'); }
 // 展开对局详情
 async function expandOpggGame(el, gameId) {
   const detail = el.querySelector('.og-game-detail');
-  if (detail.style.display !== 'none') { detail.style.display = 'none'; el.classList.remove('expanded'); return; }
+  if (detail.style.display !== 'none') {
+    detail.style.display = 'none';
+    el.classList.remove('expanded');
+    resumeDeferredHomeRefresh();
+    return;
+  }
   detail.style.display = 'block';
   el.classList.add('expanded');
   detail.innerHTML = '<div class="meta-loading">加载中...</div>';
