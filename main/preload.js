@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   // 文件读写 (持久化配置, 仅限 userData 白名单目录)
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('fs:writeFile', path, content),
+  exportBackup: (payload) => ipcRenderer.invoke('backup:export', payload),
+  importBackup: () => ipcRenderer.invoke('backup:import'),
   getUserData: () => ipcRenderer.invoke('app:userData'),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   // 全局快捷键 (游戏内 F7/F8 发送 KDA 简报)

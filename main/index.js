@@ -1280,6 +1280,36 @@ ipcMain.handle('fs:writeFile', async (e, filePath, content) => {
   } catch (err) { return false; }
 });
 
+ipcMain.handle('backup:export', async (e, payload) => {
+  try {
+    const safe = payload && typeof payload === 'object' ? payload : null;
+    if (!safe) return { __error: '备份数据无效' };
+    const content = JSON.stringify(safe, null, 2);
+    if (Buffer.byteLength(content, 'utf8') > MAX_USER_FILE_BYTES) return { __error: '备份数据过大' };
+    const chosen = await dialog.showSaveDialog(mainWindow, {
+      title: '导出 Poro 备份', defaultPath: `Poro-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'Poro 备份', extensions: ['json'] }]
+    });
+    if (chosen.canceled || !chosen.filePath) return { canceled: true };
+    fs.writeFileSync(chosen.filePath, content, 'utf8');
+    return { ok: true, filePath: chosen.filePath };
+  } catch (err) { return { __error: err.message }; }
+});
+
+ipcMain.handle('backup:import', async () => {
+  try {
+    const chosen = await dialog.showOpenDialog(mainWindow, {
+      title: '导入 Poro 备份', properties: ['openFile'], filters: [{ name: 'Poro 备份', extensions: ['json'] }]
+    });
+    if (chosen.canceled || !chosen.filePaths?.[0]) return { canceled: true };
+    const filePath = chosen.filePaths[0];
+    if (fs.statSync(filePath).size > MAX_USER_FILE_BYTES) return { __error: '备份文件过大' };
+    const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!payload || payload.kind !== 'poro-backup' || typeof payload.store !== 'object') return { __error: '不是有效的 Poro 备份文件' };
+    return { ok: true, payload };
+  } catch (err) { return { __error: '导入失败: ' + err.message }; }
+});
+
 ipcMain.handle('app:userData', async () => USER_DATA);
 
 // 应用版本: 优先读包内 package.json (asar 内的才是真正部署的版本),

@@ -59,11 +59,23 @@ function addBlacklistFromPage() {
 function renderBlacklistPage() {
   const el = document.getElementById('blPageList');
   if (!el) return;
-  if (!blacklist.length) {
-    el.innerHTML = '<div class="bl-empty">暂无黑名单玩家</div>';
+  const ids = new Set([
+    ...Object.keys(typeof playerMarks === 'object' && playerMarks ? playerMarks : {}),
+    ...Object.keys(typeof encounterMap === 'object' && encounterMap ? encounterMap : {})
+  ]);
+  const memories = [...ids].map(puuid => ({ puuid, ...getPlayerMemory(puuid) }))
+    .filter(item => item.marks.length || item.note || item.encounterCount)
+    .sort((a, b) => Math.max(b.updatedAt, b.lastSeen) - Math.max(a.updatedAt, a.lastSeen));
+  if (!blacklist.length && !memories.length) {
+    el.innerHTML = '<div class="bl-empty">还没有玩家档案。可在实时对局中点击玩家名旁的 📌 添加标签或备注。</div>';
     return;
   }
-  el.innerHTML = blacklist.map((b, i) => {
+  const memoryHtml = memories.map(m => `<div class="pm-list-item" style="--memory-color:${m.color}">
+      <span class="pm-list-dot"></span><div class="pm-list-main"><b>${escapeHtml(m.name)}</b><div>${m.marks.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}${m.note ? `<em>${escapeHtml(m.note)}</em>` : ''}</div></div>
+      <small>遇见 ${m.encounterCount} 次${m.lastSeen ? ` · ${new Date(m.lastSeen).toLocaleDateString()}` : ''}</small>
+      <button class="btn-secondary" onclick="showMarkModal(${inlineArg(m.puuid)},${inlineArg(m.name)})">编辑</button>
+    </div>`).join('');
+  const blacklistHtml = blacklist.map((b, i) => {
     const timeStr = b.time ? new Date(b.time).toLocaleDateString() : '';
     return `<div class="bl-item">
       <div class="bl-item-name">${escapeHtml(b.name)}</div>
@@ -72,6 +84,7 @@ function renderBlacklistPage() {
       <button class="bl-item-remove" onclick="removeBlacklist(${i})">移出</button>
     </div>`;
   }).join('');
+  el.innerHTML = `${memories.length ? `<h3 class="pm-section-title">玩家档案 <span>${memories.length}</span></h3>${memoryHtml}` : ''}${blacklist.length ? `<h3 class="pm-section-title danger">黑名单 <span>${blacklist.length}</span></h3>${blacklistHtml}` : ''}`;
 }
 
 

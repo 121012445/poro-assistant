@@ -159,3 +159,22 @@ function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') 
   }
   return tags.slice(0, 3);
 }
+
+// 赛前风险画像只根据近期样本给出可解释提示，不把低样本结论包装成事实。
+function deriveRiskProfile(recent) {
+  const games = Array.isArray(recent) ? recent.filter(Boolean) : [];
+  if (!games.length) return { level: 'unknown', label: '数据不足', confidence: 0, evidence: ['暂无近期有效对局'] };
+  const wins = games.filter(g => g.win === true || g.win === 'Win').length;
+  const deaths = games.reduce((sum, g) => sum + Math.max(0, +g.d || 0), 0);
+  const kills = games.reduce((sum, g) => sum + Math.max(0, +g.k || 0), 0);
+  const assists = games.reduce((sum, g) => sum + Math.max(0, +g.a || 0), 0);
+  const winRate = Math.round(wins / games.length * 100);
+  const kda = (kills + assists) / Math.max(1, deaths);
+  const avgDeaths = deaths / games.length;
+  const confidence = Math.min(100, Math.round(games.length / 10 * 100));
+  const evidence = [`近 ${games.length} 场 ${wins}胜${games.length - wins}负`, `KDA ${kda.toFixed(1)} · 场均死亡 ${avgDeaths.toFixed(1)}`];
+  if (games.length < 4) return { level: 'unknown', label: '样本较少', confidence, evidence };
+  if (winRate >= 60 && kda >= 3.2) return { level: 'steady', label: '近期稳定', confidence, evidence };
+  if (avgDeaths >= 8 || (winRate <= 35 && kda < 1.8)) return { level: 'watch', label: '需要观察', confidence, evidence };
+  return { level: 'normal', label: '状态一般', confidence, evidence };
+}

@@ -531,6 +531,8 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const premadeTag = premadeGroupId ? `<span class="lp-premade" title="开黑组 ${premadeGroupId}">👥组${premadeGroupId}</span>` : '';
     const marksHtml = !isSelf && p.puuid ? `<span style="cursor:pointer;font-size:9px;color:#888;margin-left:4px;" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})">📌</span>${getPlayerMarksHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
+    const risk = deriveRiskProfile(p.recent);
+    const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">
@@ -544,6 +546,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <span class="lp-record">${p.recent.length ? `${wins}胜${p.recent.length - wins}负` : '近期战绩加载中'}</span>
         <span class="lp-kda">KDA ${kda}</span>
       </div>
+      <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}</div>
       <div class="lp-recent">${recentHtml}</div>
       <div class="lp-stats">${p.recent.length ? `近 ${p.recent.length} 场` : ''}</div>
     </div>`;

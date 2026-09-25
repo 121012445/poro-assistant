@@ -132,8 +132,13 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
     <div class="rv-chips">${chart.chips}</div>
     <div class="rv-ai"><button class="btn-secondary rv-ai-btn">AI 复盘</button><div class="rv-ai-out"></div></div>`;
   paint(body.querySelector('.rv-canvas'));
+  const cachedAi = readAiReviewCache(gameId);
+  if (cachedAi?.text) {
+    renderAiReviewText(body.querySelector('.rv-ai-out'), cachedAi.text, true);
+    body.querySelector('.rv-ai-btn').textContent = '重新生成';
+  }
   body.querySelector('.rv-ai-btn').addEventListener('click', (ev) => {
-    runAiReview(ev.target, norm, chart);
+    runAiReview(ev.target, norm, chart, gameId);
   });
 }
 // 解析时间线帧 → 经济差序列 + 关键事件
@@ -227,8 +232,31 @@ function buildAutomaticReview(norm, chart) {
         : kda < 3
           ? '下局目标：参团前确认队友距离，优先保证一次完整技能循环。'
           : (aramMode ? '下局目标：保持当前生存效率，优势时与队友同步压塔，不单独追击。' : '下局目标：保持当前生存效率，并把优势转成先锋、小龙或防御塔。');
-    return `<div class="rv-auto-review"><div class="rv-auto-head"><b>自动关键复盘</b><span>${me.win ? '胜利局巩固' : '败局改进'}</span></div><div class="rv-auto-points">${points.slice(0, 4).map(text => `<p>${escapeHtml(text)}</p>`).join('')}</div><strong>${escapeHtml(goal)}</strong></div>`;
+    const verdict = buildEvidenceVerdict(norm, chart, me);
+    return `<div class="rv-auto-review"><div class="rv-auto-head"><b>自动关键复盘</b><span>${me.win ? '胜利局巩固' : '败局改进'}</span></div>
+      <div class="rv-verdict"><strong>${escapeHtml(verdict.label)}</strong><span>置信度 ${verdict.confidence}%</span>${verdict.evidence.map(text => `<em>${escapeHtml(text)}</em>`).join('')}</div>
+      <div class="rv-auto-points">${points.slice(0, 4).map(text => `<p>${escapeHtml(text)}</p>`).join('')}</div><strong>${escapeHtml(goal)}</strong></div>`;
   } catch (e) { return ''; }
+}
+
+function buildEvidenceVerdict(norm, chart, target) {
+  const me = target || {};
+  const team = (norm?.participants || []).filter(p => +p.teamId === +me.teamId);
+  const teamDamage = team.reduce((sum, p) => sum + Math.max(0, +p.dmg || 0), 0);
+  const teamKills = team.reduce((sum, p) => sum + Math.max(0, +p.k || 0), 0);
+  const kda = ((+me.k || 0) + (+me.a || 0)) / Math.max(1, +me.d || 0);
+  const damageShare = teamDamage ? Math.round((+me.dmg || 0) / teamDamage * 100) : 0;
+  const participation = teamKills ? Math.round(((+me.k || 0) + (+me.a || 0)) / teamKills * 100) : 0;
+  const sampleSignals = [teamDamage > 0, teamKills > 0, Array.isArray(chart?.diffs) && chart.diffs.length >= 5].filter(Boolean).length;
+  const confidence = 55 + sampleSignals * 12;
+  let label = me.win ? '稳健取胜' : '本局承压';
+  if (damageShare >= 28 && kda >= 3) label = me.win ? '核心带动胜局' : '败方高贡献';
+  else if ((+me.d || 0) >= 9 && kda < 1.5) label = '高风险失误偏多';
+  else if (participation >= 70) label = '团队参与充分';
+  return {
+    label, confidence: Math.min(91, confidence),
+    evidence: [`伤害占比 ${damageShare}%`, `参团 ${participation}%`, `KDA ${kda.toFixed(1)}`]
+  };
 }
 function drawTimelineChart(chart) {
   return (canvas) => {
@@ -300,7 +328,17 @@ function drawTimelineChart(chart) {
 function fmtGoldShort(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v); }
 
 // ========== AI 复盘 ==========
-async function runAiReview(btn, norm, chart) {
+function aiReviewCacheKey(gameId) { return 'aiReview:' + String(gameId || 'unknown'); }
+function readAiReviewCache(gameId) {
+  try { const raw = storeGet(aiReviewCacheKey(gameId)); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+function renderAiReviewText(out, value, cached) {
+  const text = String(value || '').trim() || '(空响应: 模型未返回文本)';
+  out.innerHTML = `${cached ? '<div class="rv-ai-cache">已载入本地缓存 · 不重复消耗请求</div>' : ''}` + text.split(/\n{2,}/).map(p => p.trim() ? (
+    `<div class="rv-ai-line">${p.split('\n').map(l => escapeHtml(l.trim())).join('<br>')}</div>`
+  ) : '').filter(Boolean).join('');
+}
+async function runAiReview(btn, norm, chart, gameId) {
   const out = btn.parentElement.querySelector('.rv-ai-out');
   btn.disabled = true;
   btn.textContent = 'AI 分析中...';
@@ -344,16 +382,14 @@ async function runAiReview(btn, norm, chart) {
       const m = resp.choices?.[0]?.message || {};
       let text = (m.content || '').trim() || (m.reasoning_content || '').trim();
       if (!text) text = '(空响应: 模型未返回文本)';
-      // 用空行分段, 每段一个 div; 单段内换行再细分, 保留换行结构
-      out.innerHTML = text.split(/\n{2,}/).map(p => p.trim() ? (
-        `<div class="rv-ai-line">${p.split('\n').map(l => escapeHtml(l.trim())).join('<br>')}</div>`
-      ) : '').filter(Boolean).join('');
+      storeSet(aiReviewCacheKey(gameId), JSON.stringify({ text, generatedAt: Date.now() }));
+      renderAiReviewText(out, text, false);
     }
   } catch (e) {
     out.innerHTML = `<span style="color:var(--negative)">AI 请求失败: ${escapeHtml(e.message)}</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = 'AI 复盘';
+    btn.textContent = readAiReviewCache(gameId)?.text ? '重新生成' : 'AI 复盘';
   }
 }
 // AI 配置保存 (userData/ai.json, OpenAI 兼容接口)

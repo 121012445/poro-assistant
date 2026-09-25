@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
 <link rel="stylesheet" href="css/style.css?v=2026092104">
-<link rel="stylesheet" href="css/extras.css?v=2026092202">
+<link rel="stylesheet" href="css/extras.css?v=2026092601">
 <link rel="stylesheet" href="css/dark.css">
 <link rel="stylesheet" href="css/premium.css?v=2026092301">
 </head>
@@ -57,7 +57,7 @@
     </a>
     <a href="#" class="nav-item" data-page="blacklist">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-      <span>黑名单</span>
+      <span>玩家记忆</span>
     </a>
   </nav>
   <div class="sidebar-footer">
@@ -329,6 +329,14 @@
         <p>本地账号、战绩缓存与个人标记默认保存在本机；只有在你主动使用 AI 复盘时，所选对局内容才会发送到你配置的第三方 AI 接口。LCU 属于非官方支持的本地接口，客户端更新后部分功能可能暂时失效。</p>
       </div>
       <div class="tool-card span-all">
+        <h3>数据备份与恢复</h3>
+        <p>导出设置、玩家档案、黑名单和识别偏好。备份不包含 AI API Key；导入前会验证文件格式。</p>
+        <div class="tool-row">
+          <button class="btn-secondary" onclick="exportPoroBackup()">导出备份</button>
+          <button class="btn-secondary" onclick="importPoroBackup()">导入备份</button>
+        </div>
+      </div>
+      <div class="tool-card span-all">
         <h3>诊断中心</h3>
         <p>显示当前客户端、账号、区服、对局代际与最近脱敏日志。复制内容不包含完整 PUUID、令牌或用户目录。</p>
         <div class="tool-row">
@@ -341,17 +349,22 @@
     <div id="toolMsg" class="tool-msg"></div>
   </div>
 
-  <!-- 黑名单 -->
+  <!-- 玩家记忆 -->
   <div class="page" id="page-blacklist">
     <div class="page-header">
-      <h2>黑名单</h2>
+      <h2>玩家记忆</h2>
     </div>
+    <p class="pm-page-desc">人工标签、私人备注和遭遇记录仅保存在本机；黑名单仍会在实时对局中提醒。</p>
     <div class="bl-add-row">
       <input type="text" id="blPageName" placeholder="输入召唤师名称" class="tool-input" style="flex:1;">
-      <button class="btn-primary" onclick="addBlacklistFromPage()">添加</button>
+      <button class="btn-primary" onclick="addBlacklistFromPage()">加入黑名单</button>
     </div>
     <div id="blPageList" class="bl-page-list"></div>
   </div>
+</div>
+
+<div class="pm-modal" id="playerMemoryModal" onclick="if(event.target===this)closePlayerMemoryModal()">
+  <div class="pm-dialog" id="playerMemoryModalBody"></div>
 </div>
 
 <!-- 自动BP配置弹窗 -->
@@ -360,6 +373,10 @@
     <div class="modal-close" onclick="closeAutoBPModal()">X</div>
     <div class="modal-body">
       <h3 style="margin-bottom:12px;">自动BP配置</h3>
+      <div class="bp-rule-row">
+        <label>生效模式<select id="autoBPMode" class="tool-select" onchange="saveAutoBPRules()"><option value="all">全部模式</option><option value="aram">仅大乱斗</option><option value="sr">仅召唤师峡谷</option></select></label>
+        <label>生效位置<select id="autoBPPosition" class="tool-select" onchange="saveAutoBPRules()"><option value="all">全部位置</option><option value="TOP">上路</option><option value="JUNGLE">打野</option><option value="MIDDLE">中路</option><option value="BOTTOM">下路</option><option value="UTILITY">辅助</option></select></label>
+      </div>
       <div style="margin-bottom:12px;">
         <h4 style="font-size:13px;margin-bottom:8px;">禁用英雄 (按优先级排列)</h4>
         <div style="display:flex;gap:6px;margin-bottom:6px;">
@@ -393,7 +410,7 @@
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
 <div id="benchAlert" class="bench-alert"></div>
-<script src="js/utils.js?v=2026091602"></script>
+<script src="js/utils.js?v=2026092601"></script>
 <script src="js/data-model.js?v=2026092102"></script>
 <script src="js/session-state.js?v=2026092101"></script>
 <script src="js/performance.js?v=2026092101"></script>
@@ -401,19 +418,19 @@
 <script src="js/bench.js?v=2026091602"></script>
 <script src="js/champions.js?v=2026091602"></script>
 <script src="js/home.js?v=2026092102"></script>
-<script src="js/review.js?v=2026091602"></script>
+<script src="js/review.js?v=2026092601"></script>
 <script src="js/theme.js?v=2026091602"></script>
 <script src="js/hex.js?v=2026092202"></script>
 <script src="js/history.js?v=2026091602"></script>
-<script src="js/live.js?v=2026092103"></script>
+<script src="js/live.js?v=2026092601"></script>
 <script src="js/compliance.js?v=2026091602"></script>
-<script src="js/blacklist.js?v=2026091602"></script>
-<script src="js/social.js?v=2026091602"></script>
+<script src="js/blacklist.js?v=2026092601"></script>
+<script src="js/social.js?v=2026092601"></script>
 <script src="js/chat.js?v=2026091602"></script>
-<script src="js/autobp.js?v=2026091602"></script>
+<script src="js/autobp.js?v=2026092601"></script>
 <script src="js/lcu-events.js?v=2026091602"></script>
 <script src="js/settings.js?v=2026091602"></script>
-<script src="js/persist.js?v=2026092201"></script>
+<script src="js/persist.js?v=2026092601"></script>
 <script src="js/app.js?v=2026091602"></script>
 </body>
 </html>

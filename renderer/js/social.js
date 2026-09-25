@@ -111,16 +111,44 @@ async function startSpectate() {
 
 // ========== 玩家标记系统 ==========
 let playerMarks = {};
+const PLAYER_MEMORY_COLORS = ['#35b7a6', '#4b8fe2', '#8d6bd1', '#e2a43b', '#dc6672', '#7b8b9b'];
+const PLAYER_MEMORY_TAGS = ['配合良好', '实力稳定', '需要观察', '消极记录', '绝活玩家', '疑似补位'];
+
+function normalizePlayerMemory(entry, name) {
+  const value = entry && typeof entry === 'object' ? entry : {};
+  return {
+    name: String(name || value.name || '未知玩家'),
+    marks: Array.isArray(value.marks) ? [...new Set(value.marks.map(String).filter(Boolean))] : [],
+    note: String(value.note || ''),
+    color: PLAYER_MEMORY_COLORS.includes(value.color) ? value.color : PLAYER_MEMORY_COLORS[0],
+    updatedAt: Number(value.updatedAt) || 0
+  };
+}
+
+function getPlayerMemory(puuid, name) {
+  const memory = normalizePlayerMemory(playerMarks[puuid], name);
+  const encounter = encounterMap[puuid] || {};
+  return { ...memory, encounterCount: Number(encounter.count) || 0, lastSeen: Number(encounter.lastTime) || 0 };
+}
+
+function savePlayerMemory() {
+  try { storeSet('playerMarks', JSON.stringify(playerMarks)); } catch (e) {}
+}
+
 function markPlayer(puuid, name, tag) {
   if (!puuid) return;
-  if (!playerMarks[puuid]) playerMarks[puuid] = { name, marks: [] };
+  playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], name);
   if (!playerMarks[puuid].marks.includes(tag)) {
     playerMarks[puuid].marks.push(tag);
   }
+  playerMarks[puuid].updatedAt = Date.now();
+  savePlayerMemory();
 }
 function unmarkPlayer(puuid, tag) {
   if (!playerMarks[puuid]) return;
   playerMarks[puuid].marks = playerMarks[puuid].marks.filter(m => m !== tag);
+  playerMarks[puuid].updatedAt = Date.now();
+  savePlayerMemory();
 }
 function getPlayerMarks(puuid) {
   return playerMarks[puuid]?.marks || [];
@@ -173,19 +201,30 @@ addEncounter = function(puuid, name) {
 
 // ========== 玩家标记 UI ==========
 function showMarkModal(puuid, name) {
-  const tags = ['高手', '坑货', '开黑', '代练', '演员', '绝活哥', '大神', '萌新'];
-  const existing = getPlayerMarks(puuid);
-  let html = `<div style="margin-bottom:8px;font-size:13px;">标记 <b>${escapeHtml(name)}</b></div>`;
-  html += `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">`;
-  for (const tag of tags) {
-    const active = existing.includes(tag);
-    html += `<button class="btn-secondary${active ? ' is-selected' : ''}" style="font-size:11px;" onclick="togglePlayerMark(${inlineArg(puuid)},${inlineArg(name)},${inlineArg(tag)})">${active ? '✓ ' : ''}${escapeHtml(tag)}</button>`;
-  }
-  html += `</div>`;
-  html += `<div style="display:flex;gap:4px;"><input id="customMarkInput" placeholder="自定义标签" class="tool-input" style="flex:1;font-size:11px;"><button class="btn-secondary" style="font-size:11px;" onclick="addCustomMark(${inlineArg(puuid)},${inlineArg(name)})">添加</button></div>`;
-  document.getElementById('toolMsg').innerHTML = html;
+  if (!puuid) return;
+  const memory = getPlayerMemory(puuid, name);
+  playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], name);
+  const modal = document.getElementById('playerMemoryModal');
+  const body = document.getElementById('playerMemoryModalBody');
+  if (!modal || !body) return;
+  body.innerHTML = `<div class="pm-head"><div><span class="pm-dot" style="background:${memory.color}"></span><h3>${escapeHtml(memory.name)}</h3></div><button class="pm-close" onclick="closePlayerMemoryModal()">×</button></div>
+    <div class="pm-meta">遇见 ${memory.encounterCount} 次${memory.lastSeen ? ` · 最近 ${new Date(memory.lastSeen).toLocaleDateString()}` : ''}</div>
+    <label class="pm-label">人工标签</label><div class="pm-tags">${PLAYER_MEMORY_TAGS.map(tag => `<button class="btn-secondary${memory.marks.includes(tag) ? ' is-selected' : ''}" onclick="togglePlayerMark(${inlineArg(puuid)},${inlineArg(name)},${inlineArg(tag)})">${memory.marks.includes(tag) ? '✓ ' : ''}${tag}</button>`).join('')}</div>
+    <div class="pm-custom"><input id="customMarkInput" placeholder="自定义标签" class="tool-input"><button class="btn-secondary" onclick="addCustomMark(${inlineArg(puuid)},${inlineArg(name)})">添加</button></div>
+    <label class="pm-label" for="playerMemoryNote">私人备注（仅保存在本机）</label><textarea id="playerMemoryNote" class="pm-note" maxlength="300" placeholder="例如：上次配合默契、擅长开团……">${escapeHtml(memory.note)}</textarea>
+    <label class="pm-label">标记颜色</label><div class="pm-colors">${PLAYER_MEMORY_COLORS.map(color => `<button class="pm-color${memory.color === color ? ' active' : ''}" style="--memory-color:${color}" onclick="setPlayerMemoryColor(${inlineArg(puuid)},${inlineArg(name)},${inlineArg(color)})" aria-label="选择颜色"></button>`).join('')}</div>
+    <div class="pm-actions"><button class="btn-primary" onclick="savePlayerMemoryEditor(${inlineArg(puuid)},${inlineArg(name)})">保存档案</button></div>`;
+  modal.classList.add('show');
+}
+function closePlayerMemoryModal() { document.getElementById('playerMemoryModal')?.classList.remove('show'); }
+function capturePlayerMemoryDraft(puuid, name) {
+  const note = document.getElementById('playerMemoryNote');
+  if (!note || !puuid) return;
+  playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], name);
+  playerMarks[puuid].note = String(note.value || '').trim().slice(0, 300);
 }
 function togglePlayerMark(puuid, name, tag) {
+  capturePlayerMemoryDraft(puuid, name);
   const marks = getPlayerMarks(puuid);
   if (marks.includes(tag)) unmarkPlayer(puuid, tag);
   else markPlayer(puuid, name, tag);
@@ -194,11 +233,30 @@ function togglePlayerMark(puuid, name, tag) {
 function addCustomMark(puuid, name) {
   const input = document.getElementById('customMarkInput');
   if (!input || !input.value.trim()) return;
+  capturePlayerMemoryDraft(puuid, name);
   markPlayer(puuid, name, input.value.trim());
   showMarkModal(puuid, name);
 }
+function setPlayerMemoryColor(puuid, name, color) {
+  capturePlayerMemoryDraft(puuid, name);
+  playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], name);
+  playerMarks[puuid].color = PLAYER_MEMORY_COLORS.includes(color) ? color : PLAYER_MEMORY_COLORS[0];
+  playerMarks[puuid].updatedAt = Date.now();
+  savePlayerMemory();
+  showMarkModal(puuid, name);
+}
+function savePlayerMemoryEditor(puuid, name) {
+  playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], name);
+  playerMarks[puuid].note = String(document.getElementById('playerMemoryNote')?.value || '').trim().slice(0, 300);
+  playerMarks[puuid].updatedAt = Date.now();
+  savePlayerMemory();
+  closePlayerMemoryModal();
+  renderBlacklistPage();
+  showToast('玩家档案已保存', 'positive');
+}
 function getPlayerMarksHtml(puuid) {
-  const marks = getPlayerMarks(puuid);
-  if (!marks.length) return '';
-  return marks.map(m => `<span style="display:inline-block;font-size:9px;padding:1px 4px;border-radius:3px;background:#3a2a5a;color:#c9a0ff;margin-left:2px;">${escapeHtml(m)}</span>`).join('');
+  const memory = getPlayerMemory(puuid);
+  const note = memory.note ? ' · 有备注' : '';
+  if (!memory.marks.length && !memory.note) return '';
+  return `<span class="pm-inline" style="--memory-color:${memory.color}" title="人工标记${note}">${memory.marks.slice(0, 2).map(escapeHtml).join(' · ') || '有备注'}</span>`;
 }

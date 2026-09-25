@@ -5,6 +5,7 @@
 // ========== 自动BP ==========
 let autoBPEnabled = false;
 let autoBPHeroes = { ban: [], pick: [] };
+let autoBPRules = { mode: 'all', position: 'all' };
 function toggleAutoBP(on) {
   if (on && !guardAutomation('自动BP')) { document.getElementById('autoBPToggle').checked = false; return; }
   autoBPEnabled = on;
@@ -21,7 +22,26 @@ function togglePremadeNotify(on) {
 }
 function showAutoBPConfig() {
   document.getElementById('autoBPModal').classList.add('show');
+  const mode = document.getElementById('autoBPMode'), position = document.getElementById('autoBPPosition');
+  if (mode) mode.value = autoBPRules.mode || 'all';
+  if (position) position.value = autoBPRules.position || 'all';
   renderAutoBPHeroList();
+}
+function saveAutoBPRules() {
+  autoBPRules = {
+    mode: document.getElementById('autoBPMode')?.value || 'all',
+    position: document.getElementById('autoBPPosition')?.value || 'all'
+  };
+  storeSet('autoBPRules', JSON.stringify(autoBPRules));
+}
+function autoBPRuleMatches(rule, queueId, position) {
+  const value = rule || {};
+  const queue = Number(queueId) || 0;
+  const isAram = queue === 450 || queue === 2400;
+  if (value.mode === 'aram' && !isAram) return false;
+  if (value.mode === 'sr' && isAram) return false;
+  if (value.position && value.position !== 'all' && String(position || '').toUpperCase() !== value.position) return false;
+  return true;
 }
 function closeAutoBPModal() {
   document.getElementById('autoBPModal').classList.remove('show');
@@ -68,6 +88,12 @@ async function doAutoBP() {
     
     const mySlot = (session.myTeam || []).find(p => p.puuid === window._myPuuid);
     if (!mySlot) return;
+    let queueId = 0;
+    try {
+      const flow = await lolAPI.lcuRequest('GET', '/lol-gameflow/v1/session');
+      queueId = flow?.gameData?.queue?.id || flow?.gameData?.queueId || 0;
+    } catch (e) {}
+    if (!autoBPRuleMatches(autoBPRules, queueId, mySlot.assignedPosition || mySlot.position)) return;
     
     const allActions = session.actions.flat();
     const myActions = allActions.filter(a => a.actorCellId === mySlot.cellId && !a.completed);
