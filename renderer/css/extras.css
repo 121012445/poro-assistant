@@ -214,8 +214,20 @@
 .home-fun-card > span { min-width:0; }
 .home-fun-card small,.home-fun-card b,.home-fun-card em { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .home-fun-card small { color:var(--text-muted); font-size:8px; }
-.home-fun-card b { margin:2px 0; color:var(--text-primary); font-size:13px; }
+.home-fun-card b { margin:2px 0; color:var(--data-blue,var(--accent-deep)); font-size:13px; }
 .home-fun-card em { color:var(--text-secondary); font-size:8px; font-style:normal; }
+.home-fun-card:nth-child(6n + 1) > i { color:var(--data-teal,var(--positive)); background:color-mix(in srgb,var(--data-teal,var(--positive)) 13%,var(--bg-hover)); }
+.home-fun-card:nth-child(6n + 1) b { color:var(--data-teal,var(--positive)); }
+.home-fun-card:nth-child(6n + 2) > i { color:var(--data-blue,var(--accent)); background:color-mix(in srgb,var(--data-blue,var(--accent)) 13%,var(--bg-hover)); }
+.home-fun-card:nth-child(6n + 2) b { color:var(--data-blue,var(--accent)); }
+.home-fun-card:nth-child(6n + 3) > i { color:var(--data-violet,var(--accent)); background:color-mix(in srgb,var(--data-violet,var(--accent)) 13%,var(--bg-hover)); }
+.home-fun-card:nth-child(6n + 3) b { color:var(--data-violet,var(--accent)); }
+.home-fun-card:nth-child(6n + 4) > i { color:var(--data-gold,var(--warning)); background:color-mix(in srgb,var(--data-gold,var(--warning)) 13%,var(--bg-hover)); }
+.home-fun-card:nth-child(6n + 4) b { color:var(--data-gold,var(--warning)); }
+.home-fun-card:nth-child(6n + 5) > i { color:var(--data-rose,var(--negative)); background:color-mix(in srgb,var(--data-rose,var(--negative)) 12%,var(--bg-hover)); }
+.home-fun-card:nth-child(6n + 5) b { color:var(--data-rose,var(--negative)); }
+.home-fun-card:nth-child(6n + 6) > i { color:var(--accent2); background:color-mix(in srgb,var(--accent2) 13%,var(--bg-hover)); }
+.home-fun-card:nth-child(6n + 6) b { color:color-mix(in srgb,var(--accent2) 72%,var(--text-primary)); }
 .home-fun-card-wide { grid-column:span 2; }
 .home-fun-card-wide > span { width:100%; }
 .home-fun-card-wide b { display:-webkit-box; overflow:hidden; white-space:normal; text-overflow:clip; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }

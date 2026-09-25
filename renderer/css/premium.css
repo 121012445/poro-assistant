@@ -5,12 +5,18 @@
   --bg-card: #ffffff;
   --bg-hover: #edf4fb;
   --border: #dbe4ed;
-  --text-primary: #152438;
-  --text-secondary: #53677e;
+  --text-primary: #21384f;
+  --text-secondary: #5b7289;
   --text-muted: #8a9bad;
   --accent: #1677d2;
   --accent-deep: #0d5ca6;
   --accent2: #64c7ec;
+  --data-blue: #247db7;
+  --data-teal: #178d86;
+  --data-violet: #6f70b7;
+  --data-gold: #b77a2d;
+  --data-rose: #b85f72;
+  --heading-ink: #274761;
   --positive: #18a66a;
   --negative: #dc5a58;
   --warning: #d9902f;
@@ -130,7 +136,7 @@ body::before {
 .page { position: relative; animation: premiumEnter .28s cubic-bezier(.2,.7,.2,1); }
 @keyframes premiumEnter { from { opacity: 0; transform: translateY(6px) scale(.998); } to { opacity: 1; transform: none; } }
 .page-header { gap: 18px; margin-bottom: 21px; }
-.page-header h2 { position: relative; padding-left: 14px; color: #172a3e; font-size: 22px; font-weight: 760; letter-spacing: -.03em; }
+.page-header h2 { position: relative; padding-left: 14px; color: var(--heading-ink); font-size: 22px; font-weight: 760; letter-spacing: -.03em; }
 .page-header h2::before { content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 4px; border-radius: 999px; background: linear-gradient(#62c8ed, #1677d2); box-shadow: 0 2px 8px rgba(22,119,210,.24); }
 
 /* Unified transparent Poro action buttons. Window controls and in-game overlay cards keep
@@ -270,7 +276,7 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within, .search-inp
 }
 .home-header::before { content: ""; position: absolute; left: 0; top: 23px; bottom: 23px; width: 3px; border-radius: 0 4px 4px 0; background: linear-gradient(#5bc8ef,#1677d2); }
 .home-avatar img { width: 88px; height: 88px; border: 2px solid #fff; box-shadow: 0 0 0 4px rgba(22,119,210,.15), 0 12px 26px rgba(27,75,111,.17); }
-.home-name { color: #14283d; font-size: 24px; font-weight: 760; letter-spacing: -.025em; }
+.home-name { color: var(--heading-ink); font-size: 24px; font-weight: 760; letter-spacing: -.025em; }
 .home-server { margin-top: 4px; color: #71869a; }
 .mmr-chip { padding: 4px 10px; color: #3c5c77; background: rgba(237,246,252,.88); border-color: rgba(103,164,207,.24); border-radius: 8px; }
 .home-winrate-val { color: #12975e; font-size: 40px; font-weight: 780; letter-spacing: -.04em; }
@@ -283,13 +289,34 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within, .search-inp
 .home-stats { gap: 12px; }
 .stat-card { min-height: 118px; padding: 21px 12px; border-radius: 15px; background: linear-gradient(165deg, rgba(255,255,255,.95), rgba(244,248,251,.88)); }
 .stat-card::before { height: 2px; opacity: .55; background: linear-gradient(90deg, transparent, #4fc4ed, #1677d2, transparent); }
-.stat-card-val { color: #172a3f; font-size: 22px; font-weight: 730; letter-spacing: -.025em; }
+.stat-card-val { color: var(--data-blue); font-size: 22px; font-weight: 730; letter-spacing: -.025em; }
 .stat-card-label { color: #8597a9; }
 .stat-card:hover, .rank-card:hover { transform: translateY(-2px); border-color: rgba(70,155,214,.34); box-shadow: 0 14px 30px rgba(31,73,105,.11); }
 
+/* Data should feel informative, not like a wall of black text. Keep labels calm and
+   give high-value numbers a restrained semantic palette shared by every screen. */
+.home-stats .stat-card:nth-child(6n + 1) .stat-card-val { color: var(--data-teal); }
+.home-stats .stat-card:nth-child(6n + 2) .stat-card-val { color: var(--data-blue); }
+.home-stats .stat-card:nth-child(6n + 3) .stat-card-val { color: var(--data-violet); }
+.home-stats .stat-card:nth-child(6n + 4) .stat-card-val { color: var(--data-gold); }
+.home-stats .stat-card:nth-child(6n + 5) .stat-card-val { color: var(--data-rose); }
+.home-stats .stat-card:nth-child(6n + 6) .stat-card-val { color: #2b8ca1; }
+.pp-stat .v, .match-summary .ms-val, .champ-stat .value, .og-stat-val,
+.ako-big, .rk-kda-text, .lp-kda, .ri-kda, .gd-kda, .pr-val {
+  color: var(--data-blue);
+}
+.counter-result h3, .og-sum-name, .mmr-name, .home-champs h4,
+.home-friends h4, .home-mode-stats h4, .tool-card h3 {
+  color: var(--heading-ink);
+}
+.rank-card-record, .pp-stat .k, .match-summary .ms-label,
+.og-stat-label, .ako-label, .rk-kda-ratio {
+  color: var(--text-secondary);
+}
+
 .home-bottom { gap: 16px; }
 .home-champs, .home-friends, .home-mode-stats { padding: 19px; border-radius: 16px; }
-.home-champs h4, .home-friends h4, .home-mode-stats h4 { color: #1b3045; font-size: 15px; }
+.home-champs h4, .home-friends h4, .home-mode-stats h4 { color: var(--heading-ink); font-size: 15px; }
 .home-champ-row, .friend-row, .pp-champ, .pp-friend {
   background: rgba(242,247,251,.88);
   border: 1px solid rgba(202,215,226,.65);
@@ -301,7 +328,7 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within, .search-inp
 .tool-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; opacity: .0; background: linear-gradient(#58c5ec,#1677d2); transition: opacity .18s ease; }
 .tool-card:hover { transform: translateY(-2px); border-color: rgba(65,150,210,.30); box-shadow: 0 15px 30px rgba(31,73,105,.10); }
 .tool-card:hover::before { opacity: 1; }
-.tool-card h3 { color: #193a57; font-size: 15px; font-weight: 720; }
+.tool-card h3 { color: var(--heading-ink); font-size: 15px; font-weight: 720; }
 .tool-card p { color: #7a8da0; }
 .switch { width: 48px; height: 26px; }
 .switch .slider { background: #ccd8e2; box-shadow: inset 0 1px 3px rgba(31,61,86,.14); }
@@ -370,6 +397,12 @@ body.dark {
   --accent: #48aaf0;
   --accent-deep: #79c4f5;
   --accent2: #43c7e8;
+  --data-blue: #72c4f2;
+  --data-teal: #66d2c4;
+  --data-violet: #b3aff4;
+  --data-gold: #e5bc72;
+  --data-rose: #f09aae;
+  --heading-ink: #dcecf7;
   --positive: #38d28c;
   --negative: #ff7773;
   --surface-glass: rgba(24, 37, 52, .88);
@@ -511,6 +544,23 @@ body.dark .ak-loss .ak-result { color: #ff918d; }
 body.dark .ako-insight-healing { color:#7ce2d2; background:#173d3a; border-color:#285b55; }
 body.dark .ako-insight-low { color:#e1c08e; background:#3b3023; border-color:#5b4932; }
 body.dark .ako-insight-efficiency { color:#7de0a3; background:#193b2a; border-color:#2d5b40; }
+body.dark .pp-stat .v,
+body.dark .match-summary .ms-val,
+body.dark .champ-stat .value,
+body.dark .og-stat-val,
+body.dark .ako-big,
+body.dark .rk-kda-text,
+body.dark .lp-kda,
+body.dark .ri-kda,
+body.dark .gd-kda,
+body.dark .pr-val { color: var(--data-blue); }
+body.dark .home-champs h4,
+body.dark .home-friends h4,
+body.dark .home-mode-stats h4,
+body.dark .tool-card h3,
+body.dark .counter-result h3,
+body.dark .og-sum-name,
+body.dark .mmr-name { color: var(--heading-ink); }
 
 @media (max-width: 1180px) {
   body { grid-template-columns: 196px minmax(0,1fr); }
