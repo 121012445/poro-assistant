@@ -81,7 +81,7 @@ vm.runInContext(`hexAugMeta = {
   1329:{name:'史上最大雪球',icon:'snow',rarity:'棱彩',key:'BiggestSnowballEver'}
 };
 hexDB.champs['236'] = {g:8,w:4,aug:{1329:{g:8,w:4},1048:{g:1,w:1}}};
-hexWinStats = {championId:236,loading:false,error:'',requestId:1,data:{version:'16.18',augments:{
+hexWinStats = {championId:236,loading:false,error:'',requestId:1,data:{version:'16.18',baseline:0.4977,augments:{
   2095:{winRate:0.6164,games:81818,pickRate:0.0209,rank:1,lift:0.1187},
   1092:{winRate:0.5573,games:948100,pickRate:0.2422,rank:2,lift:0.0596},
   1048:{winRate:0.5529,games:525410,pickRate:0.1342,rank:3,lift:0.0552},
@@ -124,7 +124,8 @@ assert.ok(itemFit.reason.includes('适配已装备无尽之刃'));
 const overlaySource = fs.readFileSync('renderer/js/augment-overlay.js', 'utf8');
 const mainSource = fs.readFileSync('main/index.js', 'utf8');
 assert.ok(overlaySource.includes('item.reason') && overlaySource.includes('confidenceLevel'), '浮窗应展示推荐依据与可信度');
-assert.ok(mainSource.includes("reason: String(item?.reason") && mainSource.includes('recommendationScore:'), '主进程不得丢弃条件化推荐字段');
+assert.ok(overlaySource.includes('gainText') && overlaySource.includes('参考不足') && overlaySource.includes('修正 '), '浮窗应以相对收益为主，并保留修正胜率与低样本提示');
+assert.ok(mainSource.includes("reason: String(item?.reason") && mainSource.includes('recommendationScore:') && mainSource.includes('gainReliable:'), '主进程不得丢弃条件化推荐字段');
 
 context.__session = {
   localPlayerCellId: 3,
@@ -159,6 +160,7 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
   assert.strictEqual(scanOk, true, '完整识别三张卡后应成功推送浮窗');
   assert.ok(overlayPayload?.visible, '强化推荐浮窗应为可见');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(overlayPayload.items.map(x => x.name))), ['掷骰狂人', '易损', '珠光护手']);
+  assert.ok(overlayPayload.items.every(x => Number.isFinite(x.gain)), '可靠样本应携带相对英雄基准的正负收益');
 
   // 后两轮光效较强时，OCR 常连续出现“先识别两张、下一帧补齐第三张”。
   // 三个卡槽在短时间窗口内都确认后仍必须弹出推荐。

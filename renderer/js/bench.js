@@ -185,7 +185,39 @@ let _benchOverlayItems = [];         // 最近一次算出的可用英雄 [{id,n
 let _benchOverlayState = '';         // 推给浮窗的状态文案
 let _benchOverlayStateClass = '';    // positive | negative | accent | '' (与浮窗 CSS 类名一致)
 let _benchOverlayKey = '';           // 去重: 内容没变就不打 IPC (选人事件每秒数次)
+const _benchHexRateCache = new Map(); // championId -> {winRate,games}; 仅海克斯模式使用
+const _benchHexRatePending = new Set();
 const BENCH_OVERLAY_TITLE = '备战区';
+
+function _benchOverlayItemKey(it) {
+  const rate = Number.isFinite(Number(it?.winRate)) ? Number(it.winRate).toFixed(5) : '-';
+  return it.id + ':' + it.tag + ':' + rate;
+}
+
+async function _benchLoadHexWinRates(ids) {
+  if (!hexRecommendContext?.isHex || typeof lolAPI?.getHexChampionAugments !== 'function') return;
+  const targets = [...new Set((ids || []).map(Number).filter(id => id > 0))]
+    .filter(id => !_benchHexRateCache.has(id) && !_benchHexRatePending.has(id));
+  if (!targets.length) return;
+  targets.forEach(id => _benchHexRatePending.add(id));
+  await Promise.all(targets.map(async id => {
+    try {
+      const data = await lolAPI.getHexChampionAugments(id, hexDataScope);
+      const winRate = Number(data?.champion?.winRate ?? data?.baseline);
+      if (!data?.__error && Number.isFinite(winRate)) {
+        _benchHexRateCache.set(id, { winRate, games: Math.max(0, Number(data?.championGames) || 0) });
+      }
+    } catch (e) {
+      // 只是不显示胜率，不能影响英雄按钮和一键换取。
+    } finally {
+      _benchHexRatePending.delete(id);
+    }
+  }));
+  if (!hexRecommendContext?.isHex || !_benchLastSession) return;
+  _benchOverlayKey = '';
+  _benchSwapBtnsKey = '';
+  benchRenderSwapButtons();
+}
 
 // 浮窗只认得三个语义色类; text-muted 之类的主题变量名传过去会失效, 一律降级为空。
 function _benchOverlayColorToClass(colorKey) {
@@ -203,7 +235,7 @@ function _benchOverlaySync() {
   if (!window.lolAPI || !lolAPI.overlayUpdate) return;
   const visible = _benchOverlayVisible();
   const key = (visible ? '1' : '0') + '|' +
-    _benchOverlayItems.map(it => it.id + ':' + it.tag).join(',') + '|' +
+    _benchOverlayItems.map(_benchOverlayItemKey).join(',') + '|' +
     _benchOverlayState + '|' + _benchOverlayStateClass;
   if (key === _benchOverlayKey) return;
   _benchOverlayKey = key;
@@ -387,9 +419,11 @@ function benchRenderSwapButtons(session) {
   _benchOverlayItems = usable.map(it => ({
     id: it.id,
     name: (champNumMap?.[String(it.id)]?.name) || ('英雄#' + it.id),
-    tag: it.tag
+    tag: it.tag,
+    ...(hexRecommendContext?.isHex && _benchHexRateCache.has(it.id) ? _benchHexRateCache.get(it.id) : {})
   }));
   _benchOverlaySync();
+  if (hexRecommendContext?.isHex) _benchLoadHexWinRates(usable.map(it => it.id));
   // 被服务器门禁挡掉的数量要显式说出来: 否则万一门禁判错, 按钮会无声消失, 看起来像功能坏了。
   // 同时点名是哪个列表挡的、它有多大 —— 真机上如果这个数字异常小 (比如只有 1~2 项),
   // 一眼就能看出是「可选列表」语义和备战席/抽卡池对不上, 而不是功能没生效。
@@ -411,8 +445,10 @@ function benchRenderSwapButtons(session) {
   }
   box.innerHTML = usable.map(it => {
     const name = escapeHtml(champNumMap?.[String(it.id)]?.name || ('英雄#' + it.id));
+    const rate = hexRecommendContext?.isHex ? _benchHexRateCache.get(it.id) : null;
+    const rateText = Number.isFinite(rate?.winRate) ? ' · ' + (rate.winRate * 100).toFixed(1) + '%' : '';
     return '<button class="btn-secondary" onclick="benchSwapNow(' + it.id + ')">换到 ' + name +
-      ' <span class="bench-tag">' + it.tag + '</span></button>';
+      ' <span class="bench-tag">' + it.tag + rateText + '</span></button>';
   }).join('') + (blocked
     ? '<span class="tool-state">另有 ' + blocked + ' 个备选池英雄暂不可选' +
       (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'

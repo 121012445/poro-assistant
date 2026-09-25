@@ -549,6 +549,8 @@ setTimeout(async () => {
   assert.strictEqual(last34.items[0].name, '安妮', '浮窗按钮应带英雄名 (不能只给一个 id)');
   assert.strictEqual(last34.items[0].tag, '备战席', '浮窗按钮应标注英雄来源');
   assert.ok(last34.items.every(it => typeof it.id === 'number' && it.id > 0), '浮窗按钮必须带合法 championId');
+  assert.ok(source.includes('_benchLoadHexWinRates') && source.includes('getHexChampionAugments'), '海斗备战区应异步补充同模式英雄胜率');
+  assert.ok(read('renderer/js/overlay.js').includes('it.winRate'), '备战区浮窗应展示英雄胜率，同时保留原点击换取链路');
 
   // ---- 34b. 状态文案也要同步过去 (否则浮窗上点完看不到结果) ----
   overlayCalls = [];

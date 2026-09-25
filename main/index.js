@@ -441,7 +441,9 @@ ipcMain.handle('overlay:update', async (e, payload) => {
       .map(it => ({
         id: Number(it.id),
         name: String(it.name || ('英雄#' + it.id)).substring(0, 24),
-        tag: String(it.tag || '').substring(0, 8)
+        tag: String(it.tag || '').substring(0, 8),
+        winRate: it?.winRate != null && Number.isFinite(Number(it.winRate)) ? Number(it.winRate) : null,
+        games: Math.max(0, Number(it?.games) || 0)
       })),
     state: String(p.state || '').substring(0, 200),
     stateClass: String(p.stateClass || '').substring(0, 40)
@@ -735,6 +737,9 @@ ipcMain.handle('augment-overlay:update', async (e, payload) => {
       icon: String(item?.icon || '').startsWith('https://raw.communitydragon.org/') ? String(item.icon) : '',
       winRate: item?.winRate != null && Number.isFinite(Number(item.winRate)) ? Number(item.winRate) : null,
       recommendationScore: item?.recommendationScore != null && Number.isFinite(Number(item.recommendationScore)) ? Number(item.recommendationScore) : null,
+      baselineWinRate: item?.baselineWinRate != null && Number.isFinite(Number(item.baselineWinRate)) ? Number(item.baselineWinRate) : null,
+      gain: item?.gain != null && Number.isFinite(Number(item.gain)) ? Number(item.gain) : null,
+      gainReliable: item?.gainReliable === true,
       games: Math.max(0, Number(item?.games) || 0),
       confidenceLevel: ['high', 'medium', 'low'].includes(String(item?.confidenceLevel)) ? String(item.confidenceLevel) : 'low',
       confidenceLabel: String(item?.confidenceLabel || '').substring(0, 12),

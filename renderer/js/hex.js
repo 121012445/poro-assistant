@@ -301,6 +301,12 @@ async function updateHexRecommendationContext(session, force = false) {
     if (token === _hexContextToken) {
       hexRecommendContext.checkedAt = Date.now();
       hexRecommendContext.checking = false;
+      // 选人事件里的备战区按钮可能早于异步 gameflow 模式识别先渲染一帧。
+      // 模式确认后主动补刷，才能在首次进入海斗选人时也加载英雄胜率。
+      if (typeof benchRenderSwapButtons === 'function' && typeof _benchLastSession !== 'undefined' && _benchLastSession) {
+        _benchSwapBtnsKey = '';
+        benchRenderSwapButtons();
+      }
       if (document.querySelector('.page.active')?.id === 'page-hex') renderHexList();
     }
   }
@@ -571,6 +577,11 @@ async function scanCurrentAugmentOffers(manual = false) {
         stage,
         itemIds: liveState?.itemIds || []
       }, hexWinStats.data?.baseline);
+      const baseline = Number(hexWinStats.data?.baseline);
+      const hasStat = Number.isFinite(stat.winRate) || Number.isFinite(scored.comboAdjusted);
+      // “收益”统一相对当前英雄在该模式下的基准胜率计算。极小样本不展示一个看似
+      // 很精确的正负数字，避免把噪声包装成结论；排序仍使用收缩后的推荐分。
+      const gainReliable = hasStat && ((Number(stat.publicGames) || 0) >= 500 || (Number(combo?.games) || 0) >= 300);
       return {
         slot: offer.slot,
         name: offer.name,
@@ -583,6 +594,9 @@ async function scanCurrentAugmentOffers(manual = false) {
         comboWinRate: combo?.winRate ?? null,
         comboGames: combo?.games || 0,
         recommendationScore: scored.score,
+        baselineWinRate: Number.isFinite(baseline) ? baseline : null,
+        gain: gainReliable && Number.isFinite(scored.score) && Number.isFinite(baseline) ? scored.score - baseline : null,
+        gainReliable,
         confidenceLevel: scored.confidence.level,
         confidenceLabel: scored.confidence.label,
         reason: scored.reason,

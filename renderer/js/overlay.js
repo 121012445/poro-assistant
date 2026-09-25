@@ -26,7 +26,7 @@
     dotEl.className = 'dot' + (items.length ? ' on' : '');
 
     // 只在内容真的变了才重绘, 否则每帧重建 DOM 会让按钮闪
-    const key = items.map(it => it.id + ':' + it.tag).join(',') + '|' + state + '|' + stateClass;
+    const key = items.map(it => it.id + ':' + it.tag + ':' + (it.winRate == null ? '-' : Number(it.winRate).toFixed(5))).join(',') + '|' + state + '|' + stateClass;
     if (key === lastKey) return;
     lastKey = key;
 
@@ -40,6 +40,7 @@
     listEl.innerHTML = items.map(it =>
       '<button class="item" data-id="' + it.id + '">' +
         '<span class="name">' + esc(it.name) + '</span>' +
+        (it.winRate != null && Number.isFinite(Number(it.winRate)) ? '<span class="rate">' + (Number(it.winRate) * 100).toFixed(1) + '%</span>' : '') +
         (it.tag ? '<span class="tag' + (it.tag === '备选' ? ' subset' : '') + '">' + esc(it.tag) + '</span>' : '') +
       '</button>'
     ).join('');

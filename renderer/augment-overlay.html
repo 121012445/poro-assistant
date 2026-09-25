@@ -23,8 +23,13 @@
   .copy { min-width:0; }
   .name { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:700; }
   .copy small { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#9db1b7; font-size:9px; }
-  .meta { text-align:right; color:#aab8bd; font-size:10px; line-height:1.28; white-space:nowrap; }
-  .meta b { display:block; color:#f4d48a; font-size:12px; }
+  .meta { text-align:right; color:#aab8bd; font-size:9px; line-height:1.22; white-space:nowrap; }
+  .meta b { display:block; font-size:16px; letter-spacing:.01em; }
+  .meta b.positive { color:#58e6ad; text-shadow:0 0 12px rgba(51,225,164,.18); }
+  .meta b.negative { color:#ff7580; }
+  .meta b.neutral { color:#f4d48a; }
+  .meta b.unknown { color:#95a5aa; font-size:11px; }
+  .meta span { display:block; margin-top:1px; }
   .meta em { display:inline-block; margin-top:3px; padding:1px 5px; border-radius:5px; color:#b9c8cc; background:rgba(255,255,255,.08); font-size:9px; font-style:normal; }
   .meta em.high { color:#67e1c7; background:rgba(52,190,158,.14); }
   .meta em.medium { color:#f4d48a; background:rgba(224,176,78,.13); }
