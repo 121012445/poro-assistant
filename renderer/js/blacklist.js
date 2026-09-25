@@ -64,9 +64,13 @@ function renderBlacklistPage() {
     ...Object.keys(typeof encounterMap === 'object' && encounterMap ? encounterMap : {})
   ]);
   const memories = [...ids].map(puuid => ({ puuid, ...getPlayerMemory(puuid) }))
-    .filter(item => item.marks.length || item.note || item.encounterCount)
+    // 自动遭遇但尚未解析到姓名的旧记录不再伪装成几百个“未知玩家”；
+    // 手工标签/备注始终保留并展示，名称补全后自动恢复自动档案。
+    .filter(item => item.marks.length || item.note || (item.encounterCount && isKnownPlayerName(item.name)))
     .sort((a, b) => Math.max(b.updatedAt, b.lastSeen) - Math.max(a.updatedAt, a.lastSeen));
-  if (!blacklist.length && !memories.length) {
+  const unresolvedCount = Object.values(typeof encounterMap === 'object' && encounterMap ? encounterMap : {})
+    .filter(item => !isKnownPlayerName(item?.name)).length;
+  if (!blacklist.length && !memories.length && !unresolvedCount) {
     el.innerHTML = '<div class="bl-empty">还没有玩家档案。可在实时对局中点击玩家名旁的 📌 添加标签或备注。</div>';
     return;
   }
@@ -84,7 +88,8 @@ function renderBlacklistPage() {
       <button class="bl-item-remove" onclick="removeBlacklist(${i})">移出</button>
     </div>`;
   }).join('');
-  el.innerHTML = `${memories.length ? `<h3 class="pm-section-title">玩家档案 <span>${memories.length}</span></h3>${memoryHtml}` : ''}${blacklist.length ? `<h3 class="pm-section-title danger">黑名单 <span>${blacklist.length}</span></h3>${blacklistHtml}` : ''}`;
+  el.innerHTML = `${unresolvedCount ? `<div class="pm-repair-note">正在后台补全 ${unresolvedCount} 条旧遭遇记录的玩家名称；补全前不会显示为“未知玩家”。</div>` : ''}${memories.length ? `<h3 class="pm-section-title">玩家档案 <span>${memories.length}</span></h3>${memoryHtml}` : ''}${blacklist.length ? `<h3 class="pm-section-title danger">黑名单 <span>${blacklist.length}</span></h3>${blacklistHtml}` : ''}`;
+  if (unresolvedCount) setTimeout(() => hydrateEncounterNames(), 0);
 }
 
 

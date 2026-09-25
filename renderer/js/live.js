@@ -234,7 +234,12 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   window.poroSession?.setGame(session?.gameData?.gameId || '', rosterKey);
   const sessionToken = window.poroSession?.token();
   const staleSession = () => renderToken !== liveRenderToken || (sessionToken && !window.poroSession?.isCurrent(sessionToken));
-  _currentGameKey = session?.gameData?.gameId ? `g:${key}` : `p:${rosterKey.slice(0, 240)}`;
+  // 遭遇统计键不能包含英雄或名字：英雄锁定、姓名补全、阶段切换都会刷新 rosterKey，
+  // 若用它计数，同一局会被误算多次。gameId 缺失时仅退到稳定的 puuid 集合。
+  const encounterRoster = players.map(p => p.puuid).filter(Boolean).sort().join(',');
+  _currentGameKey = session?.gameData?.gameId
+    ? `g:${session.gameData.gameId}`
+    : `p:${encounterRoster.slice(0, 240)}`;
   // 诊断: 数据源路径 + 各边人数
   const blueN = players.filter(p => p.team === 100 || p.team === '100').length;
   const redN = players.filter(p => p.team === 200 || p.team === '200').length;
@@ -518,17 +523,14 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   let selfPuuid = null;
   try { const st = await lolAPI.lcuStatus(); selfPuuid = st.summoner?.puuid; } catch(e) {}
   if (expectedToken != null && expectedToken !== liveRenderToken) return;
-  // 遭遇计数: 按对局唯一 key 去重 (gameId 优先), 排除自己 (自己不能"遇过"自己)。
-  // 旧实现用"玩家集合"做 key, 同一局内 puuid/name 分批解析到位会生成不同 key, 导致同局重复计数虚高
-  if (_encounterTrackedFor !== _currentGameKey) {
-    _encounterTrackedFor = _currentGameKey;
-    const seen = new Set();
-    for (const p of data) {
-      if (!p.puuid || !p.name || seen.has(p.puuid)) continue;
-      if (selfPuuid && p.puuid === selfPuuid) continue;
-      seen.add(p.puuid);
-      addEncounter(p.puuid, p.name);
-    }
+  // 每次姓名补全后都允许重试；addEncounter 内部按 gameKey 持久去重，既不会漏记
+  // 首次为空、稍后才解析出的姓名，也不会因实时页重复刷新而虚增次数。
+  const seen = new Set();
+  for (const p of data) {
+    if (!p.puuid || !isKnownPlayerName(p.name) || seen.has(p.puuid)) continue;
+    if (selfPuuid && p.puuid === selfPuuid) continue;
+    seen.add(p.puuid);
+    addEncounter(p.puuid, p.name, _currentGameKey);
   }
   const playerRow = p => {
     const c = champOfLive(p.championId);

@@ -70,7 +70,7 @@ function saveConfig() {
     storeSet('autoBPRules', JSON.stringify(autoBPRules));
     storeSet('autoRune', autoRuneEnabled ? '1' : '');
     storeSet('blacklist', JSON.stringify(blacklist));
-    storeSet('encounters', JSON.stringify(encounterMap));
+    saveEncounters();
     storeSet('playerMarks', JSON.stringify(playerMarks));
   } catch (e) {}
 }
@@ -98,11 +98,7 @@ function loadConfig() {
     }
     const bl = storeGet('blacklist');
     if (bl) blacklist = JSON.parse(bl);
-    const enc = storeGet('encounters');
-    if (enc) {
-      const parsedEncounters = JSON.parse(enc);
-      Object.assign(encounterMap, parsedEncounters?.map || parsedEncounters || {});
-    }
+    // 遭遇记录由 loadEncounters 统一迁移和校验，避免这里先按旧格式重复载入。
     const pm = storeGet('playerMarks');
     if (pm) {
       const parsedMarks = JSON.parse(pm);

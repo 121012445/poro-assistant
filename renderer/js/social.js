@@ -114,10 +114,19 @@ let playerMarks = {};
 const PLAYER_MEMORY_COLORS = ['#35b7a6', '#4b8fe2', '#8d6bd1', '#e2a43b', '#dc6672', '#7b8b9b'];
 const PLAYER_MEMORY_TAGS = ['配合良好', '实力稳定', '需要观察', '消极记录', '绝活玩家', '疑似补位'];
 
+function isKnownPlayerName(name) {
+  const value = String(name || '').trim();
+  if (!value) return false;
+  return !/^(未知|未知玩家|unknown|player|\?|-)$/i.test(value) && !hasBrokenText(value);
+}
+
 function normalizePlayerMemory(entry, name) {
   const value = entry && typeof entry === 'object' ? entry : {};
+  const resolvedName = isKnownPlayerName(name)
+    ? String(name).trim()
+    : (isKnownPlayerName(value.name) ? String(value.name).trim() : '未知玩家');
   return {
-    name: String(name || value.name || '未知玩家'),
+    name: resolvedName,
     marks: Array.isArray(value.marks) ? [...new Set(value.marks.map(String).filter(Boolean))] : [],
     note: String(value.note || ''),
     color: PLAYER_MEMORY_COLORS.includes(value.color) ? value.color : PLAYER_MEMORY_COLORS[0],
@@ -126,8 +135,8 @@ function normalizePlayerMemory(entry, name) {
 }
 
 function getPlayerMemory(puuid, name) {
-  const memory = normalizePlayerMemory(playerMarks[puuid], name);
   const encounter = encounterMap[puuid] || {};
+  const memory = normalizePlayerMemory(playerMarks[puuid], name || encounter.name);
   return { ...memory, encounterCount: Number(encounter.count) || 0, lastSeen: Number(encounter.lastTime) || 0 };
 }
 
@@ -157,13 +166,53 @@ function getPlayerMarks(puuid) {
 
 // ========== 对局历史遭遇标记 ==========
 let encounterMap = {};
-let _encounterTrackedFor = '';
 let _currentGameKey = '';
-function addEncounter(puuid, name) {
-  if (!puuid || !name) return;
-  if (!encounterMap[puuid]) encounterMap[puuid] = { name, count: 0, lastTime: 0 };
-  encounterMap[puuid].count++;
-  encounterMap[puuid].lastTime = Date.now();
+function normalizeEncounterEntry(entry, migrateLegacyCount = false) {
+  const value = entry && typeof entry === 'object' ? entry : {};
+  const knownName = isKnownPlayerName(value.name) ? String(value.name).trim() : '';
+  const oldCount = Math.max(0, Number(value.count) || 0);
+  return {
+    name: knownName,
+    // v1-v3 可能因阵容/阶段刷新把同一局累计很多次，旧数值不可还原；只保留
+    // “曾遇见过”的事实。v4 起由 seenGames 精确累计。
+    count: migrateLegacyCount ? (knownName && oldCount ? 1 : 0) : oldCount,
+    lastTime: Math.max(0, Number(value.lastTime) || 0),
+    seenGames: Array.isArray(value.seenGames) ? [...new Set(value.seenGames.map(String).filter(Boolean))].slice(-80) : []
+  };
+}
+function setEncounterName(puuid, name) {
+  if (!puuid || !isKnownPlayerName(name)) return false;
+  const entry = normalizeEncounterEntry(encounterMap[puuid]);
+  const cleanName = String(name).trim();
+  const changed = entry.name !== cleanName;
+  entry.name = cleanName;
+  encounterMap[puuid] = entry;
+  if (playerMarks[puuid] && !isKnownPlayerName(playerMarks[puuid].name)) {
+    playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], cleanName);
+    savePlayerMemory();
+  }
+  return changed;
+}
+function addEncounter(puuid, name, gameKey = _currentGameKey) {
+  if (!puuid || !isKnownPlayerName(name) || !gameKey) return false;
+  const entry = normalizeEncounterEntry(encounterMap[puuid]);
+  const nameChanged = !entry.name || entry.name !== String(name).trim();
+  entry.name = String(name).trim();
+  const key = String(gameKey);
+  const isNewGame = !entry.seenGames.includes(key);
+  if (isNewGame) {
+    entry.count++;
+    entry.seenGames.push(key);
+    if (entry.seenGames.length > 80) entry.seenGames.splice(0, entry.seenGames.length - 80);
+  }
+  entry.lastTime = Date.now();
+  encounterMap[puuid] = entry;
+  if (playerMarks[puuid] && !isKnownPlayerName(playerMarks[puuid].name)) {
+    playerMarks[puuid] = normalizePlayerMemory(playerMarks[puuid], entry.name);
+    savePlayerMemory();
+  }
+  if (isNewGame || nameChanged) saveEncounters();
+  return isNewGame || nameChanged;
 }
 
 // 遭遇次数(详情页用): 直接从已加载的战绩样本 (近100场) 统计同场次数, 精确且排除档案主人自身。
@@ -180,24 +229,54 @@ function sampleEncounterCount(puuid, ownerPuuid) {
 
 
 // ========== 历史遭遇持久化 ==========
-// v2: 修复同局重复计数后的格式升级; 旧格式数据已虚增污染, 直接作废重新累计
-const ENCOUNTERS_VER = 2;
+// v4: 每名玩家保存近期对局 key，页面重复刷新不会再次累计；旧版次数已经被动态
+// roster key 污染，迁移时折算为“至少遇见 1 次”，之后从可信基线准确累计。
+const ENCOUNTERS_VER = 4;
 function loadEncounters() {
   try {
     const data = storeGet('encounters');
     if (!data) return;
     const parsed = JSON.parse(data);
-    if (parsed && parsed.__v === ENCOUNTERS_VER && parsed.map) Object.assign(encounterMap, parsed.map);
+    const source = parsed?.map || parsed || {};
+    const migrateLegacyCount = parsed?.__v !== ENCOUNTERS_VER;
+    encounterMap = Object.fromEntries(Object.entries(source)
+      .filter(([puuid, value]) => puuid && value && typeof value === 'object')
+      .map(([puuid, value]) => [puuid, normalizeEncounterEntry(value, migrateLegacyCount)]));
+    saveEncounters();
   } catch (e) {}
 }
 function saveEncounters() {
   try { storeSet('encounters', JSON.stringify({ __v: ENCOUNTERS_VER, map: encounterMap })); } catch (e) {}
 }
-const _origAddEncounter = addEncounter;
-addEncounter = function(puuid, name) {
-  _origAddEncounter(puuid, name);
-  saveEncounters();
-};
+
+let _encounterHydrateBusy = false;
+const _encounterHydrateTried = new Set();
+async function hydrateEncounterNames(limit = 24) {
+  if (_encounterHydrateBusy || typeof resolveSummonerByPuuid !== 'function') return;
+  const pending = Object.entries(encounterMap)
+    .filter(([puuid, entry]) => puuid && !isKnownPlayerName(entry?.name) && !_encounterHydrateTried.has(puuid))
+    .sort((a, b) => Number(b[1]?.lastTime || 0) - Number(a[1]?.lastTime || 0))
+    .slice(0, limit);
+  if (!pending.length) return;
+  _encounterHydrateBusy = true;
+  let changed = false;
+  try {
+    await mapWithConcurrency(pending, 4, async ([puuid]) => {
+      _encounterHydrateTried.add(puuid);
+      try {
+        const summoner = await resolveSummonerByPuuid(puuid);
+        const name = summoner?.gameName || summoner?.displayName || summoner?.name || '';
+        if (setEncounterName(puuid, name)) changed = true;
+      } catch (e) {}
+    });
+    if (changed) {
+      saveEncounters();
+      if (document.getElementById('page-blacklist')?.classList.contains('active')) renderBlacklistPage();
+    }
+  } finally {
+    _encounterHydrateBusy = false;
+  }
+}
 
 // ========== 玩家标记 UI ==========
 function showMarkModal(puuid, name) {
