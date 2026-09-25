@@ -8,7 +8,7 @@ vm.runInContext(fs.readFileSync('renderer/js/utils.js', 'utf8'), context);
 
 const steady = context.deriveRiskProfile(Array.from({ length: 10 }, (_, i) => ({ win: i < 7, k: 8, d: 3, a: 9 })));
 assert.equal(steady.level, 'steady');
-assert.equal(steady.confidence, 100);
+assert.ok(steady.confidence >= 50 && steady.confidence <= 95, '画像置信度应综合样本、一致性和阈值距离，不能取满 10 场就固定 100%');
 assert.ok(steady.evidence.some(x => x.includes('7胜3负')));
 
 const risky = context.deriveRiskProfile(Array.from({ length: 8 }, (_, i) => ({ win: i === 0, k: 2, d: 10, a: 3 })));

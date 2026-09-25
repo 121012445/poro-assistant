@@ -171,10 +171,31 @@ function deriveRiskProfile(recent) {
   const winRate = Math.round(wins / games.length * 100);
   const kda = (kills + assists) / Math.max(1, deaths);
   const avgDeaths = deaths / games.length;
-  const confidence = Math.min(100, Math.round(games.length / 10 * 100));
   const evidence = [`近 ${games.length} 场 ${wins}胜${games.length - wins}负`, `KDA ${kda.toFixed(1)} · 场均死亡 ${avgDeaths.toFixed(1)}`];
-  if (games.length < 4) return { level: 'unknown', label: '样本较少', confidence, evidence };
-  if (winRate >= 60 && kda >= 3.2) return { level: 'steady', label: '近期稳定', confidence, evidence };
-  if (avgDeaths >= 8 || (winRate <= 35 && kda < 1.8)) return { level: 'watch', label: '需要观察', confidence, evidence };
-  return { level: 'normal', label: '状态一般', confidence, evidence };
+  if (games.length < 4) return { level: 'unknown', label: '样本较少', confidence: 15 + games.length * 10, evidence };
+
+  let level = 'normal';
+  let label = '状态一般';
+  if (winRate >= 60 && kda >= 3.2) { level = 'steady'; label = '近期稳定'; }
+  else if (avgDeaths >= 8 || (winRate <= 35 && kda < 1.8)) { level = 'watch'; label = '需要观察'; }
+
+  // 置信度不再等同于“是否拿满 10 场”。它同时考虑：
+  // 1) 最多 20 场的样本覆盖；2) 各局 KDA 是否一致；3) 指标离画像阈值有多远。
+  // 因为这仍是近期行为提示而非概率模型，最高封顶 95%，避免制造“100%确定”的错觉。
+  const perGameKda = games.map(g => (Math.max(0, +g.k || 0) + Math.max(0, +g.a || 0)) / Math.max(1, Math.max(0, +g.d || 0)));
+  const mean = perGameKda.reduce((sum, value) => sum + value, 0) / perGameKda.length;
+  const deviation = Math.sqrt(perGameKda.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / perGameKda.length);
+  const consistency = 1 - Math.min(1, deviation / Math.max(1, mean));
+  const clamp01 = value => Math.max(0, Math.min(1, value));
+  let decisiveness = 0.25;
+  if (level === 'steady') {
+    decisiveness = (clamp01((winRate - 55) / 25) + clamp01((kda - 2.7) / 2.5)) / 2;
+  } else if (level === 'watch') {
+    const deathSignal = clamp01((avgDeaths - 6.5) / 4.5);
+    const weakSignal = clamp01((40 - winRate) / 25) * 0.55 + clamp01((2.2 - kda) / 1.8) * 0.45;
+    decisiveness = Math.max(deathSignal, weakSignal);
+  }
+  const sampleScore = 35 + Math.min(1, games.length / 20) * 40;
+  const confidence = Math.min(95, Math.round(sampleScore + consistency * 8 + decisiveness * 12));
+  return { level, label, confidence, evidence };
 }

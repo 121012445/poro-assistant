@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const fs = require('fs');
+const vm = require('vm');
 
 const home = fs.readFileSync('renderer/js/home.js', 'utf8');
 const live = fs.readFileSync('renderer/js/live.js', 'utf8');
@@ -25,5 +26,17 @@ assert(main.includes('setZoomFactor(metrics.scale)'), '强化悬浮层内容应�
 assert(diagnostics.includes('augmentOverlayStatus()'), '诊断中心应检查强化悬浮层');
 assert(css.includes('.home-coach'), '持续提升中心应有独立样式');
 assert(css.includes('.rv-auto-review'), '自动复盘应有独立样式');
+
+const utilContext = vm.createContext({ console, Math, Number, Array, Set, Map, String, Object });
+vm.runInContext(fs.readFileSync('renderer/js/utils.js', 'utf8'), utilContext, { filename: 'utils.js' });
+const tenSteady = Array.from({ length: 10 }, (_, index) => ({ win: index < 6, k: 8 + index % 3, d: 4 + index % 2, a: 9 }));
+const tenWatch = Array.from({ length: 10 }, (_, index) => ({ win: index < 3, k: 3, d: 8 + index % 4, a: 5 }));
+utilContext.__steady = tenSteady;
+utilContext.__watch = tenWatch;
+const steadyProfile = vm.runInContext('deriveRiskProfile(__steady)', utilContext);
+const watchProfile = vm.runInContext('deriveRiskProfile(__watch)', utilContext);
+assert.ok(steadyProfile.confidence < 100 && watchProfile.confidence < 100, '取满 10 场不能再机械显示 100% 置信度');
+assert.notStrictEqual(steadyProfile.confidence, watchProfile.confidence, '画像置信度应随表现一致性和阈值距离变化');
+assert.ok(steadyProfile.confidence >= 50 && watchProfile.confidence >= 50, '完整 10 场仍应提供中等以上可信度');
 
 console.log('产品教练与悬浮层自适应测试通过');
