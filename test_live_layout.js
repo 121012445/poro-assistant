@@ -26,5 +26,8 @@ assert.ok(!/grid-template-columns:\s*repeat\([1234],/.test(css.slice(css.indexOf
 assert.ok(live.includes('list.length !== 10'), '加载页队伍兜底只能处理完整 10 人，不能误分不完整阵容');
 assert.ok(live.includes('index < 5 ? 100 : 200'), '国服加载页缺少 team 字段时应按原始 5/5 顺序分队');
 assert.ok(live.includes("phase !== 'ChampSelect'"), '选人阶段必须保留客户端提供的队伍数据，不应用加载页兜底');
+assert.ok(live.includes('player.premadeTeamGames || []'), '阵容缓存刷新必须保留共同对局历史，不能清掉组队徽标');
+assert.ok(live.includes('livePlayersCache.premadeGroups = finalGroups'), '后台推断完成后必须缓存组队分组');
+assert.ok(live.includes('const cachedInferred = inferPremadeGroups'), '命中阵容缓存时必须重新推断组队关系');
 
 console.log('实时对局大卡片布局测试通过');

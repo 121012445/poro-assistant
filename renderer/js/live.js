@@ -5,7 +5,7 @@
 // ========== 实时对局 (Live Client Data + 倒计时) ==========
 const TIMER_DEFS = { BARON_NASHOR: ["大龙Buff", 180], ELDER_DRAGON: ["远古龙Buff", 150], DRAGON: ["下一条小龙", 300] };
 // 加载页/选人页: 从 gameflow session 拉取10名玩家的段位+最近战绩 (LeaguePrank/Seraphine 风格)
-const livePlayersCache = { key: "", data: null };
+const livePlayersCache = { key: "", data: null, premadeGroups: null };
 // 选人阶段缓存的玩家列表 (加载页面/游戏开始时复用)
 let champSelectParticipants = null;
 let liveRenderToken = 0;
@@ -286,7 +286,14 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
 
   // 缓存命中: 只有从 Live Client Data 拿到完整双方(≥5人)才复用, 避免第一次 session 数据不完整导致后续永远错误
   if (livePlayersCache.key === key && livePlayersCache.data && livePlayers && livePlayers.length >= 5) {
-    await renderLiveTeams(body, livePlayersCache.data, premadeGroups, renderToken);
+    // 定时刷新命中阵容缓存时也必须重建共同历史分组。旧实现只带 challengeId
+    // 临时结果重绘，导致后台刚显示的“组1/组2”在下一轮刷新时立刻消失。
+    const cachedProfiles = livePlayersCache.data.map(player => ({ teamGames: player.premadeTeamGames || [] }));
+    const cachedInferred = inferPremadeGroups(livePlayersCache.data, cachedProfiles, 3);
+    const cachedGroups = Object.keys(cachedInferred).length
+      ? cachedInferred
+      : (livePlayersCache.premadeGroups || premadeGroups);
+    await renderLiveTeams(body, livePlayersCache.data, cachedGroups, renderToken);
     return;
   }
 
@@ -327,6 +334,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   if (livePlayers && livePlayers.length >= 5) {
     livePlayersCache.key = key;
     livePlayersCache.data = fullData;
+    livePlayersCache.premadeGroups = premadeGroups;
   }
 
   const sgpLoad = mapWithConcurrency(fullData, 4, async (p, idx) => {
@@ -341,6 +349,9 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       if (profile.recent.length) {
         p.recent = profile.recent;
       }
+      // 与近期摘要一起留在阵容缓存中；即使本轮渲染令牌被下一次轮询取代，
+      // 下一帧也能从已完成的共同历史继续推断，不必等十个人重新请求完。
+      p.premadeTeamGames = Array.isArray(profile.teamGames) ? profile.teamGames : [];
       p.flashPreference = profile.flashPreference || null;
       if (!staleSession()) updateLivePlayerRow(p, idx);  // 旧对局/旧账号的异步结果不得污染新阵容
       return profile;
@@ -348,9 +359,10 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   });
   // 后台执行, 不阻塞骨架；战绩分批填充，全部到齐后按共同历史推断开黑组并刷新徽标。
   sgpLoad.then(async profiles => {
-    if (staleSession()) return;
     const inferred = inferPremadeGroups(fullData, profiles.filter(Boolean), 3);
     const finalGroups = Object.keys(inferred).length ? inferred : premadeGroups;
+    if (livePlayersCache.key === key) livePlayersCache.premadeGroups = finalGroups;
+    if (staleSession()) return;
     await renderLiveTeams(body, fullData, finalGroups, renderToken);
     if (!staleSession()) await announceInferredPremades(fullData, inferred);
   }).catch(() => {});
@@ -581,6 +593,7 @@ async function updateLivePage(phase) {
     champSelectParticipants = null;
     livePlayersCache.key = '';
     livePlayersCache.data = null;
+    livePlayersCache.premadeGroups = null;
     liveRenderToken++;
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
     return;

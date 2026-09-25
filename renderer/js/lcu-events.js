@@ -111,6 +111,7 @@ function handleGameflowPhase(phase) {
       champSelectParticipants = null;
       livePlayersCache.key = '';
       livePlayersCache.data = null;
+      livePlayersCache.premadeGroups = null;
       liveRenderToken++;
     }
     if (gsAppliedPhase) {
