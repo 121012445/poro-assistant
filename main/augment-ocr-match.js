@@ -17,6 +17,36 @@ function editDistance(a, b) {
   return previous[right.length];
 }
 
+// 少数两字强化标题在金色/棱彩光效下会被 Windows OCR 完全漏掉，但说明文字
+// 仍然清晰。这里只收录含义唯一、不会出现在其它强化说明里的短语；它们用于确认
+// 候选名称，不参与模糊猜测。这样可区分图标轮廓非常接近的“溢流/活力再生”。
+const DESCRIPTION_HINTS = Object.freeze({
+  '溢流': ['法力消耗翻倍']
+});
+
+function descriptionHintMatches(normalized, candidates) {
+  if (!normalized) return [];
+  const matches = [];
+  const seen = new Set();
+  for (const row of (Array.isArray(candidates) ? candidates : [])) {
+    const name = String(row?.name || '').trim();
+    if (!name || seen.has(name)) continue;
+    const hints = DESCRIPTION_HINTS[name] || [];
+    if (!hints.some(hint => normalized.includes(normalizeOcrText(hint)))) continue;
+    seen.add(name);
+    matches.push({
+      index: Math.min(...hints.map(hint => normalized.indexOf(normalizeOcrText(hint))).filter(index => index >= 0)),
+      end: normalized.length,
+      length: normalizeOcrText(name).length,
+      id: Number(row.id) || 0,
+      name,
+      icon: String(row.icon || ''),
+      confirmedBy: 'description-hint'
+    });
+  }
+  return matches.sort((a, b) => a.index - b.index);
+}
+
 // Windows OCR 偶尔会把标题中的一个字识成形近字（治疗→治疔），或漏掉一个字。
 // 标题位于每张独立裁剪的开头，因此只在开头很短的窗口内做保守纠错；2 字名称
 // 不做模糊猜测，避免“大力/火狐/圣火”之类互相误判，交给唯一图标连续确认。
@@ -87,8 +117,10 @@ function matchAugmentNames(text, candidates, limit = 3) {
   }
   const exact = selected.sort((a, b) => a.index - b.index).slice(0, Math.max(0, Number(limit) || 0));
   if (exact.length) return exact;
+  const hinted = descriptionHintMatches(normalized, candidates).slice(0, Math.max(0, Number(limit) || 0));
+  if (hinted.length) return hinted;
   const fuzzy = fuzzyTitleMatch(normalized, candidates);
   return fuzzy ? [Object.assign({ index: 0, end: fuzzy.length }, fuzzy)] : [];
 }
 
-module.exports = { normalizeOcrText, editDistance, fuzzyTitleMatch, matchAugmentNames };
+module.exports = { DESCRIPTION_HINTS, normalizeOcrText, editDistance, descriptionHintMatches, fuzzyTitleMatch, matchAugmentNames };

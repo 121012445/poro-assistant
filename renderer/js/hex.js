@@ -1055,6 +1055,9 @@ async function searchPlayerByName(name) {
 // 点击玩家 → 首页档案页显示该玩家 (右上角"回到我的"返回)
 async function searchPlayerByPuuid(puuid, name, summoner) {
   if (!puuid) return;
+  // 必须在替换旧档案为“查询中”之前保存滚动位置，否则页面高度收缩会先把
+  // 外层滚动条夹回顶部，等新档案渲染完成时已经无法恢复。
+  preserveHomeScroll(puuid);
   // 先同步设置目标: 消除 await 期间的竞态窗口 (轮询此时插入读到的也是正确目标, 不会闪回自己)
   profileOverride = { puuid, name: name || '', summoner: summoner || null };
   const selfPuuid = window._myPuuid || cachedSummoner?.puuid || null;

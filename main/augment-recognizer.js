@@ -10,6 +10,14 @@ const MAX_ICON_BYTES = 512 * 1024;
 // 完全没有视觉模板，恰好在短标题 OCR 漏读时造成整轮推荐无法凑齐三张。
 const MAX_CANDIDATES = 700;
 const MIN_SCORE = 0.28;
+const SAFE_VISUAL_SCORE = 0.82;
+const SAFE_VISUAL_MARGIN = 0.06;
+
+function isSafeVisualMatch(offer, iconUnique) {
+  return !!iconUnique
+    && Number(offer?.score) >= SAFE_VISUAL_SCORE
+    && Number(offer?.margin) >= SAFE_VISUAL_MARGIN;
+}
 
 function createRecognizer(nativeImage, userDataPath, logger) {
   const cacheFile = path.join(userDataPath, 'augment-icon-descriptors.json');
@@ -154,4 +162,11 @@ function createRecognizer(nativeImage, userDataPath, logger) {
   return { recognize, cacheSize: () => cache.size };
 }
 
-module.exports = { createRecognizer, MIN_SCORE, MAX_CANDIDATES };
+module.exports = {
+  createRecognizer,
+  isSafeVisualMatch,
+  MIN_SCORE,
+  MAX_CANDIDATES,
+  SAFE_VISUAL_SCORE,
+  SAFE_VISUAL_MARGIN
+};

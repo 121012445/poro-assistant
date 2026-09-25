@@ -122,7 +122,10 @@ body::before {
 .main-content {
   height: calc(100vh - 44px);
   padding: 26px 30px 34px;
-  scroll-behavior: smooth;
+  /* 首页档案会异步整页替换。平滑滚动与 Chromium 滚动锚定叠加时会把新玩家
+     自动带到旧页面相同高度（通常是模式统计区域）。程序性定位必须即时且确定。 */
+  scroll-behavior: auto;
+  overflow-anchor: none;
 }
 .page { position: relative; animation: premiumEnter .28s cubic-bezier(.2,.7,.2,1); }
 @keyframes premiumEnter { from { opacity: 0; transform: translateY(6px) scale(.998); } to { opacity: 1; transform: none; } }

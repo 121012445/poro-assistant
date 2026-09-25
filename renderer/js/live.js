@@ -185,6 +185,16 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
     return 0;
   };
 
+  const applyLoadingTeamFallback = (list) => {
+    if (!Array.isArray(list) || list.length !== 10) return list;
+    const known = list.filter(p => p.team === 100 || p.team === 200).length;
+    if (known) return list;
+    // 国服加载页的 gameflow participants 真实返回 10 人，但每项只有
+    // championId/puuid/skin/spells，没有 team/teamId。该数组仍按双方各 5 人排列；
+    // 若不兜底，10 人会全部掉进“队伍识别中”，蓝红两栏就显示 0 人。
+    return list.map((p, index) => ({ ...p, team: index < 5 ? 100 : 200 }));
+  };
+
   let players;
   if (livePlayers && livePlayers.length) {
     // 对局中: 直接用 Live Client Data 构建 10 人 (含对手/BOT, 字段完整)
@@ -217,6 +227,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       challengeId: p.challengeId ?? 0
     }));
   }
+  if (phase !== 'ChampSelect') players = applyLoadingTeamFallback(players);
   // 缓存键同时包含当前阵容；即使 gameflow 暂时沿用旧 gameId，也不会命中上一局数据。
   const rosterKey = players.map(p => `${p.puuid || p.name || '?'}@${p.championId || 0}`).sort().join('|');
   key = `${session?.gameData?.gameId || phase}:${rosterKey}`;

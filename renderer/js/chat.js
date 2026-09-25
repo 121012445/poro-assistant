@@ -5,6 +5,147 @@
 // ========== 对局内聊天 (参考 LeagueAkari: 先从 conversations 识别对局会话, 再向会话发消息) ==========
 let _gameChatCid = null;
 let _champSelectChatCid = null;   // 选人阶段聊天房间 (上等马通道: 同一房间贯穿选人与对局)
+let _champSelectSideAnnouncedFor = '';
+let _champSelectSideAnnounceBusy = false;
+let _champSelectSideLastAttempt = 0;
+
+// lol-chat 会先把 POST 的内容乐观插入界面，再由聊天服务同步确认。只发送 body/type
+// 时部分客户端会显示一瞬间后删除；使用完整 ChatMessage 信封与客户端自身的发送格式一致。
+function buildLcuChatMessage(conversationId, body, chatSelf, type = 'chat') {
+  const summonerId = Number(chatSelf?.summonerId || 0);
+  return {
+    body: String(body || ''),
+    fromId: String(chatSelf?.id || ''),
+    fromObfuscatedSummonerId: Number(chatSelf?.obfuscatedSummonerId || 0),
+    fromPid: String(chatSelf?.pid || ''),
+    fromSummonerId: summonerId,
+    id: conversationId,
+    isHistorical: false,
+    timestamp: '',
+    type
+  };
+}
+
+function chatHistoryContains(messages, body) {
+  const rows = Array.isArray(messages) ? messages : (Array.isArray(messages?.messages) ? messages.messages : []);
+  return rows.some(message => String(message?.body || '') === String(body || ''));
+}
+
+function activeChampSelectConversation(conversations, champSession) {
+  const rooms = Array.isArray(conversations)
+    ? conversations.filter(conversation => conversation?.type === 'championSelect' && conversation.id)
+    : [];
+  if (!rooms.length) return null;
+  const activeId = String(champSession?.chatDetails?.multiUserChatId || '');
+  if (activeId) {
+    const exact = rooms.find(room => [room.id, room.pid, room.name].some(value => {
+      const candidate = String(value || '');
+      return !!candidate && (candidate === activeId || candidate.includes(activeId) || activeId.includes(candidate));
+    }));
+    if (exact) return exact;
+  }
+  // LCU 会话通常按创建时间排列；残留多个选人房间时，最后一项是本轮最新房间。
+  return rooms[rooms.length - 1];
+}
+
+function normalizedSide(value) {
+  const side = String(value ?? '').toUpperCase();
+  if (side === '1' || side === '100' || side === 'ORDER' || side === 'BLUE') return 100;
+  if (side === '2' || side === '200' || side === 'CHAOS' || side === 'RED') return 200;
+  return 0;
+}
+
+function playerIdentityValues(player) {
+  return [player?.puuid, player?.summonerId, player?.accountId, player?.gameAccountId]
+    .map(value => String(value || '')).filter(Boolean);
+}
+
+function champSelectSideFromData(gameflow, champSession, self) {
+  const ownIds = new Set(playerIdentityValues(self));
+  const localCell = Number(champSession?.localPlayerCellId);
+  const ownSlot = (Array.isArray(champSession?.myTeam) ? champSession.myTeam : [])
+    .find(player => Number(player?.cellId) === localCell || playerIdentityValues(player).some(id => ownIds.has(id)));
+  for (const id of playerIdentityValues(ownSlot)) ownIds.add(id);
+  const direct = normalizedSide(ownSlot?.teamId ?? ownSlot?.team);
+  if (direct) return direct;
+
+  const gameData = gameflow?.gameData || {};
+  const sideOf = (rows, side) => (Array.isArray(rows) && rows.some(player =>
+    playerIdentityValues(player).some(id => ownIds.has(id)))) ? side : 0;
+  return sideOf(gameData.teamOne, 100)
+    || sideOf(gameData.teamTwo, 200)
+    || (() => {
+      const participants = Array.isArray(gameData.participants) ? gameData.participants : [];
+      const mine = participants.find(player => playerIdentityValues(player).some(id => ownIds.has(id)));
+      return normalizedSide(mine?.teamId ?? mine?.team);
+    })();
+}
+
+function resetChampSelectSideAnnouncement() {
+  _champSelectSideAnnouncedFor = '';
+  _champSelectSideAnnounceBusy = false;
+  _champSelectSideLastAttempt = 0;
+}
+
+async function maybeAnnounceChampSelectSide(champSession) {
+  if (window._gameflowPhase !== 'ChampSelect' || complianceOn || _champSelectSideAnnounceBusy) return false;
+  const now = Date.now();
+  if (now - _champSelectSideLastAttempt < 1200) return false;
+  _champSelectSideLastAttempt = now;
+  _champSelectSideAnnounceBusy = true;
+  try {
+    const [gameflow, self, conversations, chatSelf] = await Promise.all([
+      lolAPI.lcuRequest('GET', '/lol-gameflow/v1/session'),
+      lolAPI.lcuRequest('GET', '/lol-summoner/v1/current-summoner'),
+      lolAPI.lcuRequest('GET', '/lol-chat/v1/conversations'),
+      lolAPI.lcuRequest('GET', '/lol-chat/v1/me')
+    ]);
+    if (window._gameflowPhase !== 'ChampSelect') return false;
+    const room = activeChampSelectConversation(conversations, champSession);
+    const side = champSelectSideFromData(gameflow, champSession, self);
+    if (!room?.id || !side) return false; // 数据尚未齐全，等待下一次选人事件重试。
+    const key = `${room.id}:${side}`;
+    if (_champSelectSideAnnouncedFor === key) return true;
+    const mapId = Number(gameflow?.gameData?.mapId || gameflow?.map?.id || 0);
+    const direction = !mapId || mapId === 11 || mapId === 12
+      ? (side === 100 ? '（地图左下侧）' : '（地图右上侧）')
+      : '';
+    const sideName = side === 100 ? '蓝色方' : '红色方';
+    const body = `【Poro】本局己方位于${sideName}${direction}`;
+    const endpoint = `/lol-chat/v1/conversations/${encodeURIComponent(room.id)}/messages`;
+    // 国服聊天服务要求消息携带 /lol-chat/v1/me 中的真实聊天身份。fromId/pid 为空或
+    // fromSummonerId=0 时客户端只会乐观显示，随后服务器同步会将其撤回。
+    const payload = buildLcuChatMessage(room.id, body, chatSelf, 'chat');
+    if (!payload.fromId || !payload.fromPid || !payload.fromSummonerId) return false;
+    const result = await lolAPI.lcuRequest(
+      'POST',
+      endpoint,
+      payload
+    );
+    if (result?.__error) return false;
+    // 回读只在服务明确返回消息数组且目标消息缺失时补发一次。接口不可读时不盲目重发，
+    // 避免不同客户端版本下产生重复队伍消息。
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    if (window._gameflowPhase === 'ChampSelect') {
+      const history = await lolAPI.lcuRequest('GET', endpoint).catch(() => null);
+      const readableHistory = Array.isArray(history) || Array.isArray(history?.messages);
+      if (readableHistory && !chatHistoryContains(history, body)) {
+        const retry = await lolAPI.lcuRequest('POST', endpoint, payload);
+        if (retry?.__error) return false;
+        try { lolAPI.debugLog(`[SIDE] first message not persisted; resent room=${room.id}`); } catch (e) {}
+      }
+    }
+    _champSelectChatCid = room.id;
+    _champSelectSideAnnouncedFor = key;
+    try { lolAPI.debugLog(`[SIDE] announced room=${room.id} side=${sideName} map=${mapId || 'unknown'}`); } catch (e) {}
+    return true;
+  } catch (error) {
+    try { lolAPI.debugLog('[SIDE] announce failed: ' + (error?.message || String(error))); } catch (e) {}
+    return false;
+  } finally {
+    _champSelectSideAnnounceBusy = false;
+  }
+}
 async function getGameChatCid() {
   if (_gameChatCid) return _gameChatCid;
   if (_champSelectChatCid) return _gameChatCid = _champSelectChatCid;

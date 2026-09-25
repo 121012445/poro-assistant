@@ -849,7 +849,7 @@ body {
 .mmr-result .mmr-chip b { color: var(--accent-deep); }
 
 /* ========== 首页 opgg 风格 ========== */
-.home-layout { overflow-y: auto; }
+.home-layout { overflow-y: auto; overflow-anchor: none; }
 .home-search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .home-search-input-wrap { position: relative; flex: 1; min-width: 0; }
 .home-search input { width: 100%; box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 9px 14px; font-size: 13px; color: var(--text-primary); outline: none; }

@@ -841,13 +841,13 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
             alternatives: []
           };
           const iconUnique = iconNames.get(String(visionOffer?.icon || '').trim().toLowerCase())?.size === 1;
-          const normalVision = visionOffer.score >= 0.72 && visionOffer.margin >= 0.015;
-          const uniqueHighVision = iconUnique && visionOffer.score >= 0.88;
+          const safeVisual = augmentRecognizer.isSafeVisualMatch(visionOffer, iconUnique);
           return Object.assign({}, visionOffer, {
             // 同一图标可能对应多个强化名称；重复两帧只能证明图标稳定，不能证明名称正确。
-            // 因此视觉兜底只允许全目录唯一图标，共享图标必须由 OCR 明确确认。
-            accepted: iconUnique && (normalVision || uniqueHighVision),
-            confirmedBy: uniqueHighVision && !normalVision ? 'vision-unique' : 'vision',
+            // 不同资源地址也可能使用高度相似的图形（如溢流/活力再生），因此视觉兜底
+            // 还必须同时满足高分和足够大的第一、第二候选差值。
+            accepted: safeVisual,
+            confirmedBy: 'vision-safe',
             iconUnique
           });
         });
@@ -855,10 +855,9 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
         logErr('[AUGMENT OCR] ' + ocrError.message);
         result.offers.forEach(item => {
           const iconUnique = iconNames.get(String(item?.icon || '').trim().toLowerCase())?.size === 1;
-          const normalVision = item.score >= 0.72 && item.margin >= 0.015;
-          const uniqueHighVision = iconUnique && item.score >= 0.88;
-          item.accepted = iconUnique && (normalVision || uniqueHighVision);
-          item.confirmedBy = uniqueHighVision && !normalVision ? 'vision-unique' : 'vision';
+          const safeVisual = augmentRecognizer.isSafeVisualMatch(item, iconUnique);
+          item.accepted = safeVisual;
+          item.confirmedBy = 'vision-safe';
           item.iconUnique = iconUnique;
         });
       }
@@ -1193,6 +1192,18 @@ ipcMain.handle('diag:recentLogs', async () => {
 const _sgpCache = new Map();
 const SGP_CACHE_TTL = 5 * 60 * 1000;   // 战绩是历史数据, 5 分钟内重拉毫无意义; 原先 60s 是"回到我的"点击变慢的主因
 const SGP_CACHE_MAX = 240;
+function _sgpInvalidateMatchHistory(puuid) {
+  const target = String(puuid || '').trim();
+  let removed = 0;
+  for (const key of _sgpCache.keys()) {
+    const parts = key.split('|');
+    if (!target || parts[1] === target) {
+      _sgpCache.delete(key);
+      removed++;
+    }
+  }
+  return removed;
+}
 function _sgpPrune() {
   const now = Date.now();
   for (const [k, v] of _sgpCache) if (now - v.t >= SGP_CACHE_TTL) _sgpCache.delete(k);
@@ -1212,6 +1223,13 @@ ipcMain.handle('sgp:matchHistory', async (e, platformId, puuid, startIndex, coun
     return data;
   } catch (err) { return { __error: err.message }; }
 });
+
+// 对局结算后，新战绩通常需要几秒才写入 SGP。渲染层会短间隔重试；每次重试前
+// 必须主动清掉该玩家的分页缓存，否则即使服务器已经入库仍会继续看到最多 5 分钟旧数据。
+ipcMain.handle('sgp:invalidateMatchHistory', (e, puuid) => ({
+  ok: true,
+  removed: _sgpInvalidateMatchHistory(puuid)
+}));
 
 ipcMain.handle('sgp:summonerByPuuid', async (e, platformId, puuid) => {
   if (!sgp.SGP_HOSTS[platformId]) return { __error: '不支持的大区: ' + platformId };

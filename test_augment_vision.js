@@ -95,6 +95,16 @@ assert.deepStrictEqual(ocrMatch.matchAugmentNames('蛋 白 奶 昔 功 能', [{ 
   ['蛋白粉奶昔'], '标题漏掉一个字时应保守纠正');
 assert.deepStrictEqual(ocrMatch.matchAugmentNames('功 能 获 得 强 化', [{ id: 7, name: '大力' }]), [],
   '两字标题被完全漏读时禁止 OCR 模糊猜测');
+assert.deepStrictEqual(ocrMatch.matchAugmentNames(
+  '伤 害 你 的 法 力 消 耗 翻 倍 。',
+  [{ id: 1311, name: '溢流' }, { id: 1330, name: '活力再生' }]
+).map(x => x.name), ['溢流'], '标题漏读时应由唯一说明短语确认溢流，不能误报活力再生');
+assert.strictEqual(augmentRecognizer.isSafeVisualMatch({ score: 0.771, margin: 0.048 }, true), false,
+  '本次溢流误报活力再生的低分近邻结果必须被拒绝');
+assert.strictEqual(augmentRecognizer.isSafeVisualMatch({ score: 0.91, margin: 0.09 }, true), true,
+  '高分且与第二候选差距明确的唯一图标仍可作为 OCR 兜底');
+assert.strictEqual(augmentRecognizer.isSafeVisualMatch({ score: 0.93, margin: 0.12 }, false), false,
+  '共享图标即使高分也不能仅凭视觉猜名称');
 const hexSource = fs.readFileSync('renderer/js/hex.js', 'utf8');
 assert.ok(hexSource.includes('AUGMENT_LAYOUT_MISSES_TO_HIDE = 3') && hexSource.includes('AUGMENT_MIN_VISIBLE_MS = 1800'),
   '推荐浮窗应在卡片布局连续消失后快速隐藏');
@@ -117,11 +127,10 @@ assert.ok(mainSource.includes('cropSize.width * 2') && mainSource.includes("qual
   '强化名称 OCR 必须先高清放大，避免短标题被说明文字吞掉');
 assert.ok(mainSource.includes('titleSize.width * 3') && mainSource.includes('offerTitleRects'),
   '完整 OCR 失败后必须使用三倍标题特写重试');
-assert.ok(mainSource.includes("confirmedBy: uniqueHighVision && !normalVision ? 'vision-unique' : 'vision'") && mainSource.includes('iconNames'),
-  'OCR 漏掉短标题时只能由全目录唯一图标高分兜底');
-assert.ok(mainSource.includes('accepted: iconUnique && (normalVision || uniqueHighVision)')
-  && mainSource.includes('item.accepted = iconUnique && (normalVision || uniqueHighVision)'),
-  '共享图标无论重复多少帧都不能猜测强化名称');
+assert.ok(mainSource.includes('augmentRecognizer.isSafeVisualMatch') && mainSource.includes('iconNames'),
+  'OCR 漏掉短标题时只能由高分、高差值且全目录唯一的图标兜底');
+assert.ok(mainSource.includes('accepted: safeVisual') && mainSource.includes('item.accepted = safeVisual'),
+  '共享或近邻图标无论重复多少帧都不能猜测强化名称');
 assert.ok(mainSource.includes("showAugmentOverlayWindow(augmentOverlayWindow, 'did-finish-load')"),
   '透明强化浮窗必须在页面加载完成后再次显示');
 assert.ok(mainSource.includes("win.setAlwaysOnTop(true, 'screen-saver', 1)") && mainSource.includes('win.moveTop()'),

@@ -1,13 +1,13 @@
 {
   "name": "poro-assistant",
-  "version": "1.4.47",
+  "version": "1.4.58",
   "description": "Poro - 英雄联盟游戏工具",
   "main": "main/index.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
     "prebuild": "node check_build.js",
-    "test": "node test_startup_resilience.js && node test_overlay_position.js && node test_augment_vision.js && node test_home_fun_stats.js && node test_security.js && node test_gamedata.js && node test_game_settings.js && node test_aramkit.js && node test_hex_recommend.js && node test_hotkey_poller.js && node test_kda_briefing.js && node test_foreign_platform.js && node test_session_state.js && node test_data_model.js && node test_live_layout.js && node test_diagnostics.js && node test_product_coach.js && node test_mode_review.js && node test_performance.js && node check_build.js && node test_audit.js && node test_dangling.js && node test_split_order.js && node test_bench_alert.js",
+    "test": "node test_startup_resilience.js && node test_overlay_position.js && node test_augment_vision.js && node test_home_fun_stats.js && node test_post_game_refresh.js && node test_security.js && node test_gamedata.js && node test_game_settings.js && node test_aramkit.js && node test_hex_recommend.js && node test_hotkey_poller.js && node test_kda_briefing.js && node test_foreign_platform.js && node test_session_state.js && node test_data_model.js && node test_live_layout.js && node test_diagnostics.js && node test_product_coach.js && node test_mode_review.js && node test_performance.js && node check_build.js && node test_audit.js && node test_dangling.js && node test_split_order.js && node test_bench_alert.js",
     "test:e2e:readonly": "node test_chatsend.js",
     "test:e2e:chat": "node test_chatlive.js",
     "test:e2e:spectate": "node test_spectate_e2e.js"

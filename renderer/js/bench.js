@@ -508,6 +508,7 @@ if (window.lolAPI && lolAPI.onOverlayHidden) {
 let _champLiveRefreshTimer = null;
 function handleChampSelectEvent(session) {
   const now = Date.now();
+  maybeAnnounceChampSelectSide(session); // 识别蓝/红方后，仅向本局选人聊天发送一次提示。
   window.poroSession?.setChampion(hexSelectedChampion(session));
   updateHexRecommendationContext(session); // 海斗强化页跟随当前锁定/悬停英雄刷新
   benchAlertWatch(session);        // 备战区倒计时提醒 (纯本地提示, 不写入客户端)
@@ -578,6 +579,8 @@ function wireLcuEvents() {
       // 整局都不会再有第二次机会, 「备选」按钮就此消失。
       else if (uri === '/lol-lobby-team-builder/champ-select/v1') benchFetchLists();
       else if (uri === '/lol-matchmaking/v1/ready-check') handleReadyCheckEvent(data);
+      // eog-stats-block 比 gameflow 阶段更接近结算数据真正生成的时刻，可立即唤醒同一条补刷链。
+      else if (uri === '/lol-end-of-game/v1/eog-stats-block') refreshAfterGameEnd('eog-stats');
       // 仅在切换账号时才刷新首页数据 (该事件高频触发, 避免整页重渲染导致详情自动收起)
       else if (uri === '/lol-summoner/v1/current-summoner' && data && data.puuid && data.puuid !== window._myPuuid) {
         // 切换账号也可能意味着切换 Riot 区服，不能沿用上一个客户端会话的平台缓存。
@@ -617,6 +620,11 @@ async function pollLoop() {
       if (window._myPuuid && st.summoner.puuid !== window._myPuuid) {
         profileOverride = null;   // 换账号登录: 丢弃上个账号的查看状态, 切到新账号
       }
+      // 对局结算补刷必须同时清主进程分页缓存；否则本地虽跳过了首页缓存，
+      // 仍可能被 SGP 的 5 分钟缓存挡住。普通过期补刷清一次也不会扩大请求量。
+      try {
+        if (lolAPI.sgpInvalidateMatchHistory) await lolAPI.sgpInvalidateMatchHistory(st.summoner.puuid);
+      } catch (e) {}
       loadHomeStats(true, { skipCache: true });
     }
     if (lcuConnected) {

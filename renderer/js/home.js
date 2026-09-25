@@ -94,6 +94,62 @@ let profileOverride = null;
 const HOME_SEARCH_HISTORY_LIMIT = 10;
 let homeSearchHistory = [];
 let homeSearchDraft = '';
+let homeScrollSnapshot = null;
+
+function homeScrollContainer() {
+  return document.querySelector('.main-content');
+}
+
+function setHomeScrollPosition(scroller, top) {
+  if (!scroller) return;
+  const target = Math.max(0, Number(top) || 0);
+  // premium.css 曾给主内容区启用 smooth。DOM 整页替换期间平滑动画会与 Chromium
+  // 的滚动锚定竞争，最终停在模式统计附近。以内联 auto 临时覆盖，确保一次性落位。
+  const previousBehavior = scroller.style.scrollBehavior;
+  scroller.style.scrollBehavior = 'auto';
+  scroller.scrollTop = target;
+  scroller.scrollTo({ top: target, left: 0, behavior: 'auto' });
+  requestAnimationFrame(() => {
+    scroller.scrollTop = target;
+    scroller.style.scrollBehavior = previousBehavior;
+  });
+}
+
+// 整页档案异步重绘前保留滚动位置。查询跨区玩家时，旧实现会先把数千像素高的
+// 档案替换成一行“查询中”，浏览器因此把 scrollTop 强制夹到 0，最终表现为自动
+// 跳回首页顶部。加载期间维持旧高度，结果挂载两帧后再恢复坐标。
+function preserveHomeScroll(targetPuuid) {
+  const scroller = homeScrollContainer();
+  const panel = document.getElementById('playerPanel');
+  if (!scroller || !panel) return;
+  const currentPuuid = String(profileOverride?.puuid || cachedSummoner?.puuid || '');
+  const nextPuuid = String(targetPuuid || '');
+  const sameTarget = !!currentPuuid && currentPuuid === nextPuuid;
+  const oldHeight = Math.ceil(panel.getBoundingClientRect().height);
+  homeScrollSnapshot = {
+    // 换人查询必须从新档案顶部开始，不能把上一位玩家的“模式统计/战绩”像素位置
+    // 套给新页面；只有同一档案的后台补全和刷新才保持当前位置。
+    top: sameTarget ? Math.max(0, scroller.scrollTop || 0) : 0,
+    targetPuuid: nextPuuid,
+    sameTarget,
+    createdAt: Date.now()
+  };
+  if (oldHeight > 0) panel.style.minHeight = `${Math.max(oldHeight, scroller.clientHeight || 0)}px`;
+  if (!sameTarget) setHomeScrollPosition(scroller, 0);
+}
+
+function restoreHomeScroll(targetPuuid) {
+  const snapshot = homeScrollSnapshot;
+  if (!snapshot || snapshot.targetPuuid !== String(targetPuuid || '')) return;
+  homeScrollSnapshot = null;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const scroller = homeScrollContainer();
+    const panel = document.getElementById('playerPanel');
+    if (panel) panel.style.minHeight = '';
+    if (!scroller || Date.now() - snapshot.createdAt > 30000) return;
+    setHomeScrollPosition(scroller, Math.min(snapshot.top, Math.max(0, scroller.scrollHeight - scroller.clientHeight)));
+  }));
+}
 
 function buildHomeCoach(games, summoner) {
   const rows = (games || []).map(game => ({ game, me: findProfileParticipant(game, summoner) })).filter(row => row.me);
@@ -161,6 +217,11 @@ function deriveHomeFunStats(rows) {
   let maxDamage = { value: 0, championId: 0 };
   let bestKda = { value: 0, championId: 0, k: 0, d: 0, a: 0 };
   let longestGame = { seconds: 0, championId: 0 };
+  let totalKills = 0, totalDeaths = 0, totalAssists = 0;
+  let totalDamage = 0, damageGames = 0, timedDamage = 0, timedSeconds = 0;
+  let totalDamageTaken = 0, damageTakenGames = 0;
+  let conversionDamage = 0, conversionGold = 0;
+  let participationTotal = 0, participationGames = 0;
   const champions = new Map();
   // 历史通常按新→旧返回；反转后按真实时间方向计算连续胜场。
   for (const row of list.slice().reverse()) {
@@ -169,9 +230,32 @@ function deriveHomeFunStats(rows) {
     else runningWins = 0;
     if ((+me.d || 0) === 0) zeroDeaths++;
     const damage = +me.dmg || 0;
+    const kills = +me.k || 0, deaths = +me.d || 0, assists = +me.a || 0;
+    totalKills += kills; totalDeaths += deaths; totalAssists += assists;
+    if (Number.isFinite(+me.dmg)) { totalDamage += damage; damageGames++; }
+    if ((+game.dur || 0) > 0 && Number.isFinite(+me.dmg)) {
+      timedDamage += damage;
+      timedSeconds += +game.dur;
+    }
+    if (Number.isFinite(+me.dmgTaken)) {
+      totalDamageTaken += +me.dmgTaken || 0;
+      damageTakenGames++;
+    }
+    if ((+me.gold || 0) > 0 && Number.isFinite(+me.dmg)) {
+      conversionDamage += damage;
+      conversionGold += +me.gold;
+    }
+    const teammates = Array.isArray(game.participants)
+      ? game.participants.filter(player => String(player?.teamId) === String(me.teamId))
+      : [];
+    const teamKills = teammates.reduce((sum, player) => sum + (+player?.k || 0), 0);
+    if (teamKills > 0) {
+      participationTotal += Math.min(1, (kills + assists) / teamKills);
+      participationGames++;
+    }
     if (damage > maxDamage.value) maxDamage = { value: damage, championId: +me.championId || 0 };
-    const kda = ((+me.k || 0) + (+me.a || 0)) / Math.max(1, +me.d || 0);
-    if (kda > bestKda.value) bestKda = { value: kda, championId: +me.championId || 0, k: +me.k || 0, d: +me.d || 0, a: +me.a || 0 };
+    const kda = (kills + assists) / Math.max(1, deaths);
+    if (kda > bestKda.value) bestKda = { value: kda, championId: +me.championId || 0, k: kills, d: deaths, a: assists };
     const seconds = +game.dur || 0;
     if (seconds > longestGame.seconds) longestGame = { seconds, championId: +me.championId || 0 };
     const championId = String(+me.championId || 0);
@@ -191,7 +275,19 @@ function deriveHomeFunStats(rows) {
   const favoritePeriod = periods.slice().sort((a, b) => b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0];
   const luckyChampion = [...champions.values()].filter(item => item.games >= 2).sort((a, b) =>
     b.wins / b.games - a.wins / a.games || b.games - a.games || a.id - b.id)[0] || null;
-  return { sampleSize: list.length, longestWinStreak, zeroDeaths, uniqueChampions: champions.size, favoritePeriod, maxDamage, bestKda, longestGame, luckyChampion };
+  const performance = {
+    averageKda: (totalKills + totalAssists) / Math.max(1, totalDeaths),
+    averageKills: list.length ? totalKills / list.length : 0,
+    averageDeaths: list.length ? totalDeaths / list.length : 0,
+    averageAssists: list.length ? totalAssists / list.length : 0,
+    damageConversion: conversionGold > 0 ? conversionDamage / conversionGold * 100 : null,
+    damagePerMinute: timedSeconds > 0 ? timedDamage / (timedSeconds / 60) : null,
+    averageDamage: damageGames ? totalDamage / damageGames : null,
+    averageDamageTaken: damageTakenGames ? totalDamageTaken / damageTakenGames : null,
+    averageParticipation: participationGames ? participationTotal / participationGames * 100 : null,
+    participationGames
+  };
+  return { sampleSize: list.length, longestWinStreak, zeroDeaths, uniqueChampions: champions.size, favoritePeriod, maxDamage, bestKda, longestGame, luckyChampion, performance };
 }
 
 function homeFunChampionName(championId) {
@@ -205,14 +301,22 @@ function buildHomeFunStats(games, summoner) {
   if (!stats.sampleSize) return '';
   const lucky = stats.luckyChampion;
   const period = stats.favoritePeriod;
+  const performance = stats.performance;
   const longestMinutes = Math.round(stats.longestGame.seconds / 60);
+  const oneDecimal = value => Number(value || 0).toFixed(1);
   const cards = [
     ['🔥', '最长连胜', `${stats.longestWinStreak} 连胜`, `近 ${stats.sampleSize} 场中的最长纪录`],
     ['🛡️', '完美生存', `${stats.zeroDeaths} 场`, stats.zeroDeaths ? '整局保持零阵亡' : '近期还没有零阵亡对局'],
     ['⚔️', '输出天花板', fmtNumLocal(stats.maxDamage.value), `${homeFunChampionName(stats.maxDamage.championId)} · 单局英雄伤害`],
     [period?.icon || '🕒', '最常出没', period?.games ? period.label : '时间未知', period?.games ? `${period.games} 场集中在 ${period.from}:00–${period.to}:59` : '战绩未提供开局时间'],
     ['🎭', '近期英雄池', `${stats.uniqueChampions} 位`, `最长一局 ${longestMinutes || '--'} 分钟`],
-    ['🍀', '幸运英雄', lucky ? homeFunChampionName(lucky.id) : '样本不足', lucky ? `${lucky.games} 场 ${lucky.wins} 胜 · ${Math.round(lucky.wins / lucky.games * 100)}%` : '同一英雄至少使用 2 场后生成']
+    ['🍀', '幸运英雄', lucky ? homeFunChampionName(lucky.id) : '样本不足', lucky ? `${lucky.games} 场 ${lucky.wins} 胜 · ${Math.round(lucky.wins / lucky.games * 100)}%` : '同一英雄至少使用 2 场后生成'],
+    ['🎯', '近期平均 KDA', performance.averageKda.toFixed(2), `场均 ${oneDecimal(performance.averageKills)} / ${oneDecimal(performance.averageDeaths)} / ${oneDecimal(performance.averageAssists)}`],
+    ['💱', '伤害转化率', performance.damageConversion == null ? '--' : `${Math.round(performance.damageConversion)}%`, performance.damageConversion == null ? '战绩未提供金币数据' : '每 100 金币转化的英雄伤害'],
+    ['⚡', '每分钟输出', performance.damagePerMinute == null ? '--' : fmtNumLocal(Math.round(performance.damagePerMinute)), '按有效对局时长折算'],
+    ['🤝', '平均参团率', performance.averageParticipation == null ? '--' : `${Math.round(performance.averageParticipation)}%`, performance.participationGames ? `${performance.participationGames} 场具备队伍击杀数据` : '战绩未提供队伍击杀数据'],
+    ['💥', '场均英雄伤害', performance.averageDamage == null ? '--' : fmtNumLocal(Math.round(performance.averageDamage)), '仅统计对英雄造成的伤害'],
+    ['🧱', '场均承受伤害', performance.averageDamageTaken == null ? '--' : fmtNumLocal(Math.round(performance.averageDamageTaken)), '近期对局平均承伤']
   ];
   return `<section class="home-fun"><div class="home-fun-head"><span><b>玩家趣味档案</b><small>基于当前加载的近 ${stats.sampleSize} 场</small></span><em>仅代表近期</em></div>
     <div class="home-fun-grid">${cards.map(([icon, label, value, detail]) => `<div class="home-fun-card"><i>${icon}</i><span><small>${label}</small><b>${escapeHtml(String(value))}</b><em>${escapeHtml(detail)}</em></span></div>`).join('')}</div></section>`;
@@ -761,6 +865,7 @@ function renderEmptyPlayerHome(panel, s, isSelf, server, ranked, message) {
         <div class="meta-loading">${escapeHtml(message || '该账号暂无公开的近期对局，基础档案已显示。')}</div>
       </div>
     </div>`;
+  restoreHomeScroll(s?.puuid);
 }
 // 训练/自定义对局是否计入统计 (开关持久化, 重载首页)
 function toggleIncludePractice(on) {
@@ -795,6 +900,9 @@ async function loadHomeStats(force, opts) {
   homeStatsLoading = true;
   const panel = document.getElementById("playerPanel");
   if (!panel) { homeStatsLoading = false; return; }
+  if (!homeScrollSnapshot && panel.querySelector('.home-layout') && (homeScrollContainer()?.scrollTop || 0) > 0) {
+    preserveHomeScroll(profileOverride?.puuid || cachedSummoner?.puuid || '');
+  }
   try {
     // ---- 持久缓存快速路径: 自己的首页 + 有缓存 → 不等客户端连接, 先秒出上次数据 ----
     const includePractice = storeGet('includePractice') === '1';
@@ -1284,6 +1392,7 @@ async function loadHomeStats(force, opts) {
     renderHomeGameList();
     // 静态英雄数据可能刚好在首页模板生成与挂载之间完成；挂载后再补绘一次，彻底消除竞态空白。
     refreshHomeChampionRows();
+    restoreHomeScroll(s.puuid);
     try {
       lolAPI.debugLog(`[PERF] home path=${loadPath} target=${profileOverride ? 'profile' : 'self'} games=${games.length} render=${Math.round(performance.now() - loadStartedAt)}ms`);
     } catch (e) {}
@@ -1293,6 +1402,7 @@ async function loadHomeStats(force, opts) {
   } catch (e) {
     homeStatsLoaded = false;
     panel.innerHTML = `<div class="msg-error">统计数据加载失败: ${escapeHtml(e.message)}</div>`;
+    restoreHomeScroll(profileOverride?.puuid || cachedSummoner?.puuid || '');
   } finally {
     window.poroPerf?.record('home.load', performance.now() - loadStartedAt, {
       path: loadPath,

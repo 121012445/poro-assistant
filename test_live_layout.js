@@ -14,7 +14,8 @@ assert.ok(live.includes('class="ld-summary-plan"'), '收起状态仍应显示一
 assert.match(css, /\.lp-team-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s, '宽屏每队应横排 5 张玩家卡');
 assert.match(css, /\.lp-champ\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px;/s, '玩家英雄头像应压缩到 36px');
 assert.match(css, /\.ri-card img\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;/s, '近期战绩英雄图标应压缩到 22px');
-assert.ok(live.includes('function recentLimit() {\n  return 10;'), '每张玩家卡应提供最近 10 场战绩');
+assert.match(live, /function recentLimit\(\)\s*\{\s*return 10;\s*\}/,
+  '每张玩家卡应提供最近 10 场战绩');
 assert.match(css, /\.lp-wrap\s*\{[^}]*flex:\s*1;[^}]*overflow:\s*hidden;/s, '两支队伍应共同压缩在实时页可视高度内');
 assert.match(css, /\.lp-team\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;/s, '两支队伍应各占实时页一半高度');
 assert.match(css, /\.lp-recent\s*\{[^}]*overflow-y:\s*auto;/s, '最近 10 场应在玩家卡内部独立滚动');
@@ -22,5 +23,8 @@ assert.match(css, /\.ri-card\s*\{[^}]*flex:\s*0 0 26px;/s, '滚动区内每场�
 assert.match(css, /\.lp-row\s*\{[^}]*background:\s*var\(--bg-card\)/s, '玩家卡应沿用 Poro 的主题卡片色');
 assert.ok(css.includes('var(--shadow-soft)'), '实时队伍面板应沿用 Poro 的柔和阴影');
 assert.ok(!/grid-template-columns:\s*repeat\([1234],/.test(css.slice(css.indexOf('/* 实时对局：双方上下排列'))), '实时页不得在窄窗口把五人拆成多行');
+assert.ok(live.includes('list.length !== 10'), '加载页队伍兜底只能处理完整 10 人，不能误分不完整阵容');
+assert.ok(live.includes('index < 5 ? 100 : 200'), '国服加载页缺少 team 字段时应按原始 5/5 顺序分队');
+assert.ok(live.includes("phase !== 'ChampSelect'"), '选人阶段必须保留客户端提供的队伍数据，不应用加载页兜底');
 
 console.log('实时对局大卡片布局测试通过');

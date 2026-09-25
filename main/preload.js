@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   reportPhase: (phase) => ipcRenderer.send('phase:report', phase),
   // SGP (国服官方网关, 完整战绩)
   sgpMatchHistory: (platformId, puuid, startIndex, count, tag) => ipcRenderer.invoke('sgp:matchHistory', platformId, puuid, startIndex, count, tag),
+  sgpInvalidateMatchHistory: (puuid) => ipcRenderer.invoke('sgp:invalidateMatchHistory', puuid),
   sgpSummonerByPuuid: (platformId, puuid) => ipcRenderer.invoke('sgp:summonerByPuuid', platformId, puuid),
   sgpGameSummary: (platformId, gameId) => ipcRenderer.invoke('sgp:gameSummary', platformId, gameId),
   sgpGameDetails: (platformId, gameId) => ipcRenderer.invoke('sgp:gameDetails', platformId, gameId),
