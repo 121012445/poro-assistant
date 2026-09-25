@@ -648,10 +648,12 @@ async function pollLoop() {
     if (!lcuConnected) _lcuFailCount++; else _lcuFailCount = 0;
     if (!lcuConnected && _lcuFailCount >= 2) homeStatsLoaded = false;
     // 有展开中的对局详情时跳过整页重渲染, 避免"详情自动关闭"
-    if (lcuConnected && !homeStatsLoaded && !homeStatsLoading && !document.querySelector('.ako-card.expanded')) loadHomeStats();
+    // 查看他人由用户查询链独占驱动。轮询只负责本人首页，不能在跨区查询或错误页上
+    // 每 4/12 秒再开一个整页加载，否则页面会持续闪烁并偶尔闪回本人。
+    if (lcuConnected && !profileOverride && !homeStatsLoaded && !homeStatsLoading && !document.querySelector('.ako-card.expanded')) loadHomeStats();
     // 缓存补刷/账号校验: 页面显示的是本地缓存时, LCU 一旦就绪:
     // 1) 登录账号变了 → 切回新账号数据  2) 缓存过期 → 静默拉最新
-    if (lcuConnected && !homeStatsLoading && st.summoner && window._homeCacheNeedRefresh && !document.querySelector('.ako-card.expanded')) {
+    if (lcuConnected && !profileOverride && !homeStatsLoading && st.summoner && window._homeCacheNeedRefresh && !document.querySelector('.ako-card.expanded')) {
       window._homeCacheNeedRefresh = false;
       if (window._myPuuid && st.summoner.puuid !== window._myPuuid) {
         profileOverride = null;   // 换账号登录: 丢弃上个账号的查看状态, 切到新账号

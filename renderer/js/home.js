@@ -1566,7 +1566,10 @@ async function loadHomeStats(force, opts) {
     // 因为客户端可能还没连接, 立即刷新只会失败)
     if (cacheUsable && !skipCache && !cacheFresh) window._homeCacheNeedRefresh = true;
   } catch (e) {
-    homeStatsLoaded = false;
+    if (stale()) return; // 被新查询取代的失败结果也不能覆盖当前玩家页面
+    // 他人查询失败后保留当前错误页，等待用户修正名称或主动重试；若设为 false，
+    // pollLoop 会把它当作“本人首页尚未加载”而永久重试，形成周期性整页闪烁。
+    homeStatsLoaded = !!profileOverride;
     panel.innerHTML = `<div class="msg-error">统计数据加载失败: ${escapeHtml(e.message)}</div>`;
     restoreHomeScroll(profileOverride?.puuid || cachedSummoner?.puuid || '');
   } finally {

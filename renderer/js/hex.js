@@ -1074,6 +1074,9 @@ async function searchPlayerByPuuid(puuid, name, summoner) {
   preserveHomeScroll(puuid);
   // 先同步设置目标: 消除 await 期间的竞态窗口 (轮询此时插入读到的也是正确目标, 不会闪回自己)
   profileOverride = { puuid, name: name || '', summoner: summoner || null };
+  // 目标一旦切换，立即废弃上一轮首页请求。不能等 PUUID 档案解析完成后再由
+  // loadHomeStats 增加代次，否则旧请求可能在这段窗口内把本人/上一位玩家整页写回来。
+  homeStatsToken++;
   const selfPuuid = window._myPuuid || cachedSummoner?.puuid || null;
   if (selfPuuid && puuid === selfPuuid) { backToMe(); return; }
   switchPage("home");

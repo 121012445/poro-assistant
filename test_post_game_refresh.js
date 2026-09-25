@@ -7,6 +7,7 @@ const events = fs.readFileSync('renderer/js/lcu-events.js', 'utf8');
 const bench = fs.readFileSync('renderer/js/bench.js', 'utf8');
 const home = fs.readFileSync('renderer/js/home.js', 'utf8');
 const app = fs.readFileSync('renderer/js/app.js', 'utf8');
+const hex = fs.readFileSync('renderer/js/hex.js', 'utf8');
 
 assert(main.includes("ipcMain.handle('sgp:invalidateMatchHistory'"), 'main process must expose SGP history invalidation');
 assert(main.includes('parts[1] === target'), 'SGP invalidation must be scoped to the requested PUUID');
@@ -23,5 +24,15 @@ assert(home.includes('resumeDeferredHomeRefresh();'),
   'closing a match detail must resume a deferred home refresh');
 assert(app.includes("typeof isHomeGameDetailExpanded !== 'function' || !isHomeGameDetailExpanded()"),
   'late static-data hydration must not collapse an expanded match detail');
+assert(bench.includes('!profileOverride && !homeStatsLoaded'),
+  'profile lookup must not be interrupted by the self-home polling reload');
+assert(bench.includes('!profileOverride && !homeStatsLoading'),
+  'stale self-cache refresh must pause while viewing another player');
+assert(hex.includes('homeStatsToken++'),
+  'switching profile target must invalidate the previous home request immediately');
+assert(home.includes('homeStatsLoaded = !!profileOverride'),
+  'failed profile lookup must not enter an infinite polling reload loop');
+assert(home.includes('if (stale()) return; // 被新查询取代的失败结果'),
+  'late failure from an old profile request must not overwrite the current profile');
 
 console.log('Post-game refresh contract tests passed.');
