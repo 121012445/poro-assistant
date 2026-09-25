@@ -173,6 +173,7 @@ async function init() {
           renderHomeModeFilter();
           renderHomeGameList();
           refreshHomeChampionRows();
+          if (typeof refreshHomeFunStats === 'function') refreshHomeFunStats();
         }
       } catch (e) { console.error("静态数据加载失败", e); }
     })();

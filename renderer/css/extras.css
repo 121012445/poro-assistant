@@ -216,8 +216,11 @@
 .home-fun-card small { color:var(--text-muted); font-size:8px; }
 .home-fun-card b { margin:2px 0; color:var(--text-primary); font-size:13px; }
 .home-fun-card em { color:var(--text-secondary); font-size:8px; font-style:normal; }
+.home-fun-card-wide { grid-column:span 2; }
+.home-fun-card-wide > span { width:100%; }
+.home-fun-card-wide b { display:-webkit-box; overflow:hidden; white-space:normal; text-overflow:clip; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 @media(max-width:1250px){.home-fun-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:760px){.home-fun-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.home-fun-head small{display:none}}
+@media(max-width:760px){.home-fun-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.home-fun-card-wide{grid-column:1/-1}.home-fun-head small{display:none}}
 
 /* 自动赛后复盘 */
 .rv-auto-review { margin-bottom:9px; padding:9px 11px; border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:9px; background:color-mix(in srgb,var(--accent) 6%,var(--bg-card)); }

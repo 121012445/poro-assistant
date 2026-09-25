@@ -205,14 +205,40 @@ function buildHomeCoach(games, summoner) {
 
 // 趣味数据只描述本次首页已加载的近期对局，不包装成“生涯纪录”。保持为纯计算函数，
 // 便于用固定样本回归最长连胜、活跃时段和幸运英雄等边界。
-function deriveHomeFunStats(rows) {
+const HOME_ROLE_LABELS = { Fighter: '战士', Mage: '法师', Assassin: '刺客', Marksman: '射手', Support: '辅助', Tank: '坦克' };
+const HOME_ROLE_ICONS = { Fighter: '⚔️', Mage: '🔮', Assassin: '🗡️', Marksman: '🏹', Support: '💚', Tank: '🛡️' };
+const HOME_ITEM_EXCLUDES = new Set([2003, 2010, 2031, 2033, 2055, 2138, 2139, 2140, 2141, 2142, 2143, 2144, 3340, 3348, 3363, 3364]);
+
+function homeCatalogEntryByKey(catalog, numericId) {
+  const id = String(+numericId || '');
+  if (!id || !catalog || typeof catalog !== 'object') return null;
+  if (catalog[id]) return catalog[id];
+  return Object.values(catalog).find(entry => String(entry?.key || '') === id) || null;
+}
+
+// “钟爱装备”只统计最终成装。药水、守卫、饰品、鞋子和仍可继续合成的散件
+// 会高频出现在每局背包中，但不代表玩家的出装偏好，因此在这里主动排除。
+function isHomeSignatureItem(itemId, itemCatalog) {
+  const id = +itemId || 0;
+  if (!id || HOME_ITEM_EXCLUDES.has(id)) return false;
+  const item = itemCatalog?.[String(id)] || itemCatalog?.[id];
+  if (!item) return id >= 3000 && id < 9000;
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  const name = String(item.name || '');
+  if (tags.some(tag => ['Consumable', 'Trinket', 'Boots'].includes(tag))) return false;
+  if (/药水|合剂|守卫|饰品|药剂|鞋/.test(name)) return false;
+  if (Array.isArray(item.into) && item.into.length) return false;
+  return (+item.gold?.total || 0) >= 1600;
+}
+
+function deriveHomeFunStats(rows, catalogs = {}) {
   const list = Array.isArray(rows) ? rows.filter(row => row?.game && row?.me) : [];
   const periods = [
     { key: 'late', label: '深夜档', icon: '🌙', from: 0, to: 5 },
     { key: 'morning', label: '上午档', icon: '☀️', from: 6, to: 11 },
     { key: 'afternoon', label: '下午档', icon: '🌤️', from: 12, to: 17 },
     { key: 'evening', label: '晚间档', icon: '🌆', from: 18, to: 23 }
-  ].map(period => ({ ...period, games: 0 }));
+  ].map(period => ({ ...period, games: 0, wins: 0 }));
   let longestWinStreak = 0, runningWins = 0, zeroDeaths = 0;
   let maxDamage = { value: 0, championId: 0 };
   let bestKda = { value: 0, championId: 0, k: 0, d: 0, a: 0 };
@@ -222,7 +248,13 @@ function deriveHomeFunStats(rows) {
   let totalDamageTaken = 0, damageTakenGames = 0;
   let conversionDamage = 0, conversionGold = 0;
   let participationTotal = 0, participationGames = 0;
+  let totalUtility = 0, utilityGames = 0;
   const champions = new Map();
+  const favoriteItems = new Map();
+  const itemTriples = new Map();
+  const roleStats = new Map();
+  const partners = new Map();
+  const nemeses = new Map();
   // 历史通常按新→旧返回；反转后按真实时间方向计算连续胜场。
   for (const row of list.slice().reverse()) {
     const { game, me } = row;
@@ -241,6 +273,8 @@ function deriveHomeFunStats(rows) {
       totalDamageTaken += +me.dmgTaken || 0;
       damageTakenGames++;
     }
+    const utility = (+me.healing || 0) + (+me.allyHeal || 0) + (+me.shielding || 0);
+    if (utility > 0) { totalUtility += utility; utilityGames++; }
     if ((+me.gold || 0) > 0 && Number.isFinite(+me.dmg)) {
       conversionDamage += damage;
       conversionGold += +me.gold;
@@ -253,6 +287,26 @@ function deriveHomeFunStats(rows) {
       participationTotal += Math.min(1, (kills + assists) / teamKills);
       participationGames++;
     }
+    for (const player of teammates) {
+      if (player === me || (me.puuid && player?.puuid === me.puuid)) continue;
+      const key = String(player?.puuid || `${player?.name || ''}#${player?.tagLine || ''}`);
+      if (!key || key === '#') continue;
+      const partner = partners.get(key) || { key, name: player?.name || '未知队友', tagLine: player?.tagLine || '', games: 0, wins: 0 };
+      partner.games++; partner.wins += me.win ? 1 : 0;
+      if (player?.name) partner.name = player.name;
+      if (player?.tagLine) partner.tagLine = player.tagLine;
+      partners.set(key, partner);
+    }
+    const enemies = Array.isArray(game.participants)
+      ? game.participants.filter(player => String(player?.teamId) !== String(me.teamId))
+      : [];
+    for (const player of enemies) {
+      const enemyChampionId = +player?.championId || 0;
+      if (!enemyChampionId) continue;
+      const enemy = nemeses.get(enemyChampionId) || { id: enemyChampionId, games: 0, losses: 0 };
+      enemy.games++; enemy.losses += me.win ? 0 : 1;
+      nemeses.set(enemyChampionId, enemy);
+    }
     if (damage > maxDamage.value) maxDamage = { value: damage, championId: +me.championId || 0 };
     const kda = (kills + assists) / Math.max(1, deaths);
     if (kda > bestKda.value) bestKda = { value: kda, championId: +me.championId || 0, k: kills, d: deaths, a: assists };
@@ -263,18 +317,68 @@ function deriveHomeFunStats(rows) {
       const stat = champions.get(championId) || { id: +championId, games: 0, wins: 0 };
       stat.games++; if (me.win) stat.wins++;
       champions.set(championId, stat);
+
+      const champion = homeCatalogEntryByKey(catalogs.champions, championId);
+      for (const tag of (Array.isArray(champion?.tags) ? champion.tags : [])) {
+        if (!HOME_ROLE_LABELS[tag]) continue;
+        const role = roleStats.get(tag) || { tag, games: 0, wins: 0, k: 0, d: 0, a: 0, champions: new Set() };
+        role.games++; role.wins += me.win ? 1 : 0;
+        role.k += kills; role.d += deaths; role.a += assists;
+        role.champions.add(+championId);
+        roleStats.set(tag, role);
+      }
+    }
+    // 一局内同名装备只记一次，避免少数可重复购买的模式装备放大偏好。
+    const ownedItems = [...new Set((Array.isArray(me.items) ? me.items : []).map(Number).filter(Boolean))];
+    for (const itemId of ownedItems) {
+      if (!isHomeSignatureItem(itemId, catalogs.items)) continue;
+      const item = favoriteItems.get(itemId) || { id: itemId, games: 0, wins: 0 };
+      item.games++; item.wins += me.win ? 1 : 0;
+      favoriteItems.set(itemId, item);
+    }
+    const signatureItems = ownedItems.filter(id => isHomeSignatureItem(id, catalogs.items));
+    if (signatureItems.length >= 3) {
+      for (let a = 0; a < signatureItems.length - 2; a++) for (let b = a + 1; b < signatureItems.length - 1; b++) for (let c = b + 1; c < signatureItems.length; c++) {
+        const ids = [signatureItems[a], signatureItems[b], signatureItems[c]].sort((x, y) => x - y);
+        const key = ids.join('-');
+        const triple = itemTriples.get(key) || { ids, games: 0, wins: 0 };
+        triple.games++; triple.wins += me.win ? 1 : 0;
+        itemTriples.set(key, triple);
+      }
     }
     let timestamp = +game.time || 0;
     if (timestamp > 0 && timestamp < 1e12) timestamp *= 1000;
     if (timestamp > 0) {
       const hour = new Date(timestamp).getHours();
       const period = periods.find(item => hour >= item.from && hour <= item.to);
-      if (period) period.games++;
+      if (period) { period.games++; period.wins += me.win ? 1 : 0; }
     }
   }
   const favoritePeriod = periods.slice().sort((a, b) => b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0];
   const luckyChampion = [...champions.values()].filter(item => item.games >= 2).sort((a, b) =>
     b.wins / b.games - a.wins / a.games || b.games - a.games || a.id - b.id)[0] || null;
+  const favoriteItem = [...favoriteItems.values()].sort((a, b) =>
+    b.games - a.games || b.wins / b.games - a.wins / a.games || a.id - b.id)[0] || null;
+  const favoriteTriple = [...itemTriples.values()].sort((a, b) =>
+    b.games - a.games || b.wins / b.games - a.wins / a.games || a.ids.join('-').localeCompare(b.ids.join('-')))[0] || null;
+  const favoriteRole = [...roleStats.values()].filter(role => role.games >= 2).sort((a, b) =>
+    b.games - a.games || b.wins / b.games - a.wins / a.games ||
+    (b.k + b.a) / Math.max(1, b.d) - (a.k + a.a) / Math.max(1, a.d) || a.tag.localeCompare(b.tag))[0] || null;
+  if (favoriteRole) favoriteRole.championCount = favoriteRole.champions.size;
+  const bestPeriod = periods.filter(period => period.games >= 2).sort((a, b) =>
+    b.wins / b.games - a.wins / a.games || b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0] || null;
+  const goldenPartner = [...partners.values()].filter(item => item.games >= 2).sort((a, b) =>
+    b.wins / b.games - a.wins / a.games || b.games - a.games || a.name.localeCompare(b.name))[0] || null;
+  const nemesis = [...nemeses.values()].filter(item => item.games >= 2).sort((a, b) =>
+    b.losses / b.games - a.losses / a.games || b.games - a.games || a.id - b.id)[0] || null;
+  const championUsage = [...champions.values()].sort((a, b) => b.games - a.games || a.id - b.id);
+  const topShare = list.length ? (championUsage[0]?.games || 0) / list.length : 0;
+  const topThreeShare = list.length ? championUsage.slice(0, 3).reduce((sum, item) => sum + item.games, 0) / list.length : 0;
+  let heroPoolProfile;
+  if (list.length >= 5 && topShare >= 0.45) heroPoolProfile = { label: '绝活专精', detail: `最常用英雄占近期 ${Math.round(topShare * 100)}%` };
+  else if (list.length >= 8 && champions.size / list.length >= 0.75) heroPoolProfile = { label: '全能选手', detail: `${list.length} 场使用 ${champions.size} 位英雄` };
+  else if (list.length >= 5 && topThreeShare >= 0.75) heroPoolProfile = { label: '精简英雄池', detail: `前三英雄覆盖 ${Math.round(topThreeShare * 100)}% 对局` };
+  else heroPoolProfile = { label: '均衡英雄池', detail: `${list.length} 场使用 ${champions.size} 位英雄` };
   const performance = {
     averageKda: (totalKills + totalAssists) / Math.max(1, totalDeaths),
     averageKills: list.length ? totalKills / list.length : 0,
@@ -284,10 +388,20 @@ function deriveHomeFunStats(rows) {
     damagePerMinute: timedSeconds > 0 ? timedDamage / (timedSeconds / 60) : null,
     averageDamage: damageGames ? totalDamage / damageGames : null,
     averageDamageTaken: damageTakenGames ? totalDamageTaken / damageTakenGames : null,
+    averageUtility: utilityGames ? totalUtility / utilityGames : null,
     averageParticipation: participationGames ? participationTotal / participationGames * 100 : null,
     participationGames
   };
-  return { sampleSize: list.length, longestWinStreak, zeroDeaths, uniqueChampions: champions.size, favoritePeriod, maxDamage, bestKda, longestGame, luckyChampion, performance };
+  const participation = performance.averageParticipation || 0;
+  const avgDamage = performance.averageDamage || 0;
+  const avgTaken = performance.averageDamageTaken || 0;
+  let combatStyle;
+  if ((performance.averageUtility || 0) >= 3500 && participation >= 60) combatStyle = { label: '团队辅助型', detail: `平均参团 ${Math.round(participation)}% · 治疗护盾 ${Math.round(performance.averageUtility)}` };
+  else if (avgTaken > avgDamage * 1.2 && avgTaken >= 12000) combatStyle = { label: '前排抗压型', detail: `场均承伤 ${Math.round(avgTaken).toLocaleString('en-US')}` };
+  else if (performance.averageKills >= 8 || (performance.averageDeaths >= 8 && avgDamage >= 15000)) combatStyle = { label: '激进收割型', detail: `场均 ${performance.averageKills.toFixed(1)} 杀 · ${performance.averageDeaths.toFixed(1)} 死` };
+  else if (performance.averageDeaths <= 5 && avgDamage >= avgTaken * 0.8) combatStyle = { label: '稳健输出型', detail: `场均死亡 ${performance.averageDeaths.toFixed(1)} · KDA ${performance.averageKda.toFixed(2)}` };
+  else combatStyle = { label: '均衡适应型', detail: `KDA ${performance.averageKda.toFixed(2)} · 参团 ${participation ? Math.round(participation) + '%' : '--'}` };
+  return { sampleSize: list.length, longestWinStreak, zeroDeaths, uniqueChampions: champions.size, favoritePeriod, bestPeriod, maxDamage, bestKda, longestGame, luckyChampion, favoriteItem, favoriteTriple, favoriteRole, goldenPartner, nemesis, heroPoolProfile, combatStyle, performance };
 }
 
 function homeFunChampionName(championId) {
@@ -295,11 +409,22 @@ function homeFunChampionName(championId) {
   return champion?.name || champion?.id || `英雄 #${championId || '?'}`;
 }
 
+function homeFunItemName(itemId) {
+  const item = allItems?.[String(itemId)] || allItems?.[itemId];
+  return item?.name || `装备 #${itemId || '?'}`;
+}
+
 function buildHomeFunStats(games, summoner) {
   const rows = (games || []).map(game => ({ game, me: findProfileParticipant(game, summoner) })).filter(row => row.me);
-  const stats = deriveHomeFunStats(rows);
+  const stats = deriveHomeFunStats(rows, { champions: allChampions, items: allItems });
   if (!stats.sampleSize) return '';
   const lucky = stats.luckyChampion;
+  const favoriteItem = stats.favoriteItem;
+  const favoriteRole = stats.favoriteRole;
+  const favoriteTriple = stats.favoriteTriple;
+  const goldenPartner = stats.goldenPartner;
+  const nemesis = stats.nemesis;
+  const bestPeriod = stats.bestPeriod;
   const period = stats.favoritePeriod;
   const performance = stats.performance;
   const longestMinutes = Math.round(stats.longestGame.seconds / 60);
@@ -311,6 +436,14 @@ function buildHomeFunStats(games, summoner) {
     [period?.icon || '🕒', '最常出没', period?.games ? period.label : '时间未知', period?.games ? `${period.games} 场集中在 ${period.from}:00–${period.to}:59` : '战绩未提供开局时间'],
     ['🎭', '近期英雄池', `${stats.uniqueChampions} 位`, `最长一局 ${longestMinutes || '--'} 分钟`],
     ['🍀', '幸运英雄', lucky ? homeFunChampionName(lucky.id) : '样本不足', lucky ? `${lucky.games} 场 ${lucky.wins} 胜 · ${Math.round(lucky.wins / lucky.games * 100)}%` : '同一英雄至少使用 2 场后生成'],
+    ['🧰', '钟爱装备', favoriteItem ? homeFunItemName(favoriteItem.id) : '样本不足', favoriteItem ? `${favoriteItem.games} 场携带 · ${Math.round(favoriteItem.wins / favoriteItem.games * 100)}% 胜率` : '成装数据加载后自动生成'],
+    [HOME_ROLE_ICONS[favoriteRole?.tag] || '🧭', '擅长英雄分类', favoriteRole ? `${HOME_ROLE_LABELS[favoriteRole.tag]}型` : '样本不足', favoriteRole ? `${favoriteRole.games} 场 · ${favoriteRole.championCount} 位英雄 · ${Math.round(favoriteRole.wins / favoriteRole.games * 100)}%` : '同类英雄至少使用 2 场后生成'],
+    ['🎨', '战斗风格', stats.combatStyle.label, stats.combatStyle.detail],
+    ['🃏', '英雄池专一度', stats.heroPoolProfile.label, stats.heroPoolProfile.detail],
+    ['🧩', '常用三件套', favoriteTriple ? favoriteTriple.ids.map(homeFunItemName).join(' + ') : '样本不足', favoriteTriple ? `${favoriteTriple.games} 场成型 · ${Math.round(favoriteTriple.wins / favoriteTriple.games * 100)}% 胜率` : '至少一局拥有三件最终成装后生成'],
+    ['🤜', '黄金搭档', goldenPartner ? `${goldenPartner.name}${goldenPartner.tagLine ? '#' + goldenPartner.tagLine : ''}` : '样本不足', goldenPartner ? `共同 ${goldenPartner.games} 场 · ${Math.round(goldenPartner.wins / goldenPartner.games * 100)}% 胜率` : '与同一队友完成至少 2 场后生成'],
+    ['👿', '宿敌英雄', nemesis ? homeFunChampionName(nemesis.id) : '样本不足', nemesis ? `对阵 ${nemesis.games} 场 · 负率 ${Math.round(nemesis.losses / nemesis.games * 100)}%` : '对阵同一英雄至少 2 场后生成'],
+    [bestPeriod?.icon || '⏰', '最佳上分时间', bestPeriod ? bestPeriod.label : '样本不足', bestPeriod ? `${bestPeriod.games} 场 ${bestPeriod.wins} 胜 · ${Math.round(bestPeriod.wins / bestPeriod.games * 100)}%` : '同一时间段至少 2 场后生成'],
     ['🎯', '近期平均 KDA', performance.averageKda.toFixed(2), `场均 ${oneDecimal(performance.averageKills)} / ${oneDecimal(performance.averageDeaths)} / ${oneDecimal(performance.averageAssists)}`],
     ['💱', '伤害转化率', performance.damageConversion == null ? '--' : `${Math.round(performance.damageConversion)}%`, performance.damageConversion == null ? '战绩未提供金币数据' : '每 100 金币转化的英雄伤害'],
     ['⚡', '每分钟输出', performance.damagePerMinute == null ? '--' : fmtNumLocal(Math.round(performance.damagePerMinute)), '按有效对局时长折算'],
@@ -319,7 +452,18 @@ function buildHomeFunStats(games, summoner) {
     ['🧱', '场均承受伤害', performance.averageDamageTaken == null ? '--' : fmtNumLocal(Math.round(performance.averageDamageTaken)), '近期对局平均承伤']
   ];
   return `<section class="home-fun"><div class="home-fun-head"><span><b>玩家趣味档案</b><small>基于当前加载的近 ${stats.sampleSize} 场</small></span><em>仅代表近期</em></div>
-    <div class="home-fun-grid">${cards.map(([icon, label, value, detail]) => `<div class="home-fun-card"><i>${icon}</i><span><small>${label}</small><b>${escapeHtml(String(value))}</b><em>${escapeHtml(detail)}</em></span></div>`).join('')}</div></section>`;
+    <div class="home-fun-grid">${cards.map(([icon, label, value, detail]) => {
+      const fullValue = String(value);
+      const wide = label === '常用三件套';
+      return `<div class="home-fun-card${wide ? ' home-fun-card-wide' : ''}" title="${escapeHtml(`${label}：${fullValue}；${detail}`)}"><i>${icon}</i><span><small>${label}</small><b>${escapeHtml(fullValue)}</b><em>${escapeHtml(detail)}</em></span></div>`;
+    }).join('')}</div></section>`;
+}
+
+function refreshHomeFunStats() {
+  const old = document.querySelector('.home-fun');
+  if (!old || !homeGamesData?.length || !homeGamesOwner) return;
+  const html = buildHomeFunStats(homeGamesData, { puuid: homeGamesOwner });
+  if (html) old.outerHTML = html;
 }
 function homeSearchMarkup(placeholderText) {
   return `<div class="home-search">
@@ -1458,4 +1602,4 @@ async function expandOpggGame(el, gameId) {
   renderGameReview(norm, gameId, detail, el.dataset.platform || '');
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { deriveHomeFunStats };
+if (typeof module !== 'undefined' && module.exports) module.exports = { deriveHomeFunStats, isHomeSignatureItem };
