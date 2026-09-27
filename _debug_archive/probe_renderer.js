@@ -241,6 +241,30 @@ const PROBES = [
    + " } finally { homeGamesData = savedD; homeGamesOwner = savedO; host.innerHTML = savedHtml; }"
    + " } catch (e) { return 'throw: ' + e.message; } })()",
    'bool'],
+  // 归属提示: 页面标题写「我的画像」, 但查看其他玩家时 homeGamesData 是别人的。
+  // 这条在真机里把两种归属都摆出来看文案与样式类, 确认误导修掉了。
+  ['home.js', '归属提示: 自己与他人两种态',
+   "(function () { try {"
+   + " var note = document.getElementById('profileOwnerNote');"
+   + " if (!note) return '找不到 #profileOwnerNote';"
+   + " var savedL = homeGamesOwnerLabel, savedS = homeGamesOwnerIsSelf;"
+   + " try {"
+   + "   homeGamesOwnerLabel = '探针玩家#0000'; homeGamesOwnerIsSelf = true;"
+   + "   renderProfileOwnerNote();"
+   + "   if (note.hidden) return '自己的画像不该隐藏归属提示';"
+   + "   if ((note.textContent || '').indexOf('你自己') < 0) return '自己态文案不对: ' + note.textContent;"
+   + "   if (note.classList.contains('is-other')) return '自己态不应带 is-other 强调样式';"
+   + "   homeGamesOwnerIsSelf = false;"
+   + "   renderProfileOwnerNote();"
+   + "   if ((note.textContent || '').indexOf('不是你自己') < 0) return '他人态必须写明不是你自己: ' + note.textContent;"
+   + "   if (!note.classList.contains('is-other')) return '他人态必须带 is-other 强调样式';"
+   + "   homeGamesOwner = null;"
+   + "   renderProfileOwnerNote();"
+   + "   if (!note.hidden) return '没有数据时应隐藏归属提示';"
+   + "   return true;"
+   + " } finally { homeGamesOwnerLabel = savedL; homeGamesOwnerIsSelf = savedS; renderProfileOwnerNote(); }"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
   ['app.js', 'switchPage 认得 profile 且能切回首页',
    "(function () { try {"
    + " if (typeof switchPage !== 'function') return 'switchPage 不存在';"

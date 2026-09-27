@@ -515,17 +515,31 @@ function profileHost() {
 
 const PROFILE_EMPTY = '<div class="meta-loading">先到「首页」加载战绩后查看画像</div>';
 
+// 页面标签写的是「我的画像」，但 homeGamesData 在查看其他玩家时是**别人的**战绩。
+// 不把归属标出来，用户会把别人的擅长/趣味数据当成自己的 —— 这是误导，不是小瑕疵。
+function renderProfileOwnerNote() {
+  const note = document.getElementById('profileOwnerNote');
+  if (!note) return;
+  if (!homeGamesOwner) { note.hidden = true; note.textContent = ''; return; }
+  note.hidden = false;
+  note.textContent = homeGamesOwnerIsSelf
+    ? '当前：你自己（' + (homeGamesOwnerLabel || '未知玩家') + '）'
+    : '当前：' + (homeGamesOwnerLabel || '未知玩家') + ' 的数据（不是你自己）';
+  note.classList.toggle('is-other', !homeGamesOwnerIsSelf);
+}
+
 function renderProfilePage() {
   const host = profileHost();
   if (!host) return;
   if (!homeGamesData?.length || !homeGamesOwner) {
     host.innerHTML = PROFILE_EMPTY;
     delete host.dataset.owner;
-    return;
+  } else {
+    const s = { puuid: homeGamesOwner };
+    host.innerHTML = buildHomeFunStats(homeGamesData, s) + buildHomeCoach(homeGamesData, s);
+    host.dataset.owner = homeGamesOwner;
   }
-  const s = { puuid: homeGamesOwner };
-  host.innerHTML = buildHomeFunStats(homeGamesData, s) + buildHomeCoach(homeGamesData, s);
-  host.dataset.owner = homeGamesOwner;
+  renderProfileOwnerNote();
 }
 
 // 首页数据更新后, 只有"画像页已经挂载过"或"用户正停在画像页"才需要重算。
@@ -1107,6 +1121,11 @@ function buildHomeGameCard(g, s) {
 // 首页战绩模式筛选
 let homeGamesData = null;
 let homeGamesOwner = null;
+// 「我的画像」页与首页共用 homeGamesData。查看其他玩家时 (profileOverride)
+// 这份数据是**别人**的，而页面标签写的是「我的画像」—— 不标出来就是直接误导。
+// 所以顺带记下当前数据属于谁、是不是自己。
+let homeGamesOwnerLabel = '';
+let homeGamesOwnerIsSelf = true;
 let homeModeFilter = 'all';
 let homeChampCount = {};
 let homeChampMeta = {};
@@ -1770,6 +1789,10 @@ async function loadHomeStats(force, opts) {
     // 模式筛选所需数据缓存
     homeGamesData = games;
     homeGamesOwner = s.puuid;
+    // 画像页要能说明"这份画像属于谁" —— 查看其他玩家时是别人的数据。
+    homeGamesOwnerLabel = String(s.gameName || s.displayName || s.name || '未知玩家')
+      + (s.tagLine ? '#' + s.tagLine : '');
+    homeGamesOwnerIsSelf = isSelf !== false;
     // 画像页(#page-profile)与首页共用这份数据。若画像页已经挂载过、或用户正停在
     // 画像页等数据, 这里补一次渲染; 否则完全不碰它, 不白算教练分析。
     refreshProfilePageIfMounted();

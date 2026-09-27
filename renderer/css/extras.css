@@ -337,6 +337,10 @@
 
 #page-profile .page-header { flex-direction:column; align-items:flex-start; gap:6px; }
 #page-profile .page-sub { margin:0; color:var(--text-secondary); font-size:12px; line-height:1.6; }
+/* 归属提示。查看其他玩家时这份画像是别人的, 用强调色 + 左侧色条, 别让它混在副标题里 */
+.profile-owner-note { padding:4px 9px; border:1px solid color-mix(in srgb,var(--accent) 26%,var(--border)); border-left:3px solid var(--accent); border-radius:7px; background:color-mix(in srgb,var(--accent) 7%,var(--bg-card)); color:var(--text-secondary); font-size:11px; }
+.profile-owner-note.is-other { border-color:color-mix(in srgb,var(--warning) 42%,var(--border)); border-left-color:var(--warning); background:color-mix(in srgb,var(--warning) 12%,var(--bg-card)); color:var(--warning); font-weight:600; }
+.profile-owner-note[hidden] { display:none; }
 /* 新页纵向空间充裕，两块内容之间留出间隔，避免粘成一片 */
 #page-profile .home-fun { margin:0 0 14px; }
 #page-profile .home-coach { margin:0; }

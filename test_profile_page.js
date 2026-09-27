@@ -57,10 +57,11 @@ assert.deepStrictEqual(unstamped, [], '这些渲染层资源缺少 ?v= 缓存戳
 const staleStamp = stamps.filter(s => String(s.stamp).slice(0, 8) < '20260928')
   .map(s => s.path + '?v=' + s.stamp);
 assert.deepStrictEqual(staleStamp, [], '这些资源的缓存戳早于本次改动日期: ' + staleStamp.join(', '));
-// 本次改动的三个文件必须带最新戳（改了却不升戳 = 用户拿到旧代码）
+// 本次改动的四个文件必须带最新戳（改了却不升戳 = 用户拿到旧代码）。
+// 注意同一天第二次改动也要把序号往上走: in-place 升级时 URL 没变, 戳不变就命中缓存。
 const stampOf = p => (stamps.find(s => s.path === p) || {}).stamp;
 for (const p of ['js/home.js', 'js/app.js', 'css/extras.css']) {
-  assert.strictEqual(stampOf(p), '2026092801', p + ' 的缓存戳未升到 2026092801');
+  assert.strictEqual(stampOf(p), '2026092802', p + ' 的缓存戳未升到 2026092802');
 }
 
 // ── 3. app.js 切页接线 ───────────────────────────────────────────────────────
@@ -109,6 +110,29 @@ assert.ok(/homeGamesOwner = s\.puuid;[\s\S]{0,400}?refreshProfilePageIfMounted\(
   'loadHomeStats 拿到数据后必须调用 refreshProfilePageIfMounted()');
 assert.ok(/function refreshProfilePageIfMounted\(\)[\s\S]{0,600}?dataset\.owner/.test(home),
   'refreshProfilePageIfMounted 应只在画像页已挂载或正激活时重算，避免每次刷首页白算');
+
+// ── 4.5 归属提示：查看其他玩家时，画像显示的是别人的数据 ─────────────────────
+// profileOverride 会让 loadHomeStats 载入他人战绩、homeGamesOwner 变成对方 puuid，
+// 而页面标题写的是「我的画像」。不标出来就是误导 —— 用户会把别人的擅长/趣味数据当成自己的。
+assert.ok(html.includes('id="profileOwnerNote"'), '画像页页头必须有 #profileOwnerNote 归属提示');
+assert.ok(/id="profileOwnerNote"[^>]*hidden/.test(html), '#profileOwnerNote 初始必须 hidden，避免数据没加载时闪出空白提示');
+assert.ok(home.includes('function renderProfileOwnerNote('), '必须提供 renderProfileOwnerNote()');
+assert.ok(home.includes('homeGamesOwnerIsSelf') && home.includes('homeGamesOwnerLabel'),
+  'renderProfileOwnerNote 必须依据 homeGamesOwnerIsSelf / homeGamesOwnerLabel 判定归属');
+// loadHomeStats 必须在写下 homeGamesOwner 的同时写下归属信息（漏掉就永远显示默认值）
+assert.ok(/homeGamesOwner = s\.puuid;[\s\S]{0,300}?homeGamesOwnerLabel =/.test(home),
+  'loadHomeStats 必须在写 homeGamesOwner 的同时写 homeGamesOwnerLabel');
+assert.ok(/homeGamesOwnerIsSelf = isSelf !== false;/.test(home),
+  'loadHomeStats 必须用 isSelf 计算 homeGamesOwnerIsSelf（不能默认 true）');
+// 空数据分支也要更新提示（否则残留上一位玩家的"当前：XXX"）
+assert.ok(/function renderProfilePage\(\)[\s\S]*?\}[\s\S]*?renderProfileOwnerNote\(\);\s*\}/.test(home),
+  'renderProfilePage 必须在有无数据两种分支之后都调用 renderProfileOwnerNote()');
+assert.ok(home.includes("note.classList.toggle('is-other'"),
+  '查看他人时提示必须加上 is-other 强调样式，不能和自己的混在一起');
+assert.ok(/\.profile-owner-note\s*\{/.test(extras) && /\.profile-owner-note\.is-other/.test(extras),
+  '.profile-owner-note 与 .is-other 必须有样式，且他人态要有区分');
+assert.ok(/\.profile-owner-note\[hidden\]\s*\{\s*display:\s*none/.test(extras),
+  'hidden 属性必须真的隐藏元素（span 上 hidden 不加这条在某些样式下会失效）');
 
 // ── 5. CSS ───────────────────────────────────────────────────────────────────
 assert.ok(/\.home-profile-entry\s*\{/.test(extras), '首页入口 .home-profile-entry 必须有样式');

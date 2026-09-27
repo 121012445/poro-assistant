@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026092801">
-<link rel="stylesheet" href="css/extras.css?v=2026092801">
-<link rel="stylesheet" href="css/dark.css?v=2026092801">
-<link rel="stylesheet" href="css/premium.css?v=2026092801">
+<link rel="stylesheet" href="css/style.css?v=2026092802">
+<link rel="stylesheet" href="css/extras.css?v=2026092802">
+<link rel="stylesheet" href="css/dark.css?v=2026092802">
+<link rel="stylesheet" href="css/premium.css?v=2026092802">
 </head>
 <body>
 
@@ -88,6 +88,9 @@
     <div class="page-header">
       <h2>我的画像</h2>
       <p class="page-sub">擅长与提升 · 趣味档案 · 基于当前已加载战绩，不设训练目标、不监控进度</p>
+      <!-- 归属提示由 renderProfileOwnerNote() 填充。查看其他玩家时这份画像是别人的,
+           必须明说出来 —— 否则标题写「我的画像」而内容是别人的数据。 -->
+      <span id="profileOwnerNote" class="profile-owner-note" hidden></span>
     </div>
     <div id="profilePanel"><div class="meta-loading">先到「首页」加载战绩后查看画像</div></div>
   </div>
@@ -428,28 +431,28 @@
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
 <div id="benchAlert" class="bench-alert"></div>
-<script src="js/utils.js?v=2026092801"></script>
-<script src="js/data-model.js?v=2026092801"></script>
-<script src="js/session-state.js?v=2026092801"></script>
-<script src="js/performance.js?v=2026092801"></script>
-<script src="js/diagnostics.js?v=2026092801"></script>
-<script src="js/bench.js?v=2026092801"></script>
-<script src="js/champions.js?v=2026092801"></script>
-<script src="js/progress-report.js?v=2026092801"></script>
-<script src="js/home.js?v=2026092801"></script>
-<script src="js/review.js?v=2026092801"></script>
-<script src="js/theme.js?v=2026092801"></script>
-<script src="js/hex.js?v=2026092801"></script>
-<script src="js/history.js?v=2026092801"></script>
-<script src="js/live.js?v=2026092801"></script>
-<script src="js/compliance.js?v=2026092801"></script>
-<script src="js/blacklist.js?v=2026092801"></script>
-<script src="js/social.js?v=2026092801"></script>
-<script src="js/chat.js?v=2026092801"></script>
-<script src="js/autobp.js?v=2026092801"></script>
-<script src="js/lcu-events.js?v=2026092801"></script>
-<script src="js/settings.js?v=2026092801"></script>
-<script src="js/persist.js?v=2026092801"></script>
-<script src="js/app.js?v=2026092801"></script>
+<script src="js/utils.js?v=2026092802"></script>
+<script src="js/data-model.js?v=2026092802"></script>
+<script src="js/session-state.js?v=2026092802"></script>
+<script src="js/performance.js?v=2026092802"></script>
+<script src="js/diagnostics.js?v=2026092802"></script>
+<script src="js/bench.js?v=2026092802"></script>
+<script src="js/champions.js?v=2026092802"></script>
+<script src="js/progress-report.js?v=2026092802"></script>
+<script src="js/home.js?v=2026092802"></script>
+<script src="js/review.js?v=2026092802"></script>
+<script src="js/theme.js?v=2026092802"></script>
+<script src="js/hex.js?v=2026092802"></script>
+<script src="js/history.js?v=2026092802"></script>
+<script src="js/live.js?v=2026092802"></script>
+<script src="js/compliance.js?v=2026092802"></script>
+<script src="js/blacklist.js?v=2026092802"></script>
+<script src="js/social.js?v=2026092802"></script>
+<script src="js/chat.js?v=2026092802"></script>
+<script src="js/autobp.js?v=2026092802"></script>
+<script src="js/lcu-events.js?v=2026092802"></script>
+<script src="js/settings.js?v=2026092802"></script>
+<script src="js/persist.js?v=2026092802"></script>
+<script src="js/app.js?v=2026092802"></script>
 </body>
 </html>
