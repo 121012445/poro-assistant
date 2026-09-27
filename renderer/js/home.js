@@ -1224,14 +1224,11 @@ function buildHomeTemplate(v) {
   const { s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
           mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
           totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
-          champCount, champMeta, friendCount, tagCache, rankRows, modeStats,
-          spellMap, version } = v;
+          champCount, champMeta, friendCount, tagCache, rankRows, modeStats } = v;
 
   // ========== 渲染 op.gg 风格首页 ==========
   const soloQ = qm.RANKED_SOLO_5x5;
   const flexQ = qm.RANKED_FLEX_SR;
-  const spellName = id => spellMap[String(id)] || String(id);
-  const itemIcon = id => id ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${id}.png` : '';
   // 段位卡片
   const rankCard = (q, label) => {
     if (!q || !q.tier) return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier">无排位</div></div>`;
@@ -1668,9 +1665,7 @@ async function loadHomeStats(force, opts) {
     homeChampMeta = champMeta;
     // 当前赛季排位数据 + 隐藏分 (与战绩并行拉取; 缓存命中时直接来自缓存)
     if (stale()) return;                     // 渲染前最后一道闸
-    const rankHtml = renderRankCards(ranked?.queueMap || {});
     const qm = ranked?.queueMap || {};
-    const RANK_QUEUE_IDS = { "RANKED_SOLO_5x5": 420, "RANKED_FLEX_SR": 440 };
     // 排位胜负直接用接口数据 (当前赛段真实战绩, 与 Akari 一致)
     const rankRows = RANK_QUEUE_LABELS.map(([q, label]) => {
       const r = qm[q];
@@ -1681,15 +1676,13 @@ async function loadHomeStats(force, opts) {
       return { name: label + " (当前赛段)", n: total, w: r.wins, rank, lp, season: true };
     }).filter(Boolean);
     const mmrChips = buildHomeMmr(qm,modeStats,wr,s);
-    const topFriends = dataSource === "SGP" ? Object.values(friendCount).sort((a, b) => b.count - a.count).slice(0, 8) : [];
 
     // 模板见前面的 buildHomeTemplate() —— 这里只负责"挂载"
     panel.innerHTML = buildHomeTemplate({
       s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
       mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
       totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
-      champCount, champMeta, friendCount, tagCache, rankRows, modeStats,
-      spellMap, version
+      champCount, champMeta, friendCount, tagCache, rankRows, modeStats
     });
     // 模式筛选所需数据缓存
     homeGamesData = games;

@@ -92,7 +92,7 @@ const PROBES = [
    "isSelf: true, mmrChips: [], ranked: null, rankFromCache: false, rankPending: false," +
    "qm: {}, totDur: 3600, totK: 1, totD: 2, totA: 3, avgKda: 2, maxK: 5, maxD: 5," +
    "penta: 0, fb: 1, games: [], champCount: {}, champMeta: {}, friendCount: {}," +
-   "tagCache: {}, rankRows: [], modeStats: {}, spellMap: {}, version: '1'" +
+   "tagCache: {}, rankRows: [], modeStats: {}" +
    "}); return ['home-layout', 'home-header', 'home-stats', 'home-games'," +
    " 'home-mode-filter', 'Probe'].every(function (c) { return h.indexOf(c) >= 0; });" +
    " } catch (e) { return 'throw: ' + e.message; } })()",
