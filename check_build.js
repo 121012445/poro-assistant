@@ -1,6 +1,7 @@
 // 构建前自检: 防止 package.json/依赖/源码缺失导致打包出坏安装包
 const fs = require('fs');
 const fail = [];
+const warn = [];   // 不阻断构建, 但值得在出包前看一眼
 if (!fs.existsSync('package.json')) fail.push('package.json 缺失');
 else {
   const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -28,6 +29,22 @@ for (const f of requiredFiles) {
 for (const f of requiredFiles.filter(f => f.endsWith('.js'))) {
   if (!fs.existsSync(f)) continue;
   try { new Function(fs.readFileSync(f, 'utf8')); } catch (error) { fail.push(f + ' 语法错误: ' + error.message); }
+}
+// 渲染层脚本的缓存戳 (?v=): 打包后做 in-place 升级时 file:// 的 URL 没变,
+// Chromium 可能继续用缓存里的旧副本 —— 表现为"装了新版但跑的还是旧逻辑"。
+// 2026-09-27 实测: 23 个脚本里 12 个戳过期, 最旧的落后 11 天, 还有 1 个压根没戳。
+// 缺戳直接拦下; 戳偏旧只警告 (开发期频繁改动, 每次都拦会很难受), 出包前统一刷一次即可。
+const scriptTags = [...htmlSrc.matchAll(/<script src="js\/([^"?]+)(?:\?v=([0-9]+))?"/g)];
+const noStamp = scriptTags.filter(m => !m[2]).map(m => m[1]);
+if (noStamp.length) fail.push('渲染层脚本缺少 ?v= 缓存戳: ' + noStamp.join(', '));
+let headDate = null;
+try {
+  headDate = require('child_process').execSync('git log -1 --date=short --format=%cd', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+} catch (e) { headDate = null; }
+if (headDate) {
+  const ymd = headDate.replace(/-/g, '');
+  const stale = scriptTags.filter(m => m[2] && String(m[2]).slice(0, 8) < ymd).map(m => `${m[1]}?v=${m[2]}`);
+  if (stale.length) warn.push(`缓存戳早于最近一次提交 (${headDate}), 出包前建议统一刷新: ` + stale.join(', '));
 }
 // 版本号只能有一个来源: package.json。
 // 渲染层若写死版本号, 会出现"改了 package.json 但界面还显示旧号"的假象,
@@ -59,5 +76,7 @@ if (!/<script src="js\/overlay\.js"/.test(fs.existsSync('renderer/overlay.html')
   fail.push('renderer/overlay.html 未加载 js/overlay.js');
 }
 
+for (const w of warn) console.warn('[警告] ' + w);
+
 if (fail.length) { console.error('构建自检失败: ' + fail.join('; ')); process.exit(1); }
-console.log('构建自检通过');
+console.log('构建自检通过' + (warn.length ? ` (${warn.length} 条警告)` : ''));

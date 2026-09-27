@@ -1,3 +1,4 @@
+// npm-test: opt-out (手工 E2E: 会真实发送游戏聊天, 不能进 npm test)
 // 有副作用的手工 E2E：会向当前游戏聊天发送测试消息，默认拒绝执行。
 if (process.env.PORO_E2E_WRITE !== 'I_UNDERSTAND') {
   console.error('已拒绝：该测试会真实发送游戏聊天。仅在明确知情时设置 PORO_E2E_WRITE=I_UNDERSTAND。');

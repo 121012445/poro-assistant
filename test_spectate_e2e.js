@@ -1,3 +1,4 @@
+// npm-test: opt-out (手工 E2E: 可能真实启动观战, 不能进 npm test)
 // 有副作用的手工 E2E：会读取好友状态并可能真实启动观战，默认拒绝执行。
 if (process.env.PORO_E2E_WRITE !== 'I_UNDERSTAND') {
   console.error('已拒绝：该测试可能真实启动观战。仅在明确知情时设置 PORO_E2E_WRITE=I_UNDERSTAND。');

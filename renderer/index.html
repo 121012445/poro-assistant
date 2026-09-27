@@ -145,8 +145,11 @@
     <div class="hex-filter-bar">
       <label>数据范围<select id="hexScope" onchange="setHexDataScope(this.value)"><option value="all">全分段</option><option value="high">高分段</option></select></label>
       <label>强化轮次<select id="hexStage" onchange="setHexBrowseStage(this.value)"><option value="all">综合</option><option value="1">第 1 轮</option><option value="2">第 2 轮</option><option value="3">第 3 轮</option><option value="4">第 4 轮</option></select></label>
+      <label>浮窗位置<select id="augmentOverlayAnchor" onchange="saveAugmentOverlayLayout()"><option value="top-left">左上</option><option value="top-right">右上</option><option value="bottom-left">左下</option><option value="bottom-right">右下</option></select></label>
+      <label>浮窗大小<select id="augmentOverlayScale" onchange="saveAugmentOverlayLayout()"><option value="0.85">紧凑</option><option value="1">标准</option><option value="1.15">放大</option></select></label>
       <span>胜率已按样本量做可信度修正，避免小样本虚高。</span>
     </div>
+    <details ontoggle="if(this.open) renderAugmentJournal()"><summary>海克斯选择档案 · 仅本机保存</summary><div id="augmentJournal" style="max-height:360px;overflow:auto"></div></details>
     <div id="hexGuides" class="hex-guide-grid"></div>
     <div class="tool-row" style="margin:12px 0;">
       <input type="text" id="hexSearch" placeholder="搜索强化名称..." class="tool-input" style="flex:1" oninput="filterHexList()">
@@ -338,10 +341,11 @@
       </div>
       <div class="tool-card span-all">
         <h3>诊断中心</h3>
-        <p>显示当前客户端、账号、区服、对局代际与最近脱敏日志。复制内容不包含完整 PUUID、令牌或用户目录。</p>
+        <p>显示当前客户端、账号、区服、对局代际与最近脱敏日志。复制内容不包含完整 PUUID、令牌或用户目录；主动导出的诊断包最多附带最近三张强化卡区域裁图。</p>
         <div class="tool-row">
           <button class="btn-secondary" onclick="refreshDiagnostics()">刷新诊断</button>
           <button class="btn-secondary" onclick="copyDiagnostics()">复制诊断信息</button>
+          <button class="btn-secondary" onclick="exportDiagnostics()">导出诊断包</button>
         </div>
         <pre id="diagnosticsOutput" class="diagnostics-output">点击“刷新诊断”检查当前状态</pre>
       </div>
@@ -410,27 +414,28 @@
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
 <div id="benchAlert" class="bench-alert"></div>
-<script src="js/utils.js?v=2026092601"></script>
-<script src="js/data-model.js?v=2026092102"></script>
-<script src="js/session-state.js?v=2026092101"></script>
-<script src="js/performance.js?v=2026092101"></script>
-<script src="js/diagnostics.js?v=2026092101"></script>
-<script src="js/bench.js?v=2026091602"></script>
-<script src="js/champions.js?v=2026091602"></script>
-<script src="js/home.js?v=2026092102"></script>
-<script src="js/review.js?v=2026092601"></script>
-<script src="js/theme.js?v=2026091602"></script>
-<script src="js/hex.js?v=2026092202"></script>
-<script src="js/history.js?v=2026091602"></script>
-<script src="js/live.js?v=2026092601"></script>
-<script src="js/compliance.js?v=2026091602"></script>
-<script src="js/blacklist.js?v=2026092601"></script>
-<script src="js/social.js?v=2026092601"></script>
-<script src="js/chat.js?v=2026091602"></script>
-<script src="js/autobp.js?v=2026092601"></script>
-<script src="js/lcu-events.js?v=2026091602"></script>
-<script src="js/settings.js?v=2026091602"></script>
-<script src="js/persist.js?v=2026092601"></script>
-<script src="js/app.js?v=2026091602"></script>
+<script src="js/utils.js?v=2026092701"></script>
+<script src="js/data-model.js?v=2026092701"></script>
+<script src="js/session-state.js?v=2026092701"></script>
+<script src="js/performance.js?v=2026092701"></script>
+<script src="js/diagnostics.js?v=2026092701"></script>
+<script src="js/bench.js?v=2026092701"></script>
+<script src="js/champions.js?v=2026092701"></script>
+<script src="js/progress-report.js?v=2026092701"></script>
+<script src="js/home.js?v=2026092701"></script>
+<script src="js/review.js?v=2026092701"></script>
+<script src="js/theme.js?v=2026092701"></script>
+<script src="js/hex.js?v=2026092701"></script>
+<script src="js/history.js?v=2026092701"></script>
+<script src="js/live.js?v=2026092701"></script>
+<script src="js/compliance.js?v=2026092701"></script>
+<script src="js/blacklist.js?v=2026092701"></script>
+<script src="js/social.js?v=2026092701"></script>
+<script src="js/chat.js?v=2026092701"></script>
+<script src="js/autobp.js?v=2026092701"></script>
+<script src="js/lcu-events.js?v=2026092701"></script>
+<script src="js/settings.js?v=2026092701"></script>
+<script src="js/persist.js?v=2026092701"></script>
+<script src="js/app.js?v=2026092701"></script>
 </body>
 </html>

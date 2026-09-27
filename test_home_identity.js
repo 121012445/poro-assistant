@@ -1,0 +1,21 @@
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('renderer/js/home.js','utf8');
+let writes=0;
+const context=vm.createContext({window:{_userDataPath:'test'},lolAPI:{lcuStatus:async()=>({connected:true,summoner:{puuid:'actual'}}),writeFile:async()=>{writes++;return true;}},homeSelfCachePath:()=>'/test'});
+vm.runInContext(source.slice(source.indexOf('async function writeHomeSelfCache'),source.indexOf('let profileRefreshAfter')),context);
+(async()=>{
+  await context.writeHomeSelfCache(false,{isSelf:true,s:{puuid:'wrong'}});
+  await context.writeHomeSelfCache(false,{isSelf:false,s:{puuid:'actual'}});
+  assert.equal(writes,0,'incorrect self flags cannot authorize foreign cache writes');
+  await context.writeHomeSelfCache(false,{isSelf:true,s:{puuid:'actual'}});
+  assert.equal(writes,1);
+  context.lolAPI.lcuStatus=async()=>({connected:false});
+  await context.writeHomeSelfCache(false,{isSelf:true,s:{puuid:'actual'}});
+  assert.equal(writes,1);
+  assert(source.includes('const selfPuuidSaved = st.summoner.puuid'));
+  assert(source.includes('if(cached?.s?.puuid!==targetPuuid) cached=null'));
+  assert(!source.includes('selfSummoner = cached.s'));
+  assert(!source.includes('isSelf = !!cached.isSelf'));
+  assert(source.includes('isSelf = s.puuid===selfSummoner.puuid'));
+  console.log('首页身份隔离：错误本人标记、账号切换、离线写入与缓存归属检查通过');
+})().catch(e=>{console.error(e);process.exitCode=1;});
