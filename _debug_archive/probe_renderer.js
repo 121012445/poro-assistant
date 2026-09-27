@@ -13,13 +13,19 @@
   3. 逐项求值, 确认每个模块的代表性绑定都在
   4. 杀掉整棵进程树
 
-用法:
-  node _debug_archive/probe_renderer.js
+用法 (注意 env -u, 理由见下面 PORT 上方的环境自检):
+  env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS PORO_UDD=D:/poro_probe_udd \
+    node _debug_archive/probe_renderer.js > out.txt 2>&1
     探源码版 (用 node_modules 里的 electron 直接跑项目目录)
+
+  机器上已经开着 Poro 时必须给 PORO_UDD —— 否则 requestSingleInstanceLock()
+  会把这次探测重定向到那个实例, 探针只能看到 [SINGLE INSTANCE] duplicate launch。
 
   PORO_EXE=dist/win-unpacked/Poro.exe PORO_CWD=dist/win-unpacked PORO_ARG= \
     node _debug_archive/probe_renderer.js
     探打包产物 —— 同一套探测跑在安装包解出来的 exe 上, 用来确认"新代码确实进了包, 且包里的东西也能正常加载"
+
+结果同时落一份到 _debug_archive/probe_result.txt, 所以重定向丢了也能拿到结论。
 */
 const { spawn } = require('child_process');
 const http = require('http');
@@ -34,6 +40,21 @@ const CWD = process.env.PORO_CWD ? path.resolve(ROOT, process.env.PORO_CWD) : RO
 // 源码版要把项目目录当参数传给 electron; 打包产物自带 app, 传空串即可
 const APP_ARG = process.env.PORO_ARG === undefined ? '.' : process.env.PORO_ARG;
 const PORT = 9222;
+
+// 环境自检 —— 这两条是踩出来的, 症状是"探针静默退出、连一个字输出都没有",
+// 极难倒查, 所以宁可在入口就拦下来:
+//   1) ELECTRON_RUN_AS_NODE=1 (WorkBuddy 的 bash 工具会注入) 会让 electron.exe
+//      退化成纯 Node 模式: require('electron') 返回一个路径字符串、app 是 undefined,
+//      窗口根本不会出现, 于是探针一直连不上调试端口。
+//   2) NODE_OPTIONS 被注入了语言垫片, 同样会干扰子进程启动。
+// 正确跑法见文件头注释里的命令行 (env -u ...)。
+if (process.env.ELECTRON_RUN_AS_NODE) {
+  console.error('环境不对: ELECTRON_RUN_AS_NODE=' + process.env.ELECTRON_RUN_AS_NODE
+    + ' —— 被测 electron.exe 会退化成 Node 模式, 窗口起不来。');
+  console.error('正确跑法: env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS node '
+    + path.relative(ROOT, __filename));
+  process.exit(2);
+}
 
 // 每个模块至少一项"拆分后最容易丢"的代表性绑定。
 // 函数声明挂在 window 上; 顶层 let/const 在全局词法环境里 (不在 window 上), 所以统一用 typeof。
@@ -60,6 +81,22 @@ const PROBES = [
   ['champions.js', 'opggPosList (let)', "typeof opggPosList"],
   ['home.js', 'rankTierCN', "typeof rankTierCN"],
   ['home.js', 'TIER_CN (const)', "typeof TIER_CN"],
+  // 2026-09-27: 首页模板从 loadHomeStats 抽成了 buildHomeTemplate(v)。
+  // 光验 typeof 不够 —— 它是纯函数, 直接喂一组最小数据看产出,
+  // 才能真正证明"搬移之后模板还能拼出完整首页"。
+  ['home.js', 'buildHomeTemplate 存在', "typeof buildHomeTemplate"],
+  ['home.js', 'buildHomeTemplate 产出完整首页 HTML',
+   "(function () { try { var h = buildHomeTemplate({" +
+   "s: { gameName: 'Probe', profileIconId: 1, summonerLevel: 30, puuid: 'p1' }," +
+   "server: 'X', includePractice: false, n: 10, rawGameCount: 10, wins: 5, wr: 50," +
+   "isSelf: true, mmrChips: [], ranked: null, rankFromCache: false, rankPending: false," +
+   "qm: {}, totDur: 3600, totK: 1, totD: 2, totA: 3, avgKda: 2, maxK: 5, maxD: 5," +
+   "penta: 0, fb: 1, games: [], champCount: {}, champMeta: {}, friendCount: {}," +
+   "tagCache: {}, rankRows: [], modeStats: {}, spellMap: {}, version: '1'" +
+   "}); return ['home-layout', 'home-header', 'home-stats', 'home-games'," +
+   " 'home-mode-filter', 'Probe'].every(function (c) { return h.indexOf(c) >= 0; });" +
+   " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
   ['review.js', 'buildPoroRating', "typeof buildPoroRating"],
   ['theme.js', 'applyTheme', "typeof applyTheme"],
   ['hex.js', 'collectHexAugments', "typeof collectHexAugments"],
@@ -87,7 +124,6 @@ const PROBES = [
   ['persist.js', 'loadStore', "typeof loadStore"],
   ['DOM', '#benchDiag 元素', "!!document.getElementById('benchDiag')"],
   ['DOM', '页面就绪状态', "document.readyState"],
-  ['DOM', '脚本数量 (应为 18)', "document.scripts.length", 'exact', 18],
   ['加载', '页面重载后的 JS 报错数 (0 才算通过)',
    "window.__probeErrors === undefined ? -1 : window.__probeErrors", 'count']
 ];
@@ -107,6 +143,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     `--remote-debugging-port=${PORT}`,
     '--disable-gpu', '--disable-software-rasterizer', '--no-sandbox'
   ];
+  // 机器上已经有 Poro 在跑时, 必须隔离 userData —— 否则 requestSingleInstanceLock()
+  // 会把这次探测重定向到那个实例, 探针只能看到 [SINGLE INSTANCE] duplicate launch,
+  // 拿不到真正的渲染层。设 PORO_UDD 即可 (如 PORO_UDD=D:/poro_probe_udd)。
+  const UDD = process.env.PORO_UDD;
+  if (UDD) args.push(`--user-data-dir=${UDD}`);
   if (APP_ARG) args.push(APP_ARG);
   const child = spawn(EXE, args, { cwd: CWD, stdio: ['ignore', 'ignore', 'ignore'] });
 
@@ -186,6 +227,48 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     rows.push([ok ? 'OK  ' : '!!  ', mod, label, err ? '求值异常: ' + (err.exception && err.exception.description || '') : String(val)]);
   }
 
+  // 脚本文件存在性 —— 这里原先是一条写死的 `document.scripts.length === 18`。
+  // 两个问题都踩过了, 记下来:
+  //   1) 写死的数字会烂: 模块一路变多, 18 没跟着改, 这条断言常年红着。
+  //      "永远红的断言"等于没有断言 —— 真出事时也分不出是新问题还是这个老数字。
+  //   2) 改成"拿 index.html 当基准比对页面清单"是**自证**: 页面的脚本清单本来
+  //      就来自 index.html, 两边永远相等, 断言恒真。已用"注入一个假脚本标签"的
+  //      负向验证实测确认过它拦不住任何东西。
+  // 所以换成这个方向: 页面报告的每个 src 回磁盘查存在性。
+  // 为什么值得单独查 —— <script src> 指向不存在的文件时浏览器只发一个 404,
+  // 既不抛异常, 资源加载错误也不会冒泡到 window 的 error 事件 (上面那个计数器
+  // 用的是默认冒泡监听, 抓不到), 所以它是**完全静默**的: 少一个模块, 页面照样
+  // 渲染, 功能悄悄没了。这类"静默缺失"正是探针存在的理由。
+  // 打包产物里源文件在 app.asar 内, 磁盘上查不到 —— 此时明确跳过, 不误报。
+  {
+    const rendererDir = path.join(CWD, 'renderer');
+    const r = await evaluate(
+      "JSON.stringify(Array.prototype.map.call(document.scripts, function (s) {"
+      + " return s.getAttribute('src') || ''; }).filter(Boolean))"
+    );
+    let srcs = null;
+    try {
+      srcs = JSON.parse((r.result && r.result.result && r.result.result.value) || 'null');
+    } catch (e) { /* 拿不到清单 */ }
+
+    if (!require('fs').existsSync(rendererDir)) {
+      rows.push(['--  ', 'DOM', '脚本文件在磁盘上存在 (打包产物, 跳过)',
+        `无源目录 ${rendererDir}`]);
+    } else if (!Array.isArray(srcs)) {
+      bad++;
+      rows.push(['!!  ', 'DOM', '脚本文件在磁盘上存在', '拿不到页面脚本清单']);
+    } else {
+      const missing = srcs
+        .map(s => s.split('?')[0])
+        .filter(rel => !require('fs').existsSync(path.join(rendererDir, rel)));
+      const ok = missing.length === 0;
+      if (!ok) bad++;
+      rows.push([ok ? 'OK  ' : '!!  ', 'DOM',
+        `脚本文件在磁盘上存在 (共 ${srcs.length} 个)`,
+        ok ? 'true' : '找不到: ' + missing.join(', ')]);
+    }
+  }
+
   const w = Math.max(...rows.map(r => r[2].length));
   for (const [flag, mod, label, val] of rows) {
     console.log(`${flag} ${mod.padEnd(14)} ${label.padEnd(w)}  -> ${val}`);
@@ -200,8 +283,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   console.log(bad ? `\n有 ${bad} 项异常 —— 拆分破坏了全局绑定` : '\n全部命中: 拆分后各模块的全局绑定在真实页面里都存在, 且加载期无报错');
 
+  // 非 TTY(输出重定向到文件/管道)时, 本会话里 stdout 经常整个拿不到内容 ——
+  // 所以顺手把结果也落一份盘, 保证任何场景都能拿到结论。
+  try {
+    require('fs').writeFileSync(path.join(__dirname, 'probe_result.txt'),
+      rows.map(([flag, mod, label, val]) => `${flag} ${mod.padEnd(14)} ${label} -> ${val}`).join('\n')
+      + `\n\n异常项: ${bad}\n加载期报错: ${JSON.stringify(errList)}\n`);
+  } catch (e) { }
+
   ws.close();
   spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
   await sleep(800);
-  process.exit(bad ? 1 : 0);
+  // 不要用 process.exit(): 它会在 stdout 排空前就结束进程 ——
+  // 实测把输出重定向到文件/管道时(非 TTY), 上面所有 console.log 会**全部消失**,
+  // 只剩一个退出码, 看起来像"探针根本没跑"。改成写一个换行等排空 + 设 exitCode 自然退出。
+  await new Promise(r => process.stdout.write('\n', r));
+  process.exitCode = bad ? 1 : 0;
 })();
