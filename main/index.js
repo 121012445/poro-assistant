@@ -51,6 +51,10 @@ function envSnapshot() {
     part('arch', () => process.arch),
     part('ram', () => Math.round(require('os').totalmem() / 1073741824) + 'GB'),
     part('packaged', () => app.isPackaged),
+    // 受限版(asInvoker)与正式版的唯一差别就是这一项。排查"游戏内热键/聊天用不了"先看它。
+    // 用内联 require 而不是模块级变量: envSnapshot 可能在文件顶部 require 执行之前
+    // 就被 reportFatal 调用(例如 requestSingleInstanceLock 抛异常), 那时变量还在 TDZ 里。
+    part('elevated', () => require('./elevation').describe()),
     'flags=' + (flags.join('+') || 'none')
   ].join(' ');
 }
@@ -1215,8 +1219,10 @@ function runGameChatInput(text, activate, submit) {
       };
       const output = decode(stdout).trim();
       if (!error && output === 'OK') return resolve({ ok: true, via: submit ? 'native-send' : 'native-input' });
-      const detail = (decode(stderr) || error?.message || '输入失败').trim().substring(0, 240);
-      logErr('[GAME INPUT] ' + detail);
+      const raw = (decode(stderr) || error?.message || '输入失败').trim().substring(0, 240);
+      // 未提权时 SendInput 会被 UIPI 拦掉, 只丢一个"SendInput错误 5"用户无从下手
+      const detail = require('./elevation').explainGameInputError(raw);
+      logErr('[GAME INPUT] ' + raw + (detail !== raw ? ' (elevated=' + require('./elevation').describe() + ')' : ''));
       resolve({ ok: false, error: detail });
     });
   });

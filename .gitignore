@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-limited/
 backup-20260831/
 *.log
 *.txt
