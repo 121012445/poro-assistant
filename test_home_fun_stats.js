@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
-const { deriveHomeFunStats } = require('./renderer/js/home');
+const { deriveHomeFunStats, pickFunHighlights, classifyHeroPool, classifyCombatStyle } = require('./renderer/js/home');
 
 const base = new Date(2026, 8, 20, 20, 0, 0).getTime();
 const rows = [
@@ -92,7 +92,90 @@ assert.strictEqual(flavor.goldenPartner.games, 3);
 assert.strictEqual(flavor.nemesis.id, 9);
 assert.strictEqual(flavor.nemesis.games, 3);
 assert.strictEqual(flavor.bestPeriod.key, 'morning');
-assert.ok(flavor.combatStyle?.label && flavor.heroPoolProfile?.label, '战斗风格与英雄池专一度必须生成');
+assert.strictEqual(flavor.combatStyle.label, '稳健输出型',
+  '战斗风格：参团 100% 但无治疗/护盾数据时不应误判为团队辅助型，应落到稳健输出型');
+assert.strictEqual(flavor.heroPoolProfile.label, '均衡英雄池',
+  '英雄池：3 场样本不足任何分支的 5 场门槛，应落到均衡英雄池兜底');
+
+// ── 分类阈值 ────────────────────────────────────────────────────────────────
+// 2026-09-27 补。此前这里只有 `assert.ok(flavor.combatStyle?.label && ...)` ——
+// 只要 label 非空就绿，**阈值改错了完全测不出来**，和 test_live_layout.js 里的
+// 字符串 grep 是同一类"永远绿"的假断言。
+// 现在 classifyCombatStyle / classifyHeroPool 已抽成具名纯函数，直接按输入钉住每条分支
+// 与每个边界（>= 与 > 的差别、门槛值本身）。
+const perfBase = () => ({ averageKda: 2, averageKills: 5, averageDeaths: 5, averageUtility: 0 });
+const styleOf = (patch, participation, dmg, taken) =>
+  classifyCombatStyle(Object.assign(perfBase(), patch), participation, dmg, taken).label;
+
+// 团队辅助型：治疗护盾 ≥3500 且参团 ≥60%，两个条件缺一不可
+// 下面三条把门槛**精确钉在临界值上**：只测 4000/3499 和 70/59 是拦不住
+// "3500 -> 3501"、"60 -> 61" 这类改动的（负向验证实测漏过）。
+assert.strictEqual(styleOf({ averageUtility: 3500 }, 60, 10000, 10000), '团队辅助型',
+  '治疗护盾 3500 与参团 60% 恰好等于门槛时应判为团队辅助型');
+assert.strictEqual(styleOf({ averageUtility: 3500 }, 59, 10000, 10000), '稳健输出型',
+  '参团 59% 未达 60% 门槛，不应判为团队辅助型');
+assert.strictEqual(styleOf({ averageUtility: 3499 }, 60, 10000, 10000), '稳健输出型',
+  '治疗护盾 3499 未达 3500 门槛，不应判为团队辅助型');
+assert.strictEqual(styleOf({ averageUtility: 4000 }, 70, 10000, 10000), '团队辅助型');
+// 前排抗压型：承伤 ≥12000 且严格大于输出 1.2 倍（注意是 > 不是 >=）
+// 9000/12000 把 12000 门槛钉死；10000/12500（比值 1.25）把 1.2 倍钉死 ——
+// 只用 10000/15000 是拦不住 "12000 -> 13000" 和 "1.2 -> 1.3" 的。
+assert.strictEqual(styleOf({}, 0, 9000, 12000), '前排抗压型',
+  '承伤恰好 12000 且高于输出 1.2 倍时应判为前排抗压型');
+assert.strictEqual(styleOf({}, 0, 9000, 11999), '均衡适应型', '承伤 11999 未达 12000 门槛');
+assert.strictEqual(styleOf({}, 0, 10000, 12500), '前排抗压型',
+  '承伤为输出 1.25 倍时仍应判为前排抗压型（1.2 倍门槛的临界之上）');
+assert.strictEqual(styleOf({}, 0, 10000, 12000), '稳健输出型',
+  '承伤恰好等于输出 1.2 倍时不应判为前排抗压型（该规则是严格大于）');
+assert.strictEqual(styleOf({}, 0, 10000, 15000), '前排抗压型');
+// 激进收割型：场均击杀 ≥8，或（场均死亡 ≥8 且输出 ≥15000）
+assert.strictEqual(styleOf({ averageKills: 8 }, 0, 10000, 10000), '激进收割型');
+assert.strictEqual(styleOf({ averageDeaths: 8, averageKills: 3 }, 0, 15000, 10000), '激进收割型');
+assert.strictEqual(styleOf({ averageDeaths: 8, averageKills: 3 }, 0, 14999, 10000), '均衡适应型',
+  '输出 14999 未达 15000 门槛，不应判为激进收割型');
+// 稳健输出型：场均死亡 ≤5 且输出不低于承伤 0.8 倍
+assert.strictEqual(styleOf({ averageDeaths: 5 }, 0, 20000, 20000), '稳健输出型');
+// 兜底
+assert.strictEqual(styleOf({ averageDeaths: 6 }, 0, 20000, 10000), '均衡适应型',
+  '场均死亡 6 已越过 ≤5 门槛，应落到均衡适应型兜底');
+// 兜底详情的参团占位符：0 要显示 '--' 而不是 '0%'
+assert.strictEqual(classifyCombatStyle(Object.assign(perfBase(), { averageDeaths: 6 }), 0, 20000, 10000).detail,
+  'KDA 2.00 · 参团 --', '参团率为 0 时应显示占位符 --');
+assert.strictEqual(classifyCombatStyle(Object.assign(perfBase(), { averageDeaths: 6 }), 50, 20000, 10000).detail,
+  'KDA 2.00 · 参团 50%');
+
+// 英雄池专一度：判定顺序即优先级，先看最常用英雄占比 → 英雄数 → 前三占比
+const poolOf = (games, distinct, topShare, topThreeShare) =>
+  classifyHeroPool(new Array(games), new Map(Array.from({ length: distinct }, (_, i) => ['c' + i, {}])),
+    topShare, topThreeShare).label;
+assert.strictEqual(poolOf(5, 2, 0.45, 1), '绝活专精', '最常用英雄占比恰好 45% 即达门槛');
+assert.strictEqual(poolOf(5, 2, 0.44, 0.75), '精简英雄池', '占比 44% 未达 45%，应继续往下判定');
+assert.strictEqual(poolOf(4, 2, 0.5, 1), '均衡英雄池', '4 场未达任何分支的 5 场门槛，应兜底');
+assert.strictEqual(poolOf(8, 6, 0.25, 0.625), '全能选手', '8 场 6 位英雄恰好 75% 即达门槛');
+assert.strictEqual(poolOf(8, 5, 0.25, 0.625), '均衡英雄池', '5/8=62.5% 未达 75%，且前三占比未达 75%');
+assert.strictEqual(poolOf(5, 3, 0.4, 1), '精简英雄池', '前三英雄覆盖 100% 即达门槛');
+assert.strictEqual(poolOf(5, 3, 0.4, 0.74), '均衡英雄池', '前三覆盖 74% 未达 75%');
+assert.strictEqual(poolOf(9, 6, 0.22, 0.667), '均衡英雄池', '全部门槛均未命中时应兜底');
+assert.strictEqual(poolOf(8, 7, 0.5, 0.9), '绝活专精',
+  '绝活专精优先级高于全能选手：同时满足时取前者');
+
+// pickFunHighlights 是纯搬移（逐字节 diff 已验证），这里只钉住它"故意写回对象"的那一行
+const highlights = pickFunHighlights({
+  periods: [{ key: 'evening', games: 3, wins: 2 }],
+  champions: new Map([['1', { id: 1, games: 3, wins: 3 }], ['2', { id: 2, games: 1, wins: 0 }]]),
+  favoriteItems: new Map(),
+  itemTriples: new Map(),
+  roleStats: new Map([['Mage', { tag: 'Mage', games: 2, wins: 2, k: 10, d: 2, a: 12, champions: new Set([1, 3]) }]]),
+  partners: new Map(),
+  nemeses: new Map()
+});
+assert.strictEqual(highlights.luckyChampion.id, 1, '幸运英雄只统计至少 2 场的英雄');
+assert.strictEqual(highlights.favoriteRole.championCount, 2,
+  'favoriteRole.championCount 必须由 champions.size 回填（下游按该字段显示"用过 N 个英雄"）');
+assert.strictEqual(highlights.favoriteItem, null, '没有装备数据时应返回 null 而不是 undefined');
+assert.strictEqual(highlights.favoriteTriple, null, '没有三件套数据时应返回 null 而不是 undefined');
+assert.strictEqual(highlights.goldenPartner, null, '没有队友数据时应返回 null 而不是 undefined');
+assert.strictEqual(highlights.nemesis, null);
 
 const homeSource = fs.readFileSync('renderer/js/home.js', 'utf8');
 const searchSource = fs.readFileSync('renderer/js/hex.js', 'utf8');

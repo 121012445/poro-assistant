@@ -97,6 +97,74 @@ const PROBES = [
    " 'home-mode-filter', 'Probe'].every(function (c) { return h.indexOf(c) >= 0; });" +
    " } catch (e) { return 'throw: ' + e.message; } })()",
    'bool'],
+  // 2026-09-27: 挑亮点/分类从 deriveHomeFunStats 抽成了三个具名纯函数。
+  // 为什么值得在真机探针里再验一遍（test_home_fun_stats.js 已经测过阈值）:
+  //   1) 单测是 require 进来的模块实例, 探针验的是**页面里那份脚本**真的加载成功、
+  //      三个函数真的挂到了全局 —— 少一个模块、加载顺序错了, 单测照样全绿。
+  //   2) 阈值用"恰好等于门槛"的输入钉住, 改错一个 >= 立刻红。
+  ['home.js', 'pickFunHighlights 存在', "typeof pickFunHighlights"],
+  ['home.js', 'classifyHeroPool 存在', "typeof classifyHeroPool"],
+  ['home.js', 'classifyCombatStyle 存在', "typeof classifyCombatStyle"],
+  ['home.js', 'pickFunHighlights 只统计 >=2 场 + championCount 回填 + 空数据返回 null',
+   "(function () { try {"
+   + " var h = pickFunHighlights({"
+   + "   periods: [{ key: 'evening', games: 3, wins: 2 }],"
+   + "   champions: new Map([['1', { id: 1, games: 3, wins: 3 }], ['2', { id: 2, games: 1, wins: 0 }]]),"
+   + "   favoriteItems: new Map(), itemTriples: new Map(),"
+   + "   roleStats: new Map([['Mage', { tag: 'Mage', games: 2, wins: 2, k: 10, d: 2, a: 12, champions: new Set([1, 3]) }]]),"
+   + "   partners: new Map(), nemeses: new Map() });"
+   + " if (h.luckyChampion.id !== 1) return '幸运英雄应只统计 >=2 场的: ' + JSON.stringify(h.luckyChampion);"
+   + " if (h.favoriteRole.championCount !== 2) return 'championCount 未按 champions.size 回填: ' + h.favoriteRole.championCount;"
+   + " if (h.favoriteItem !== null || h.favoriteTriple !== null || h.goldenPartner !== null || h.nemesis !== null)"
+   + "   return '空数据应返回 null 而不是 undefined';"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
+  ['home.js', 'classifyCombatStyle 阈值与优先级（含临界值）',
+   "(function () { try {"
+   + " var p = function (o) { return Object.assign({ averageKda: 2, averageKills: 5, averageDeaths: 5, averageUtility: 0 }, o || {}); };"
+   + " var s = function (o, pa, d, t) { return classifyCombatStyle(p(o), pa, d, t).label; };"
+   + " var cases = ["
+   + "   [s({ averageUtility: 3500 }, 60, 10000, 10000), '团队辅助型'],"
+   + "   [s({ averageUtility: 3500 }, 59, 10000, 10000), '稳健输出型'],"
+   + "   [s({ averageUtility: 3499 }, 60, 10000, 10000), '稳健输出型'],"
+   + "   [s({}, 0, 9000, 12000), '前排抗压型'],"
+   + "   [s({}, 0, 9000, 11999), '均衡适应型'],"
+   + "   [s({}, 0, 10000, 12500), '前排抗压型'],"
+   + "   [s({}, 0, 10000, 12000), '稳健输出型'],"
+   + "   [s({ averageKills: 8 }, 0, 10000, 10000), '激进收割型'],"
+   + "   [s({ averageDeaths: 8, averageKills: 3 }, 0, 15000, 10000), '激进收割型'],"
+   + "   [s({ averageDeaths: 8, averageKills: 3 }, 0, 14999, 10000), '均衡适应型'],"
+   + "   [s({ averageDeaths: 6 }, 0, 20000, 10000), '均衡适应型']"
+   + " ];"
+   + " for (var i = 0; i < cases.length; i++) if (cases[i][0] !== cases[i][1])"
+   + "   return '第 ' + (i + 1) + ' 条期望 ' + cases[i][1] + ', 实际 ' + cases[i][0];"
+   + " var d = classifyCombatStyle(p({ averageDeaths: 6 }), 0, 20000, 10000).detail;"
+   + " if (d.indexOf('参团 --') < 0) return '参团率 0 应显示占位符 --, 实际: ' + d;"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
+  ['home.js', 'classifyHeroPool 阈值与优先级（含临界值）',
+   "(function () { try {"
+   + " var pool = function (n, size, a, b) {"
+   + "   var m = new Map(); for (var i = 0; i < size; i++) m.set('c' + i, {});"
+   + "   return classifyHeroPool(new Array(n), m, a, b).label; };"
+   + " var cases = ["
+   + "   [pool(5, 2, 0.45, 1), '绝活专精'],"
+   + "   [pool(5, 2, 0.44, 0.75), '精简英雄池'],"
+   + "   [pool(4, 2, 0.5, 1), '均衡英雄池'],"
+   + "   [pool(8, 6, 0.25, 0.625), '全能选手'],"
+   + "   [pool(8, 5, 0.25, 0.625), '均衡英雄池'],"
+   + "   [pool(5, 3, 0.4, 1), '精简英雄池'],"
+   + "   [pool(5, 3, 0.4, 0.74), '均衡英雄池'],"
+   + "   [pool(9, 6, 0.22, 0.667), '均衡英雄池'],"
+   + "   [pool(8, 7, 0.5, 0.9), '绝活专精']"
+   + " ];"
+   + " for (var i = 0; i < cases.length; i++) if (cases[i][0] !== cases[i][1])"
+   + "   return '第 ' + (i + 1) + ' 条期望 ' + cases[i][1] + ', 实际 ' + cases[i][0];"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
   ['review.js', 'buildPoroRating', "typeof buildPoroRating"],
   ['theme.js', 'applyTheme', "typeof applyTheme"],
   ['hex.js', 'collectHexAugments', "typeof collectHexAugments"],

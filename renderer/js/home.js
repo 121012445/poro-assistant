@@ -232,6 +232,64 @@ function isHomeSignatureItem(itemId, itemCatalog) {
   return (+item.gold?.total || 0) >= 1600;
 }
 
+// 从累加结果里挑出各项"最"：最常玩时段、幸运英雄、钟爱装备/三件套/位置、
+// 最佳时段、黄金队友、苦主。
+//
+// 2026-09-27 从 deriveHomeFunStats 抽出。这一段是 8 条 sort/filter 取值链，
+// 夹在累加循环和分类规则之间；抽出来后主函数变成清晰的
+// 「累加 → 挑亮点 → 分类 → 返回」四步。
+//
+// 注意 favoriteRole.championCount 是**故意**写回对象的 —— 下游按这个字段显示
+// "用过 N 个英雄", 原来就在这儿赋值。
+function pickFunHighlights(acc) {
+  const { periods, champions, favoriteItems, itemTriples, roleStats, partners, nemeses } = acc;
+  const favoritePeriod = periods.slice().sort((a, b) => b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0];
+  const luckyChampion = [...champions.values()].filter(item => item.games >= 2).sort((a, b) =>
+    b.wins / b.games - a.wins / a.games || b.games - a.games || a.id - b.id)[0] || null;
+  const favoriteItem = [...favoriteItems.values()].sort((a, b) =>
+    b.games - a.games || b.wins / b.games - a.wins / a.games || a.id - b.id)[0] || null;
+  const favoriteTriple = [...itemTriples.values()].sort((a, b) =>
+    b.games - a.games || b.wins / b.games - a.wins / a.games || a.ids.join('-').localeCompare(b.ids.join('-')))[0] || null;
+  const favoriteRole = [...roleStats.values()].filter(role => role.games >= 2).sort((a, b) =>
+    b.games - a.games || b.wins / b.games - a.wins / a.games ||
+    (b.k + b.a) / Math.max(1, b.d) - (a.k + a.a) / Math.max(1, a.d) || a.tag.localeCompare(b.tag))[0] || null;
+  if (favoriteRole) favoriteRole.championCount = favoriteRole.champions.size;
+  const bestPeriod = periods.filter(period => period.games >= 2).sort((a, b) =>
+    b.wins / b.games - a.wins / a.games || b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0] || null;
+  const goldenPartner = [...partners.values()].filter(item => item.games >= 2).sort((a, b) =>
+    b.wins / b.games - a.wins / a.games || b.games - a.games || a.name.localeCompare(b.name))[0] || null;
+  const nemesis = [...nemeses.values()].filter(item => item.games >= 2).sort((a, b) =>
+    b.losses / b.games - a.losses / a.games || b.games - a.games || a.id - b.id)[0] || null;
+  return { favoritePeriod, luckyChampion, favoriteItem, favoriteTriple, favoriteRole, bestPeriod, goldenPartner, nemesis };
+}
+
+// 英雄池专一度分类。
+//
+// 2026-09-27 从 deriveHomeFunStats 抽出，把原来一长串匿名 if/else 变成具名规则 ——
+// 之前测试只能断言"label 存在"(test_home_fun_stats.js 第 95 行), 阈值改错了照样绿。
+// 现在可以按具体输入断言会落到哪个 label。
+// 判定顺序即优先级: 先看最常用英雄占比, 再看英雄数量, 最后看前三占比。
+function classifyHeroPool(list, champions, topShare, topThreeShare) {
+  if (list.length >= 5 && topShare >= 0.45) return { label: '绝活专精', detail: `最常用英雄占近期 ${Math.round(topShare * 100)}%` };
+  if (list.length >= 8 && champions.size / list.length >= 0.75) return { label: '全能选手', detail: `${list.length} 场使用 ${champions.size} 位英雄` };
+  if (list.length >= 5 && topThreeShare >= 0.75) return { label: '精简英雄池', detail: `前三英雄覆盖 ${Math.round(topThreeShare * 100)}% 对局` };
+  return { label: '均衡英雄池', detail: `${list.length} 场使用 ${champions.size} 位英雄` };
+}
+
+// 战斗风格分类。
+//
+// 2026-09-27 从 deriveHomeFunStats 抽出，同 classifyHeroPool。
+// 判定顺序即优先级: 团队辅助 → 前排抗压 → 激进收割 → 稳健输出 → 兜底均衡。
+// participation / avgDamage / avgTaken 由调用方先做 `|| 0` 兜底再传进来 ——
+// 这里拿到的都是数字, 不用再考虑 null。
+function classifyCombatStyle(performance, participation, avgDamage, avgTaken) {
+  if ((performance.averageUtility || 0) >= 3500 && participation >= 60) return { label: '团队辅助型', detail: `平均参团 ${Math.round(participation)}% · 治疗护盾 ${Math.round(performance.averageUtility)}` };
+  if (avgTaken > avgDamage * 1.2 && avgTaken >= 12000) return { label: '前排抗压型', detail: `场均承伤 ${Math.round(avgTaken).toLocaleString('en-US')}` };
+  if (performance.averageKills >= 8 || (performance.averageDeaths >= 8 && avgDamage >= 15000)) return { label: '激进收割型', detail: `场均 ${performance.averageKills.toFixed(1)} 杀 · ${performance.averageDeaths.toFixed(1)} 死` };
+  if (performance.averageDeaths <= 5 && avgDamage >= avgTaken * 0.8) return { label: '稳健输出型', detail: `场均死亡 ${performance.averageDeaths.toFixed(1)} · KDA ${performance.averageKda.toFixed(2)}` };
+  return { label: '均衡适应型', detail: `KDA ${performance.averageKda.toFixed(2)} · 参团 ${participation ? Math.round(participation) + '%' : '--'}` };
+}
+
 function deriveHomeFunStats(rows, catalogs = {}) {
   const list = Array.isArray(rows) ? rows.filter(row => row?.game && row?.me) : [];
   const periods = [
@@ -355,31 +413,14 @@ function deriveHomeFunStats(rows, catalogs = {}) {
       if (period) { period.games++; period.wins += me.win ? 1 : 0; }
     }
   }
-  const favoritePeriod = periods.slice().sort((a, b) => b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0];
-  const luckyChampion = [...champions.values()].filter(item => item.games >= 2).sort((a, b) =>
-    b.wins / b.games - a.wins / a.games || b.games - a.games || a.id - b.id)[0] || null;
-  const favoriteItem = [...favoriteItems.values()].sort((a, b) =>
-    b.games - a.games || b.wins / b.games - a.wins / a.games || a.id - b.id)[0] || null;
-  const favoriteTriple = [...itemTriples.values()].sort((a, b) =>
-    b.games - a.games || b.wins / b.games - a.wins / a.games || a.ids.join('-').localeCompare(b.ids.join('-')))[0] || null;
-  const favoriteRole = [...roleStats.values()].filter(role => role.games >= 2).sort((a, b) =>
-    b.games - a.games || b.wins / b.games - a.wins / a.games ||
-    (b.k + b.a) / Math.max(1, b.d) - (a.k + a.a) / Math.max(1, a.d) || a.tag.localeCompare(b.tag))[0] || null;
-  if (favoriteRole) favoriteRole.championCount = favoriteRole.champions.size;
-  const bestPeriod = periods.filter(period => period.games >= 2).sort((a, b) =>
-    b.wins / b.games - a.wins / a.games || b.games - a.games || periods.indexOf(a) - periods.indexOf(b))[0] || null;
-  const goldenPartner = [...partners.values()].filter(item => item.games >= 2).sort((a, b) =>
-    b.wins / b.games - a.wins / a.games || b.games - a.games || a.name.localeCompare(b.name))[0] || null;
-  const nemesis = [...nemeses.values()].filter(item => item.games >= 2).sort((a, b) =>
-    b.losses / b.games - a.losses / a.games || b.games - a.games || a.id - b.id)[0] || null;
+  // 挑亮点见前面的 pickFunHighlights()
+  const { favoritePeriod, luckyChampion, favoriteItem, favoriteTriple, favoriteRole, bestPeriod, goldenPartner, nemesis } =
+    pickFunHighlights({ periods, champions, favoriteItems, itemTriples, roleStats, partners, nemeses });
   const championUsage = [...champions.values()].sort((a, b) => b.games - a.games || a.id - b.id);
   const topShare = list.length ? (championUsage[0]?.games || 0) / list.length : 0;
   const topThreeShare = list.length ? championUsage.slice(0, 3).reduce((sum, item) => sum + item.games, 0) / list.length : 0;
-  let heroPoolProfile;
-  if (list.length >= 5 && topShare >= 0.45) heroPoolProfile = { label: '绝活专精', detail: `最常用英雄占近期 ${Math.round(topShare * 100)}%` };
-  else if (list.length >= 8 && champions.size / list.length >= 0.75) heroPoolProfile = { label: '全能选手', detail: `${list.length} 场使用 ${champions.size} 位英雄` };
-  else if (list.length >= 5 && topThreeShare >= 0.75) heroPoolProfile = { label: '精简英雄池', detail: `前三英雄覆盖 ${Math.round(topThreeShare * 100)}% 对局` };
-  else heroPoolProfile = { label: '均衡英雄池', detail: `${list.length} 场使用 ${champions.size} 位英雄` };
+  // 分类见前面的 classifyHeroPool()
+  const heroPoolProfile = classifyHeroPool(list, champions, topShare, topThreeShare);
   const performance = {
     averageKda: (totalKills + totalAssists) / Math.max(1, totalDeaths),
     averageKills: list.length ? totalKills / list.length : 0,
@@ -396,12 +437,8 @@ function deriveHomeFunStats(rows, catalogs = {}) {
   const participation = performance.averageParticipation || 0;
   const avgDamage = performance.averageDamage || 0;
   const avgTaken = performance.averageDamageTaken || 0;
-  let combatStyle;
-  if ((performance.averageUtility || 0) >= 3500 && participation >= 60) combatStyle = { label: '团队辅助型', detail: `平均参团 ${Math.round(participation)}% · 治疗护盾 ${Math.round(performance.averageUtility)}` };
-  else if (avgTaken > avgDamage * 1.2 && avgTaken >= 12000) combatStyle = { label: '前排抗压型', detail: `场均承伤 ${Math.round(avgTaken).toLocaleString('en-US')}` };
-  else if (performance.averageKills >= 8 || (performance.averageDeaths >= 8 && avgDamage >= 15000)) combatStyle = { label: '激进收割型', detail: `场均 ${performance.averageKills.toFixed(1)} 杀 · ${performance.averageDeaths.toFixed(1)} 死` };
-  else if (performance.averageDeaths <= 5 && avgDamage >= avgTaken * 0.8) combatStyle = { label: '稳健输出型', detail: `场均死亡 ${performance.averageDeaths.toFixed(1)} · KDA ${performance.averageKda.toFixed(2)}` };
-  else combatStyle = { label: '均衡适应型', detail: `KDA ${performance.averageKda.toFixed(2)} · 参团 ${participation ? Math.round(participation) + '%' : '--'}` };
+  // 分类见前面的 classifyCombatStyle()
+  const combatStyle = classifyCombatStyle(performance, participation, avgDamage, avgTaken);
   return { sampleSize: list.length, longestWinStreak, zeroDeaths, uniqueChampions: champions.size, favoritePeriod, bestPeriod, maxDamage, bestKda, longestGame, luckyChampion, favoriteItem, favoriteTriple, favoriteRole, goldenPartner, nemesis, heroPoolProfile, combatStyle, performance };
 }
 
@@ -1822,4 +1859,4 @@ async function expandOpggGame(el, gameId) {
   })();
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { deriveHomeFunStats, isHomeSignatureItem };
+if (typeof module !== 'undefined' && module.exports) module.exports = { deriveHomeFunStats, isHomeSignatureItem, pickFunHighlights, classifyHeroPool, classifyCombatStyle };
