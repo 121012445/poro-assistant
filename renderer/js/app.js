@@ -72,6 +72,9 @@ function switchPage(page) {
   document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add("active");
   if (page === "champions") renderChampionGrid();
   if (page === "counters") updateCounterClientPick();
+  // 「我的画像」的两块内容(擅长与提升 / 趣味档案)是懒渲染的: 首屏不再计算它们,
+  // 进页面时才用首页已加载的战绩现算一次。数据没到就显示空状态。
+  if (page === "profile" && typeof renderProfilePage === "function") renderProfilePage();
   if (page === "tools") {
     populateBgChampionList();
     // 提权提示要在打开工具箱时就显示，不能等用户点"刷新诊断"才出现
@@ -190,7 +193,7 @@ async function init() {
     loadEncounters();
     // 页面深链 (#tools 等)
     const pageHash = (location.hash || '').replace('#', '');
-    if (["champions", "counters", "live", "hex", "tools", "blacklist"].includes(pageHash)) switchPage(pageHash);
+    if (["profile", "champions", "counters", "live", "hex", "tools", "blacklist"].includes(pageHash)) switchPage(pageHash);
   } catch (e) {
     console.error("初始化失败", e);
   }

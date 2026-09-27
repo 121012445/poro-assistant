@@ -94,7 +94,11 @@ const PROBES = [
    "penta: 0, fb: 1, games: [], champCount: {}, champMeta: {}, friendCount: {}," +
    "tagCache: {}, rankRows: [], modeStats: {}" +
    "}); return ['home-layout', 'home-header', 'home-stats', 'home-games'," +
-   " 'home-mode-filter', 'Probe'].every(function (c) { return h.indexOf(c) >= 0; });" +
+   // home-profile-entry: 2026-09-27 两块内容拆走后, 首页必须留下这行入口,
+   // 否则用户根本找不到「我的画像」在哪。
+   // 反向也盯住: 首页不该再出现两块内容自身的容器。
+   " 'home-mode-filter', 'home-profile-entry', 'Probe'].every(function (c) { return h.indexOf(c) >= 0; })" +
+   " && h.indexOf('class=\"home-fun\"') < 0 && h.indexOf('class=\"home-coach\"') < 0;" +
    " } catch (e) { return 'throw: ' + e.message; } })()",
    'bool'],
   // 2026-09-27: 挑亮点/分类从 deriveHomeFunStats 抽成了三个具名纯函数。
@@ -162,6 +166,91 @@ const PROBES = [
    + " ];"
    + " for (var i = 0; i < cases.length; i++) if (cases[i][0] !== cases[i][1])"
    + "   return '第 ' + (i + 1) + ' 条期望 ' + cases[i][1] + ', 实际 ' + cases[i][0];"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
+  // 2026-09-27: 「我的擅长与提升」与「玩家趣味档案」从首页拆到独立页 #page-profile。
+  // 拆分后光看首页日志完全看不出问题 —— 首页照常渲染, 只是少了两块内容。
+  // 所以这里真的切一次页, 并用合成数据把两块内容渲染出来看标题在不在。
+  ['DOM', '#page-profile 与 #profilePanel 存在',
+   "!!(document.getElementById('page-profile') && document.getElementById('profilePanel'))"],
+  ['DOM', '导航项 data-page=profile 存在',
+   "!!document.querySelector('.nav-item[data-page=profile]')"],
+  ['home.js', 'renderProfilePage 存在', "typeof renderProfilePage"],
+  ['home.js', '首页模板不再内联两块内容, 只留入口行',
+   "(function () { try {"
+   + " var src = String(buildHomeTemplate);"
+   + " if (src.indexOf('buildHomeFunStats') >= 0 || src.indexOf('buildHomeCoach') >= 0)"
+   + "   return '首页模板仍在调用两块内容的 builder, 首页会重新变拥挤';"
+   + " if (src.indexOf('home-profile-entry') < 0) return '首页模板缺 .home-profile-entry 入口行';"
+   + " if (src.indexOf(\"switchPage('profile')\") < 0) return '首页入口不会跳到 profile 页';"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
+  // 夹具要点: buildHomeFunStats 内部是 findProfileParticipant(game, {puuid}) ——
+  // 它去 game.participants 里按 puuid 找本人。只给行上的 me 而 participants 留空,
+  // 趣味档案会算成 0 场直接返回空串 (第一次跑就踩到了, 报 .home-fun=false)。
+  // 另外: 下面的表达式是靠 + 拼成**单行**的, 表达式内部绝对不能写 // 注释 ——
+  // 它会把这一行剩下的 } finally { ... } catch 全注释掉 (实测报
+  // "Missing catch or finally after try")。注释只能写在这里, 也就是字符串外面。
+  ['home.js', 'renderProfilePage 用合成数据渲染出两块内容',
+   "(function () { try {"
+   + " var host = document.getElementById('profilePanel');"
+   + " if (!host) return '找不到 #profilePanel';"
+   + " var savedD = homeGamesData, savedO = homeGamesOwner, savedHtml = host.innerHTML;"
+   + " try {"
+   + "   homeGamesData = [{ dur: 1800, time: Date.now(), participants: ["
+   + "       { puuid: 'probe-puuid', teamId: 100, championId: 1, k: 5, d: 2, a: 7,"
+   + "         dmg: 15000, dmgTaken: 9000, gold: 9000, items: [3001, 3003, 3004], win: true }"
+   + "     ] }];"
+   + "   homeGamesOwner = 'probe-puuid';"
+   + "   renderProfilePage();"
+   + "   var hasFun = !!host.querySelector('.home-fun');"
+   + "   var hasCoach = !!host.querySelector('.home-coach');"
+   + "   if (!hasFun || !hasCoach) {"
+   + "     var g0 = homeGamesData[0];"
+   + "     var me = findProfileParticipant(g0, { puuid: homeGamesOwner });"
+   + "     var sample = deriveHomeFunStats([{ game: g0, me: me }],"
+   + "       { champions: allChampions, items: allItems }).sampleSize;"
+   + "     return '两块内容未同时渲染: .home-fun=' + hasFun + ' .home-coach=' + hasCoach"
+   + "       + ' games=' + homeGamesData.length + ' owner=' + homeGamesOwner"
+   + "       + ' participants=' + (g0.participants ? g0.participants.length : 'undefined')"
+   + "       + ' 找到本人=' + (me ? 'yes' : 'null') + ' sampleSize=' + sample;"
+   + "   }"
+   + "   var txt = host.textContent || '';"
+   + "   if (txt.indexOf('玩家趣味档案') < 0) return '缺「玩家趣味档案」标题';"
+   + "   if (txt.indexOf('我的擅长与提升') < 0) return '缺「我的擅长与提升」标题';"
+   + "   if (host.dataset.owner !== 'probe-puuid') return '未记录 dataset.owner, 首页刷新后不会补渲染';"
+   + "   return true;"
+   + " } finally {"
+   + "   homeGamesData = savedD; homeGamesOwner = savedO;"
+   + "   host.innerHTML = savedHtml; delete host.dataset.owner;"
+   + " }"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
+  ['home.js', '数据未加载时 renderProfilePage 走空状态而不是抛错',
+   "(function () { try {"
+   + " var host = document.getElementById('profilePanel');"
+   + " var savedD = homeGamesData, savedO = homeGamesOwner, savedHtml = host.innerHTML;"
+   + " try {"
+   + "   homeGamesData = null; homeGamesOwner = null;"
+   + "   renderProfilePage();"
+   + "   if (host.querySelector('.home-fun') || host.querySelector('.home-coach')) return '无数据却渲染出了内容';"
+   + "   if ((host.textContent || '').indexOf('先到「首页」') < 0) return '缺空状态提示文案';"
+   + "   return true;"
+   + " } finally { homeGamesData = savedD; homeGamesOwner = savedO; host.innerHTML = savedHtml; }"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
+  ['app.js', 'switchPage 认得 profile 且能切回首页',
+   "(function () { try {"
+   + " if (typeof switchPage !== 'function') return 'switchPage 不存在';"
+   + " switchPage('profile');"
+   + " var p = document.getElementById('page-profile');"
+   + " if (!p || !p.classList.contains('active')) return 'profile 页未被激活';"
+   + " var nav = document.querySelector('.nav-item[data-page=profile]');"
+   + " if (!nav || !nav.classList.contains('active')) return 'profile 导航项未高亮';"
+   + " switchPage('home');"
+   + " if (!document.getElementById('page-home').classList.contains('active')) return '切回首页失败';"
    + " return true;"
    + " } catch (e) { return 'throw: ' + e.message; } })()",
    'bool'],

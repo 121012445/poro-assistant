@@ -318,3 +318,30 @@
 .rv-auto-points { display:grid; grid-template-columns:1fr 1fr; gap:3px 12px; }
 .rv-auto-points p { margin:0; color:var(--text-secondary); font-size:10px; line-height:1.45; }
 .rv-auto-review > strong { display:block; margin-top:6px; color:var(--positive); font-size:10px; }
+
+/* ── 我的画像（#page-profile）────────────────────────────────────────────────
+   2026-09-27: 「我的擅长与提升」与「玩家趣味档案」从首页拆成独立页。
+   首页原本纵向排到 3000px+，两块内容占了近一半。拆走后:
+     1) 首页在原位置留一行 .home-profile-entry 入口;
+     2) 新页横向空间更宽（没有首页的 home-layout 双栏挤压），
+        所以把两个栅格放宽 —— 沿用首页的 6 列/3 列密度会显得稀疏。
+   两块内容自身的卡片样式（.home-fun-card / .hc-card）完全复用，不改。 */
+.home-profile-entry { display:flex; align-items:center; gap:12px; margin:12px 0; padding:12px 14px; border:1px solid color-mix(in srgb,var(--accent) 22%,var(--border)); border-radius:14px; background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 7%,var(--bg-card)),var(--bg-card)); box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 6%,transparent); text-decoration:none; transition:border-color .18s,transform .18s; }
+.home-profile-entry:hover { border-color:color-mix(in srgb,var(--accent) 46%,var(--border)); transform:translateY(-1px); }
+.home-profile-entry .hpe-icon { flex-shrink:0; font-size:19px; line-height:1; }
+.home-profile-entry .hpe-text { display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.home-profile-entry .hpe-text b { color:var(--text-primary); font-size:13px; }
+.home-profile-entry .hpe-text small { color:var(--text-muted); font-size:10px; }
+.home-profile-entry em { flex-shrink:0; color:var(--accent); font-size:11px; font-style:normal; }
+.home-profile-entry:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+#page-profile .page-header { flex-direction:column; align-items:flex-start; gap:6px; }
+#page-profile .page-sub { margin:0; color:var(--text-secondary); font-size:12px; line-height:1.6; }
+/* 新页纵向空间充裕，两块内容之间留出间隔，避免粘成一片 */
+#page-profile .home-fun { margin:0 0 14px; }
+#page-profile .home-coach { margin:0; }
+@media(min-width:1251px){
+  #page-profile .home-fun-grid { grid-template-columns:repeat(8,minmax(0,1fr)); }
+  #page-profile .hc-profile-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
+

@@ -211,7 +211,8 @@ function homeCatalogEntryByKey(catalog, numericId) {
 
 
 function refreshHomeCoach() {
-  const old = document.querySelector('.home-coach');
+  const host = profileHost();
+  const old = host && host.querySelector('.home-coach');
   if (!old || !homeGamesData?.length || !homeGamesOwner) return;
   const html = buildHomeCoach(homeGamesData, { puuid: homeGamesOwner });
   if (html && old.outerHTML !== html) old.outerHTML = html;
@@ -497,8 +498,48 @@ function buildHomeFunStats(games, summoner) {
     }).join('')}</div></section>`;
 }
 
+// ── 「我的画像」独立页 ──────────────────────────────────────────────────────
+// 2026-09-27: 「我的擅长与提升」与「玩家趣味档案」原先内联在首页模板里, 首页太长
+// (两块加起来占了首页近一半纵向空间), 拆到 #page-profile。
+//
+// 设计取舍:
+//   1) 首页不再内联这两块 —— 首屏省掉教练分析 + 20 张趣味卡的计算与 DOM,
+//      只在首页留一行 .home-profile-entry 入口。进页面时才付这个成本。
+//   2) 数据仍然复用首页那份 homeGamesData/homeGamesOwner, 不重复拉接口 ——
+//      两块内容的入参本来就是"当前已加载的近期对局", 与首页口径一致。
+//   3) 因此必须处理"数据还没加载就进画像页": 显示空状态, 等 loadHomeStats
+//      完成后由 refreshProfilePageIfMounted() 补渲染。
+function profileHost() {
+  return document.getElementById('profilePanel');
+}
+
+const PROFILE_EMPTY = '<div class="meta-loading">先到「首页」加载战绩后查看画像</div>';
+
+function renderProfilePage() {
+  const host = profileHost();
+  if (!host) return;
+  if (!homeGamesData?.length || !homeGamesOwner) {
+    host.innerHTML = PROFILE_EMPTY;
+    delete host.dataset.owner;
+    return;
+  }
+  const s = { puuid: homeGamesOwner };
+  host.innerHTML = buildHomeFunStats(homeGamesData, s) + buildHomeCoach(homeGamesData, s);
+  host.dataset.owner = homeGamesOwner;
+}
+
+// 首页数据更新后, 只有"画像页已经挂载过"或"用户正停在画像页"才需要重算。
+// 否则每刷新一次首页就白算一遍教练分析。
+function refreshProfilePageIfMounted() {
+  const host = profileHost();
+  if (!host) return;
+  const page = document.getElementById('page-profile');
+  if (host.dataset.owner || page?.classList.contains('active')) renderProfilePage();
+}
+
 function refreshHomeFunStats() {
-  const old = document.querySelector('.home-fun');
+  const host = profileHost();
+  const old = host && host.querySelector('.home-fun');
   if (!old || !homeGamesData?.length || !homeGamesOwner) return;
   const html = buildHomeFunStats(homeGamesData, { puuid: homeGamesOwner });
   if (html) old.outerHTML = html;
@@ -878,6 +919,8 @@ function capturePendingEogGame(block) {
     homeGamesData = [game].concat(homeGamesData.filter(g => String(g.gid) !== String(game.gid)));
     renderHomeModeFilter();
     renderHomeGameList();
+    // 画像页吃的是同一份 homeGamesData, 新对局落账后若它已挂载也要跟着更新。
+    refreshProfilePageIfMounted();
   }
   try { lolAPI.debugLog(`[HOME] local EOG ledger gameId=${game.gid} participants=${game.participants.length}`); } catch (e) {}
   return true;
@@ -1330,8 +1373,11 @@ function buildHomeTemplate(v) {
         <div class="stat-card"><div class="stat-card-val">${maxK} / ${maxD}</div><div class="stat-card-label">单局最高杀/死</div></div>
         <div class="stat-card"><div class="stat-card-val">${penta} / ${fb}</div><div class="stat-card-label">五杀 / 一血</div></div>
       </div>
-      ${buildHomeFunStats(games, s)}
-      ${buildHomeCoach(games, s)}
+      <a href="#" class="home-profile-entry" onclick="switchPage('profile');return false;">
+        <span class="hpe-icon">📊</span>
+        <span class="hpe-text"><b>我的画像</b><small>擅长与提升 · 玩家趣味档案</small></span>
+        <em>查看 →</em>
+      </a>
       <div class="home-bottom">
         <div class="home-champs">
           <h4>常用英雄</h4>
@@ -1724,6 +1770,9 @@ async function loadHomeStats(force, opts) {
     // 模式筛选所需数据缓存
     homeGamesData = games;
     homeGamesOwner = s.puuid;
+    // 画像页(#page-profile)与首页共用这份数据。若画像页已经挂载过、或用户正停在
+    // 画像页等数据, 这里补一次渲染; 否则完全不碰它, 不白算教练分析。
+    refreshProfilePageIfMounted();
     homeGameVisible = HOME_GAME_PAGE_SIZE;
     homeGameRemoteState = !isSelf && (dataSource === 'SGP' || profileOverflow.length) && games.length < 100 ? {
       source: dataSource,
