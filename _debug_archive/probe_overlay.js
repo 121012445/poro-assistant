@@ -135,13 +135,18 @@ async function waitForTarget(match, tries) {
   const st0 = await cdpEval(main.webSocketDebuggerUrl, "(async()=>JSON.stringify(await window.lolAPI.overlayStatus()))()").catch(() => '');
   check('初始 overlayStatus 可读', /visible/.test(String(st0)), st0);
 
-  // 推一帧: 这一步等价于"进了大乱斗选人且开关打开"。先报 ChampSelect 开门禁, 再立刻推帧。
-  const pushed = await cdpEval(main.webSocketDebuggerUrl,
-    "(async()=>{try{window.lolAPI.reportPhase('ChampSelect');await window.lolAPI.overlayUpdate({title:'备战区',items:[{id:1,name:'安妮',tag:'备战席'},{id:99,name:'拉克丝',tag:'备选'}],state:'探针推帧: 2 个可换英雄',stateClass:'accent',visible:true});return 'ok'}catch(e){return '__ERR__ '+e.message}})()").catch(e => '__EXC__ ' + e.message);
-  check('overlayUpdate 推送成功', pushed === 'ok', pushed);
-
-  const overlay = await waitForTarget(u => u.includes('overlay.html'), 20);
-  check('浮窗窗口被创建 (存在 overlay.html 页面)', !!overlay, overlay ? overlay.url : '(没找到)');
+  // 推一帧: 等价于"进了大乱斗选人且开关打开"。先报 ChampSelect 开门禁, 再立刻推帧。
+  // 注意竞态: 应用自己的 gameflow 轮询随时会把真实阶段(Lobby)报回去关上门 ——
+  // 所以"报阶段+推帧+等浮窗出现"必须整体重试, 直到浮窗真的被创建 (2026-09-28 教训:
+  // 只推一次就赌"门禁恰好还开着", 十有八九输给轮询)。
+  let overlay = null;
+  for (let i = 0; i < 10 && !overlay; i++) {
+    const pushed = await cdpEval(main.webSocketDebuggerUrl,
+      "(async()=>{try{window.lolAPI.reportPhase('ChampSelect');await window.lolAPI.overlayUpdate({title:'备战区',items:[{id:1,name:'安妮',tag:'备战席'},{id:99,name:'拉克丝',tag:'备选'}],state:'探针推帧: 2 个可换英雄',stateClass:'accent',visible:true});return 'ok'}catch(e){return '__ERR__ '+e.message}})()").catch(e => '__EXC__ ' + e.message);
+    if (pushed !== 'ok') { P('  [info] 第' + (i + 1) + '次推帧异常: ' + pushed + ' (重试)'); continue; }
+    overlay = await waitForTarget(u => u.includes('overlay.html'), 4);
+  }
+  check('浮窗窗口被创建 (存在 overlay.html 页面)', !!overlay, overlay ? overlay.url : '(重试10次都没找到)');
   if (!overlay) { P(''); P('浮窗没起来, 后面的渲染断言无法进行。'); finish(1); return; }
 
   await sleep(600);
