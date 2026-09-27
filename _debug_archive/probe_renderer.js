@@ -123,6 +123,37 @@ const PROBES = [
   ['history.js', 'ensureChampMap', "typeof ensureChampMap"],
   ['live.js', 'sgpProfileFor', "typeof sgpProfileFor"],
   ['live.js', 'TIMER_DEFS (const)', "typeof TIMER_DEFS"],
+  // 2026-09-27: 取数与组装从 renderLiveFromGameflow 抽成了 fetchLivePlayers / buildLivePlayers。
+  // fetchLivePlayers 只验存在 —— 它是 async 且真的会去问主进程要 live data,
+  // 探针的 Runtime.evaluate 没有开 awaitPromise, 硬调拿不到结果 (注释在此, 免得下次困惑)。
+  // buildLivePlayers 是同步的, 所以**真的调用它**, 而且两条数据路径都走一遍,
+  // 验的是从 test_live_layout.js 里继承下来的那几条业务规则 —— 那个测试只是字符串
+  // grep (`live.includes('index < 5 ? 100 : 200')`), 搬移后照样绿, 抓不到行为回归。
+  ['live.js', 'fetchLivePlayers 存在', "typeof fetchLivePlayers"],
+  ['live.js', 'buildLivePlayers 存在', "typeof buildLivePlayers"],
+  ['live.js', 'buildLivePlayers 两路数据 + 队伍/英雄ID 归一化',
+   "(function () { try {"
+   // 路径1: 只有 session 数据 (选人/加载阶段)。ChampSelect 下不走加载页兜底, 阵容原样。
+   + " var a = buildLivePlayers(null, ["
+   + "   { puuid: 'p1', championId: 81, team: 'ORDER', summonerName: 'A' },"
+   + "   { puuid: 'p2', championId: 60099, team: 'CHAOS', summonerName: 'B' }"
+   + " ], 'ChampSelect');"
+   + " if (!Array.isArray(a) || a.length !== 2) return 'session 路径应产出 2 人: ' + JSON.stringify(a);"
+   + " if (a[0].team !== 100) return \"team 'ORDER' 应归一化为 100, 实际 \" + a[0].team;"
+   + " if (a[1].team !== 200) return \"team 'CHAOS' 应归一化为 200, 实际 \" + a[1].team;"
+   + " if (a[1].championId !== 99) return '国服 60099 应归一化为 99, 实际 ' + a[1].championId;"
+   + " if (a[0].name !== 'A') return 'summonerName 未透传: ' + a[0].name;"
+   // 路径2: 有 Live Client Data。验 items 抽取 (对象/数字两种形态) 与 isBot。
+   + " var b = buildLivePlayers([{ championId: 81, team: 100, riotIdGameName: 'C',"
+   + "   items: [{ itemID: 1001 }, 1002, null], isBot: false }], [], 'InProgress');"
+   + " if (!Array.isArray(b) || b.length !== 1) return 'live 路径应产出 1 人: ' + JSON.stringify(b);"
+   + " if (b[0].name !== 'C') return 'riotIdGameName 未透传: ' + b[0].name;"
+   + " if (b[0].items.join(',') !== '1001,1002') return 'items 未抽取: ' + JSON.stringify(b[0].items);"
+   // 两路都空 -> undefined 是原实现的既有行为, 别顺手改成 []
+   + " if (buildLivePlayers(null, [], 'InProgress') !== undefined) return '两路都空时应返回 undefined';"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
   ['compliance.js', 'applyComplianceState', "typeof applyComplianceState"],
   ['compliance.js', 'complianceOn (let)', "typeof complianceOn"],
   // 这里曾经被误判成"拆分把顺序搞坏了"。事实是: populateBgChampionList 是函数,

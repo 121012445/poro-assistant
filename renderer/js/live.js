@@ -103,37 +103,15 @@ async function announceInferredPremades(players, groups) {
     if (!result.ok) console.log('[premade] chat skip:', result.error);
   }
 }
-async function renderLiveFromGameflow(body, err, requestedPhase) {
-  const renderToken = ++liveRenderToken;
-  ensureChampMap();
-
-  // 方式1: gameflow session (选人阶段有完整 puuid)
-  const session = await lolAPI.lcuRequest("GET", "/lol-gameflow/v1/session");
-  let parts = ((session ?? {}).gameData && (session ?? {}).gameData.participants) || [];
-  // 海斗(ARAM)/部分模式用 playerChampionSelections 而非 participants — 结构相同 (puuid+championId+name)
-  if (!parts.length) {
-    const pcs = session?.gameData?.playerChampionSelections;
-    if (Array.isArray(pcs)) parts = pcs;
-  }
-  const phase = requestedPhase || session?.phase || '';
-  // 缓存键: 每局对局唯一标识 (gameId), 兜底用 phase+玩家数 — 避免跨局复用旧骨架
-  let key = session?.gameData?.gameId ? String(session.gameData.gameId) : (phase + ':' + parts.length);
-  // 遭遇计数用 key: gameId 优先, 兜底只用 puuid 集合 (不含 name, 避免名字解析进度影响)
-  _currentGameKey = session?.gameData?.gameId
-    ? 'g:' + session.gameData.gameId
-    : 'p:' + parts.map(p => p.puuid).filter(Boolean).sort().join(',').slice(0, 200);
-
-  // 选人阶段缓存玩家数据 (加载页面/游戏开始时复用)
-  if (phase === 'ChampSelect') {
-    // champ-select 事件是当前选人房间的权威数据，优先于可能仍指向上一局的 gameflow session。
-    parts = champSelectParticipants || [];
-  } else if (parts.length) {
-    champSelectParticipants = parts;
-  } else if (phase !== 'ChampSelect' && champSelectParticipants) {
-    // 加载页面/游戏开始: 复用选人阶段数据
-    parts = champSelectParticipants;
-  }
-
+// 取 Live Client Data 的双方玩家。
+//
+// 2026-09-27 从 renderLiveFromGameflow 抽出：这一段是「问主进程要 live data」的
+// 纯取数逻辑 —— 只依赖 phase 和 session 给的 parts, 只返回玩家数组 (或 null),
+// 不碰 DOM、不写模块状态。主流程里紧跟着的「一个都没有就报错返回」仍留在调用点,
+// 因为那要动 body/err。
+//
+// parts 在这里只用来判断"session 到底给没给数据": 兜底路径只在 session 为空时才走。
+async function fetchLivePlayers(phase, parts) {
   // 对局中优先用 Live Client Data: 它有完整 10 人 (含对手/BOT), 名字/英雄/位置均齐备
   // session 只在选人阶段有完整 puuid; 海斗 playerChampionSelections 只有已方 5 人, 不足以覆盖双方
   // 国服/海斗早期偶发 allPlayers 只返 1 人 → playerlist 兜底 + 重试最多 3 次 (每次 800ms)
@@ -164,12 +142,18 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       }
     } catch (e) {}
   }
+  return livePlayers;
+}
 
-  if (!parts.length && !livePlayers) {
-    body.innerHTML = `<div class="msg-error">${err || '未获取到对局玩家数据'}</div>`;
-    return;
-  }
-
+// 把 live data / session 两路数据统一成内部 players 结构。
+//
+// 2026-09-27 从 renderLiveFromGameflow 抽出。原来这段散在主流程中间: 先建
+// championId→puuid 映射, 再定义两个纯工具函数, 然后两个分支各拼一次对象 ——
+// 读的时候得在主流程里来回跳。整块搬进来后, 只依赖入参和全局量。
+//
+// 注意: 两路都取不到时返回 undefined (不是空数组) —— 原实现就是这样,
+// applyLoadingTeamFallback 对非数组原样返回, 调用方也没有判空分支。
+function buildLivePlayers(livePlayers, parts, phase) {
   // 从 session 抽出 championId -> puuid 映射, 给 live data 玩家回填 puuid (用于黑名单/相识)
   const sessionByChamp = {};
   for (const sp of parts) {
@@ -228,6 +212,50 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
     }));
   }
   if (phase !== 'ChampSelect') players = applyLoadingTeamFallback(players);
+  return players;
+}
+
+async function renderLiveFromGameflow(body, err, requestedPhase) {
+  const renderToken = ++liveRenderToken;
+  ensureChampMap();
+
+  // 方式1: gameflow session (选人阶段有完整 puuid)
+  const session = await lolAPI.lcuRequest("GET", "/lol-gameflow/v1/session");
+  let parts = ((session ?? {}).gameData && (session ?? {}).gameData.participants) || [];
+  // 海斗(ARAM)/部分模式用 playerChampionSelections 而非 participants — 结构相同 (puuid+championId+name)
+  if (!parts.length) {
+    const pcs = session?.gameData?.playerChampionSelections;
+    if (Array.isArray(pcs)) parts = pcs;
+  }
+  const phase = requestedPhase || session?.phase || '';
+  // 缓存键: 每局对局唯一标识 (gameId), 兜底用 phase+玩家数 — 避免跨局复用旧骨架
+  let key = session?.gameData?.gameId ? String(session.gameData.gameId) : (phase + ':' + parts.length);
+  // 遭遇计数用 key: gameId 优先, 兜底只用 puuid 集合 (不含 name, 避免名字解析进度影响)
+  _currentGameKey = session?.gameData?.gameId
+    ? 'g:' + session.gameData.gameId
+    : 'p:' + parts.map(p => p.puuid).filter(Boolean).sort().join(',').slice(0, 200);
+
+  // 选人阶段缓存玩家数据 (加载页面/游戏开始时复用)
+  if (phase === 'ChampSelect') {
+    // champ-select 事件是当前选人房间的权威数据，优先于可能仍指向上一局的 gameflow session。
+    parts = champSelectParticipants || [];
+  } else if (parts.length) {
+    champSelectParticipants = parts;
+  } else if (phase !== 'ChampSelect' && champSelectParticipants) {
+    // 加载页面/游戏开始: 复用选人阶段数据
+    parts = champSelectParticipants;
+  }
+
+  // 取数见前面的 fetchLivePlayers()
+  const livePlayers = await fetchLivePlayers(phase, parts);
+
+  if (!parts.length && !livePlayers) {
+    body.innerHTML = `<div class="msg-error">${err || '未获取到对局玩家数据'}</div>`;
+    return;
+  }
+
+  // 组装见前面的 buildLivePlayers()
+  const players = buildLivePlayers(livePlayers, parts, phase);
   // 缓存键同时包含当前阵容；即使 gameflow 暂时沿用旧 gameId，也不会命中上一局数据。
   const rosterKey = players.map(p => `${p.puuid || p.name || '?'}@${p.championId || 0}`).sort().join('|');
   key = `${session?.gameData?.gameId || phase}:${rosterKey}`;
