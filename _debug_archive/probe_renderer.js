@@ -100,6 +100,26 @@ const PROBES = [
   ['review.js', 'buildPoroRating', "typeof buildPoroRating"],
   ['theme.js', 'applyTheme', "typeof applyTheme"],
   ['hex.js', 'collectHexAugments', "typeof collectHexAugments"],
+  // 2026-09-27: 浮窗展示行的构造从 scanCurrentAugmentOffers 抽成了 buildAugmentOverlayRows()。
+  // 同样不能只验 typeof —— 它是纯函数, 直接喂一组最小数据, 验的是**业务规则**:
+  // 胜率要透传、样本 1000 应判为"收益可靠"、gain 要相对基准胜率算出来。
+  // 这三条正是抽出去那段里最容易在搬移时写错的地方。
+  ['hex.js', 'buildAugmentOverlayRows 存在', "typeof buildAugmentOverlayRows"],
+  ['hex.js', 'buildAugmentOverlayRows 产出带收益判定的 rows',
+   "(function () { try {"
+   + " var r = buildAugmentOverlayRows("
+   + "   [{ slot: 0, id: 2095, name: 'X', icon: 'i', score: 0.9 }],"
+   + "   { all: [{ id: 2095, name: 'X', icon: 'i', winRate: 0.52, publicGames: 1000 }],"
+   + "     selectedIds: [], itemIds: [], winStats: { baseline: 0.5 }, stage: 1 });"
+   + " if (!Array.isArray(r) || r.length !== 1) return 'rows 不是长度 1 的数组: ' + JSON.stringify(r);"
+   + " var row = r[0];"
+   + " if (row.winRate !== 0.52) return 'winRate 未透传: ' + row.winRate;"
+   + " if (row.gainReliable !== true) return '样本 1000 应判为收益可靠, 实际: ' + row.gainReliable;"
+   + " if (Math.abs(row.gain - 0.02) > 1e-9) return 'gain 未按基准胜率算: ' + row.gain;"
+   + " if (typeof row.recommendationScore !== 'number') return '缺 recommendationScore';"
+   + " return true;"
+   + " } catch (e) { return 'throw: ' + e.message; } })()",
+   'bool'],
   ['history.js', 'ensureChampMap', "typeof ensureChampMap"],
   ['live.js', 'sgpProfileFor', "typeof sgpProfileFor"],
   ['live.js', 'TIMER_DEFS (const)', "typeof TIMER_DEFS"],

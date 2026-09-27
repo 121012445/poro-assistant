@@ -572,6 +572,59 @@ async function restoreAugmentOverlayIfNeeded() {
   } catch (e) {}
 }
 
+// 把多帧投票定下来的候选映射成浮窗要展示的 rows。
+//
+// 2026-09-27 从 scanCurrentAugmentOffers 抽出：这一段是「读数据 → 出展示行」的纯计算，
+// 原先内联在 179 行的主流程里，是整段最难读的部分（每个字段都要过一遍样本门槛、
+// 组合加成、置信度，还要按四层规则排序）。抽出来后主流程只管「取状态 → 判新 → 推浮窗」。
+//
+// 纯函数约定：只吃算好的数据、返回排好序的数组；不碰 DOM、不改模块状态。
+// 注意 selectedIds / itemIds / winStats 都允许是 undefined —— 原实现里就是
+// liveState?.xxx 和 hexWinStats.data 这种可空取值，别在调用点提前兜底。
+function buildAugmentOverlayRows(detected, ctx) {
+  const { all, selectedIds, itemIds, winStats, stage } = ctx;
+
+  return detected.map(offer => {
+    const stat = all.find(row => row.id === offer.id || row.name === offer.name) || {};
+    const combo = bestAugmentCombination(stat.id || offer.id, selectedIds, winStats);
+    const scored = scoreAugmentRecommendation(stat, combo, {
+      stage,
+      itemIds: itemIds || []
+    }, winStats?.baseline);
+    const baseline = winStats?.baseline == null ? NaN : Number(winStats.baseline);
+    const hasStat = Number.isFinite(stat.winRate) || Number.isFinite(scored.comboAdjusted);
+    // “收益”统一相对当前英雄在该模式下的基准胜率计算。极小样本不展示一个看似
+    // 很精确的正负数字，避免把噪声包装成结论；排序仍使用收缩后的推荐分。
+    const gainReliable = hasStat && ((Number(stat.publicGames) || 0) >= 500 || (Number(combo?.games) || 0) >= 300);
+    return {
+      slot: offer.slot,
+      name: offer.name,
+      icon: offer.icon || stat.icon || '',
+      winRate: Number.isFinite(stat.winRate) ? stat.winRate : null,
+      adjustedWinRate: Number.isFinite(stat.adjustedWinRate) ? stat.adjustedWinRate : null,
+      games: stat.publicGames || 0,
+      tier: stat.tier || '',
+      lift: Number.isFinite(stat.lift) ? stat.lift : null,
+      comboWinRate: combo?.winRate ?? null,
+      comboGames: combo?.games || 0,
+      recommendationScore: scored.score,
+      baselineWinRate: Number.isFinite(baseline) ? baseline : null,
+      gain: gainReliable && Number.isFinite(stat.winRate) && Number.isFinite(baseline) ? stat.winRate - baseline : null,
+      gainReliable,
+      confidenceLevel: scored.confidence.level,
+      confidenceLabel: scored.confidence.label,
+      reason: scored.reason,
+      itemSynergy: scored.itemSynergy?.name || '',
+      confidence: offer.score || 0
+    };
+  }).sort((a, b) =>
+    Number.isFinite(b.recommendationScore) - Number.isFinite(a.recommendationScore)
+      || (Number.isFinite(a.recommendationScore) && Number.isFinite(b.recommendationScore) ? b.recommendationScore - a.recommendationScore : 0)
+      || (Number.isFinite(a.winRate) && Number.isFinite(b.winRate) ? b.winRate - a.winRate : 0)
+      || b.games - a.games
+      || a.slot - b.slot);
+}
+
 async function scanCurrentAugmentOffers(manual = false) {
   if (!window.lolAPI?.recognizeAugments) return false;
   if (_augmentScanBusy) {
@@ -667,45 +720,14 @@ async function scanCurrentAugmentOffers(manual = false) {
       return false;
     }
     _augmentScanFailures = 0;
-    const rows = detected.map(offer => {
-      const stat = all.find(row => row.id === offer.id || row.name === offer.name) || {};
-      const combo = bestAugmentCombination(stat.id || offer.id, liveState?.selectedIds, hexWinStats.data);
-      const scored = scoreAugmentRecommendation(stat, combo, {
-        stage,
-        itemIds: liveState?.itemIds || []
-      }, hexWinStats.data?.baseline);
-      const baseline = hexWinStats.data?.baseline == null ? NaN : Number(hexWinStats.data.baseline);
-      const hasStat = Number.isFinite(stat.winRate) || Number.isFinite(scored.comboAdjusted);
-      // “收益”统一相对当前英雄在该模式下的基准胜率计算。极小样本不展示一个看似
-      // 很精确的正负数字，避免把噪声包装成结论；排序仍使用收缩后的推荐分。
-      const gainReliable = hasStat && ((Number(stat.publicGames) || 0) >= 500 || (Number(combo?.games) || 0) >= 300);
-      return {
-        slot: offer.slot,
-        name: offer.name,
-        icon: offer.icon || stat.icon || '',
-        winRate: Number.isFinite(stat.winRate) ? stat.winRate : null,
-        adjustedWinRate: Number.isFinite(stat.adjustedWinRate) ? stat.adjustedWinRate : null,
-        games: stat.publicGames || 0,
-        tier: stat.tier || '',
-        lift: Number.isFinite(stat.lift) ? stat.lift : null,
-        comboWinRate: combo?.winRate ?? null,
-        comboGames: combo?.games || 0,
-        recommendationScore: scored.score,
-        baselineWinRate: Number.isFinite(baseline) ? baseline : null,
-        gain: gainReliable && Number.isFinite(stat.winRate) && Number.isFinite(baseline) ? stat.winRate - baseline : null,
-        gainReliable,
-        confidenceLevel: scored.confidence.level,
-        confidenceLabel: scored.confidence.label,
-        reason: scored.reason,
-        itemSynergy: scored.itemSynergy?.name || '',
-        confidence: offer.score || 0
-      };
-    }).sort((a, b) =>
-      Number.isFinite(b.recommendationScore) - Number.isFinite(a.recommendationScore)
-        || (Number.isFinite(a.recommendationScore) && Number.isFinite(b.recommendationScore) ? b.recommendationScore - a.recommendationScore : 0)
-        || (Number.isFinite(a.winRate) && Number.isFinite(b.winRate) ? b.winRate - a.winRate : 0)
-        || b.games - a.games
-        || a.slot - b.slot);
+    // 展示行的构造见前面的 buildAugmentOverlayRows() —— 这里只负责"取状态 → 判新 → 推浮窗"
+    const rows = buildAugmentOverlayRows(detected, {
+      all,
+      selectedIds: liveState?.selectedIds,
+      itemIds: liveState?.itemIds,
+      winStats: hexWinStats.data,
+      stage
+    });
     const key = championId + ':' + rows.map(row => row.slot + '-' + row.name).join('|');
     const isNewOffer = key !== _augmentLastOfferKey;
     if (isNewOffer) recordAugmentJournal(championId, stage, rows, liveState?.selectedIds || []);
