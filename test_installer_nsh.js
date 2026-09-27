@@ -125,4 +125,15 @@ for (const field of ['在管理员组', 'UAC (EnableLUA)', 'crash.log 已存在'
   assert(code.includes(field), '自检日志缺少字段: ' + field);
 }
 
-console.log('安装期自检守卫通过（BOM / 挂载点 / 配置指向 / SID 判定 / UTF-16LE / IfSilent / 寄存器保护）');
+// --- 结论的"可执行指引"不能丢 ---
+// 上面那批只检查字段**存在**，所以把结论简化成单一分支、或删掉那句"改用受限版"，
+// 守卫全绿、构建也全绿 —— 而日志就退化成"记录了环境但没说怎么办"的报表，
+// 这个功能的意义（让用户知道该换哪个包）正好没了。所以单独钉住。
+assert(code.includes('$R7 == "是"') && code.includes('$R7 == "否"'),
+  '结论必须区分「在管理员组 / 不在管理员组」两种情况，否则给不出该不该换受限版的指引');
+assert(code.includes('改用受限版安装包'),
+  '不在管理员组时，日志与弹框必须明确写出"改用受限版安装包" —— 这是该功能的全部意义');
+assert(code.includes('MessageBox'),
+  '不在管理员组时必须弹框告知 —— 用户不会主动去翻日志文件');
+
+console.log('安装期自检守卫通过（BOM / 挂载点 / 配置指向 / SID 判定 / UTF-16LE / IfSilent / 寄存器保护 / 结论指引）');

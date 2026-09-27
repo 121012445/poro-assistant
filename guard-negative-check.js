@@ -124,6 +124,16 @@ const CASES = [
     guard: 'test_installer_nsh.js', file: 'package.json',
     from: '"include": "build/installer.nsh"', to: '"include": "build/other.nsh"',
     desc: 'nsis.include 指向别处（构建静默跳过自检，其它断言却全部照常通过）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    from: '改用受限版安装包', to: '换个包试试',
+    desc: '删掉"改用受限版"的指引（日志退化成"记录了环境但没说怎么办"）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    from: 'MessageBox', to: 'DetailPrint',
+    desc: '去掉弹框（不在管理员组的用户不会主动翻日志，等于没提示）'
   }
 ];
 
