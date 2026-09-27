@@ -308,8 +308,14 @@ function createWindow() {
         return;
       } catch (error) { logErr('[STARTUP RECOVERY FAILED] ' + formatError(error)); }
     }
-    if (reason === 'launch-failed' && !rendererCompatActive) {
-      logErr('[STARTUP RECOVERY] renderer launch failed; relaunching with per-window sandbox compatibility');
+    // 软件渲染没救回来时, 再退一级: 关掉 Poro 窗口的渲染进程沙箱。
+    // 2026-09-27 实测 (受限版 asInvoker, 非提权): 渲染进程沙箱初始化不了的环境里,
+    // render-process-gone 报的是 reason=killed exitCode=1 —— 这类情况软件渲染完全无效,
+    // 只有 --poro-renderer-compat 能起来 (对照实验: safe-mode 两次都 killed → FATAL,
+    // renderer-compat 一次就 renderer ready)。原先这里限定 reason === 'launch-failed',
+    // 导致 killed 直接走到 reportFatal, 用户看到的就是"装完闪退"。
+    if (!rendererCompatActive) {
+      logErr('[STARTUP RECOVERY] renderer died (reason=' + reason + '); relaunching with per-window sandbox compatibility');
       try {
         const args = process.argv.slice(1)
           .filter(arg => arg !== SAFE_MODE_ARG && arg !== RENDERER_COMPAT_ARG)

@@ -13,7 +13,12 @@ assert(src.includes("const SAFE_MODE_ARG = '--poro-safe-mode'"), '缺少软件�
 assert(src.includes("const RENDERER_COMPAT_ARG = '--poro-renderer-compat'"), '缺少渲染沙箱兼容模式');
 assert(src.includes("webContents.on('render-process-gone'"), '缺少渲染进程崩溃恢复');
 assert(src.includes("app.relaunch({ args })"), '渲染崩溃后没有自动重启');
-assert(src.includes("reason === 'launch-failed' && !rendererCompatActive"), 'launch-failed 没有第二级兼容回退');
+assert(src.includes("if (!rendererCompatActive) {"), '缺少渲染沙箱兼容的第二级回退');
+// 第二级回退不能限定在 launch-failed 上。2026-09-27 实测: 渲染进程沙箱初始化不了的环境里,
+// render-process-gone 报的是 reason=killed(不是 launch-failed), 软件渲染救不回来,
+// 只有关掉窗口沙箱能起来。原来限定 launch-failed 会让这类机器直接 FATAL —— 就是"装完闪退"。
+assert(!src.includes("reason === 'launch-failed' && !rendererCompatActive"),
+  '第二级回退不应只认 launch-failed(实测 killed 同样需要, 否则这类机器直接 FATAL)');
 assert((src.match(/sandbox: !rendererCompatActive/g) || []).length >= 3,
   '主窗口和两类浮窗没有统一使用渲染兼容开关');
 assert(src.includes("fs.unlinkSync(STARTUP_MARKER)"), '启动成功后没有清理启动标记');
