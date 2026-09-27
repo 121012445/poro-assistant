@@ -90,6 +90,40 @@ const CASES = [
     guard: 'test_log_change.js', file: 'main/log-change.js',
     from: 'if (seen.get(key) === line) return false;', to: 'if (false) return false;',
     desc: '日志去重失效（噪声会重新淹没启动行）'
+  },
+
+  // ---- test_installer_nsh.js: 安装期自检日志（"装完闪退"的唯一证据来源）----
+  // 这一组的篡改有个共同点：**构建全都照样成功**，坏的只是那份日志，
+  // 而且要等到下一个用户来报"闪退"才会暴露。所以守卫必须条条都拦得住。
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    from: 'FileWriteUTF16LE', to: 'FileWrite',
+    desc: '日志退回 FileWrite（转系统代码页，英文系统上中文全变 "?"，用户看不懂该换受限版）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    from: 'S-1-5-32-544', to: 'Administrators',
+    desc: '管理员判定退回英文组名（跨语言机器上误判成"不在管理员组"）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    from: '"$SYSDIR\\whoami.exe" /groups', to: 'whoami /groups',
+    desc: 'whoami 退回裸命令名（依赖 PATH，实测安装器环境里报"不是内部或外部命令"）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    from: 'IfSilent poroCheckDone', to: 'Nop',
+    desc: '去掉 IfSilent 守卫（静默升级时弹窗会卡住自动更新流程）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'build/installer.nsh',
+    fromRe: /\r?\n  Pop \$R9\r?\n  Pop \$R8/, to: '\n  Pop $R9',
+    desc: '寄存器还原少 pop 一个（栈不平衡，安装段后续指令的寄存器被踩坏）'
+  },
+  {
+    guard: 'test_installer_nsh.js', file: 'package.json',
+    from: '"include": "build/installer.nsh"', to: '"include": "build/other.nsh"',
+    desc: 'nsis.include 指向别处（构建静默跳过自检，其它断言却全部照常通过）'
   }
 ];
 
