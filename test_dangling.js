@@ -9,12 +9,46 @@ const pre = fs.readFileSync('D:/lol-assistant/main/preload.js', 'utf8');
 console.log('== HTML 调用但 app.js 未定义的函数 ==');
 const defined = new Set();
 for (const m of app.matchAll(/^(?:async )?function ([a-zA-Z_$][\w$]*)/gm)) defined.add(m[1]);
+// 也收集箭头函数 / 函数表达式 / window 挂载的写法, 否则它们会被误判成"未定义"
+for (const m of app.matchAll(/^(?:const|let|var) ([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\()/gm)) defined.add(m[1]);
+for (const m of app.matchAll(/^window\.([a-zA-Z_$][\w$]*)\s*=/gm)) defined.add(m[1]);
+
+// 内联处理器不一定以函数名开头: `onclick="if (event.target===this)closeModal()"` 很常见。
+// 旧写法只取 =" 后面的**第一个**标识符, 于是:
+//   · 把 if / setTimeout 当成函数名报出来  → 假阳性 (常年挂着的噪音)
+//   · 真正被调用的 closeModal 完全看不到     → 漏报
+// 既是噪音又是盲的。现在改成扫整个处理器体, 取所有非方法调用的标识符,
+// 再排掉 JS 关键字与宿主内置函数。
+const JS_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue', 'return',
+  'var', 'let', 'const', 'function', 'class', 'new', 'delete', 'typeof', 'instanceof', 'in', 'of',
+  'void', 'this', 'try', 'catch', 'finally', 'throw', 'await', 'async', 'yield', 'super',
+  'null', 'true', 'false', 'undefined'
+]);
+const HOST_GLOBALS = new Set([
+  'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'requestAnimationFrame', 'queueMicrotask',
+  'alert', 'confirm', 'prompt', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'structuredClone',
+  'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
+  'JSON', 'Math', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp', 'Error',
+  'Promise', 'Map', 'Set', 'Event', 'CustomEvent', 'console', 'fetch'
+]);
+
 const missing = [];
-for (const m of html.matchAll(/on(?:click|change|input|blur|focus|keydown)="([a-zA-Z_$][\w$]*)\(/g)) {
-  const f = m[1];
-  if (!defined.has(f)) missing.push(f);
+for (const m of html.matchAll(/on(?:click|change|input|blur|focus|keydown|submit|mouseover|mouseleave)="([^"]*)"/g)) {
+  // 前置字符不能是 `.`(方法调用, 如 lolAPI.close) 或标识符字符, 否则会把 obj.foo() 的 foo 算进来
+  for (const c of m[1].matchAll(/(^|[^.\w$])([a-zA-Z_$][\w$]*)\s*\(/g)) {
+    const f = c[2];
+    if (JS_KEYWORDS.has(f) || HOST_GLOBALS.has(f)) continue;
+    if (!defined.has(f) && !missing.includes(f)) missing.push(f);
+  }
 }
 console.log(missing.length ? missing.join(', ') : '无');
+// 悬空引用必须判死: HTML 与渲染层之间没有类型系统保护, 改函数名忘了改 HTML 时
+// 用户看到的只是"按钮点了没反应", 控制台静默无报错 —— 靠人肉发现成本极高。
+if (missing.length) {
+  console.error('  悬空引用! 以上函数在渲染层没有定义, 对应按钮会点了没反应: ' + missing.join(', '));
+  process.exit(1);
+}
 
 console.log('== app.js 调用但 preload 未暴露的 API ==');
 const apis = new Set();
