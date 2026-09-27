@@ -243,12 +243,17 @@ const PROBES = [
    'bool'],
   // 归属提示: 页面标题写「我的画像」, 但查看其他玩家时 homeGamesData 是别人的。
   // 这条在真机里把两种归属都摆出来看文案与样式类, 确认误导修掉了。
+  // 另外这里**自己把 homeGamesOwner 摆好**而不是依赖环境 —— 源码环境里首页可能
+  // 被加载过(owner 非空), 打包环境里是 null, 同一条断言就会一个绿一个红
+  // (实测: 1.4.90 受限版首跑就因为 owner=null 而 note.hidden 报红)。
+  // 提醒: 下面表达式是 + 拼的单行, 表达式内部不能写 // 注释。
   ['home.js', '归属提示: 自己与他人两种态',
    "(function () { try {"
    + " var note = document.getElementById('profileOwnerNote');"
    + " if (!note) return '找不到 #profileOwnerNote';"
-   + " var savedL = homeGamesOwnerLabel, savedS = homeGamesOwnerIsSelf;"
+   + " var savedL = homeGamesOwnerLabel, savedS = homeGamesOwnerIsSelf, savedO = homeGamesOwner;"
    + " try {"
+   + "   homeGamesOwner = 'probe-owner';"
    + "   homeGamesOwnerLabel = '探针玩家#0000'; homeGamesOwnerIsSelf = true;"
    + "   renderProfileOwnerNote();"
    + "   if (note.hidden) return '自己的画像不该隐藏归属提示';"
@@ -262,7 +267,7 @@ const PROBES = [
    + "   renderProfileOwnerNote();"
    + "   if (!note.hidden) return '没有数据时应隐藏归属提示';"
    + "   return true;"
-   + " } finally { homeGamesOwnerLabel = savedL; homeGamesOwnerIsSelf = savedS; renderProfileOwnerNote(); }"
+   + " } finally { homeGamesOwnerLabel = savedL; homeGamesOwnerIsSelf = savedS; homeGamesOwner = savedO; renderProfileOwnerNote(); }"
    + " } catch (e) { return 'throw: ' + e.message; } })()",
    'bool'],
   ['app.js', 'switchPage 认得 profile 且能切回首页',
