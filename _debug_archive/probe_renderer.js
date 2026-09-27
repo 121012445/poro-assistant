@@ -171,6 +171,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   if (APP_ARG) args.push(APP_ARG);
   const child = spawn(EXE, args, { cwd: CWD, stdio: ['ignore', 'ignore', 'ignore'] });
 
+  // requireAdministrator 的 exe 在非提权会话里 spawn 会直接 EACCES
+  // (Win32 740 ERROR_ELEVATION_REQUIRED, Node 侧 errno=-4092): 进程**从未被创建**,
+  // 所以不产生任何日志, 也连不上调试端口 —— 现象和"探针坏了"一模一样。
+  // 不接住它就是一个 unhandled 'error' 事件的堆栈, 更像探针坏了。
+  // 实测: 正式版(dist/win-unpacked/Poro.exe, requireAdministrator) 必失败,
+  //       受限版(dist-limited/..., asInvoker) 正常 —— 这是预期, 不是缺陷。
+  child.on('error', err => {
+    if (err.code === 'EACCES') {
+      console.error('起不来: ' + EXE);
+      console.error('  EACCES / errno=' + err.errno + ' —— 这是 Windows 740 ERROR_ELEVATION_REQUIRED。');
+      console.error('  该 exe 的 manifest 是 requireAdministrator(正式版), 非提权会话创建不了它。');
+      console.error('  要在管理员终端里跑, 或者改探受限版:');
+      console.error('    PORO_EXE=dist-limited/win-unpacked/Poro.exe \\');
+      console.error('      PORO_CWD=dist-limited/win-unpacked PORO_ARG= node ' + path.relative(ROOT, __filename));
+    } else {
+      console.error('起不来: ' + EXE + ' -> ' + err.code + ' ' + err.message);
+    }
+    process.exit(1);
+  });
+
   let page = null;
   for (let i = 0; i < 40; i++) {
     await sleep(700);

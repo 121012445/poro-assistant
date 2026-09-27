@@ -27,11 +27,14 @@
  */
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { spawnSync } = require('child_process');
 
 const ROOT = __dirname;
-const BACKUP = path.join(os.tmpdir(), 'poro-guard-backup');
+// 备份目录**不要**放 os.tmpdir() —— 那是 C 盘（本机 C 盘长期只剩个位数 GB），
+// 而这份备份每次运行都会重建、属于中间产物。默认放 D 盘的固定工作区，
+// 需要时用 PORO_GUARD_BACKUP 覆盖。
+const BACKUP = process.env.PORO_GUARD_BACKUP
+  || 'D:/WorkBuddy工作区/temp/poro-guard-backup';
 
 // 每条: { guard, file, from|fromRe, to, desc }
 // 用 fromRe 而不是写死字符串的地方，是因为缓存戳每次升版都会变（写死会失效）。
