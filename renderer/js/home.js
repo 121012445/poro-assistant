@@ -1212,6 +1212,135 @@ async function refreshViewedProfile() {
   profileRefreshAfter=Date.now()+60000;
   await loadHomeStats(true,{skipCache:true,profileRefresh:true});
 }
+// 渲染 op.gg 风格的首页模板。
+//
+// 2026-09-27 从 loadHomeStats 抽出：这段原本内联在主流程里约 110 行，
+// 是"首页核心路径里最难读的一段"。抽成纯函数后，loadHomeStats 只负责
+// 「取数 → 落状态 → 挂载」，模板本身可以单独读、单独改。
+//
+// 纯函数约定：只接收算好的数据、返回 HTML 字符串；不碰 DOM、不改模块状态。
+// 渲染后的状态写入（homeGamesData 等）与挂载仍留在 loadHomeStats 里。
+function buildHomeTemplate(v) {
+  const { s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
+          mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
+          totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
+          champCount, champMeta, friendCount, tagCache, rankRows, modeStats,
+          spellMap, version } = v;
+
+  // ========== 渲染 op.gg 风格首页 ==========
+  const soloQ = qm.RANKED_SOLO_5x5;
+  const flexQ = qm.RANKED_FLEX_SR;
+  const spellName = id => spellMap[String(id)] || String(id);
+  const itemIcon = id => id ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${id}.png` : '';
+  // 段位卡片
+  const rankCard = (q, label) => {
+    if (!q || !q.tier) return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier">无排位</div></div>`;
+    const t = rankTierCN(q.tier);
+    const lp = q.leaguePoints || 0;
+    const total = (q.wins || 0) + (q.losses || 0);
+    const wr = total ? Math.round(q.wins / total * 100) : 0;
+    return `<div class="rank-card">
+      <div class="rank-card-label">${label}</div>
+      <div class="rank-card-tier">${t} ${q.division || ''}</div>
+      <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
+    </div>`;
+  };
+  // 常用英雄
+  const topChampRows = buildHomeChampionRows(champCount, champMeta);
+  // 常一起玩
+  const friendList = Object.entries(friendCount).sort((a, b) => b[1].count - a[1].count).slice(0, 8);
+  const friendRows = friendList.map(([puuid, f]) => {
+    const tag = f.tagLine || tagCache[puuid] || '';
+    const displayName = tag ? f.name + '#' + tag : f.name;
+    return `<div class="friend-row">
+      <div class="friend-row-name" onclick="searchPlayerByPuuid(${inlineArg(puuid)}, ${inlineArg(displayName)})">${escapeHtml(displayName)}</div>
+      <div class="friend-row-count">${f.wins}胜${f.losses}负</div>
+    </div>`;
+  }).join('');
+  // 统计数据
+  const avgDur = n ? Math.round(totDur / n) : 0;
+  const avgDurMin = Math.floor(avgDur / 60);
+  const avgDurSec = avgDur % 60;
+  const fmtDur = `${avgDurMin}:${String(avgDurSec).padStart(2, '0')}`;
+  const totalDurH = Math.floor(totDur / 3600);
+  const totalDurM = Math.floor((totDur % 3600) / 60);
+  // 对局列表卡片改由 renderHomeGameList() 按筛选状态生成 (见模板底部), 不再内联全量 gameRows
+  // 右侧对局列表
+  return `
+    <div class="home-layout">
+      ${homeSearchMarkup('输入 名字#Tag 查询其他召唤师战绩 (如 召唤师#0000)')}
+      <div class="home-header">
+        <div class="home-avatar">
+          <img src="${s.profileIconId >= 0 ? profileIcon(s.profileIconId) : placeholder((s.gameName||'?')[0])}" onerror="this.src='${placeholder((s.gameName||'?')[0])}'">
+        </div>
+        <div class="home-info">
+          <div class="home-name">${escapeHtml(s.gameName || s.displayName || s.name || '未知玩家')}${s.tagLine ? '#' + escapeHtml(s.tagLine) : ''}</div>
+          <div class="home-server">大区: ${server} · 等级 ${s.summonerLevel || '-'} · ${includePractice ? '近 ' + n + ' 场统计' : (rawGameCount > n ? '拉取 ' + rawGameCount + ' 场 · 统计 ' + n + ' 场 (训练/自定义未计入)' : '近 ' + n + ' 场统计')}</div>
+          <div class="home-mmr">${renderHomeMmr(mmrChips,ranked,rankFromCache,rankPending)}</div>
+        </div>
+        <div class="home-winrate">
+          ${!isSelf ? '<button class="back-to-me" onclick="backToMe()">⟲ 回到我的</button>' : ''}
+          <div class="home-winrate-val ${wr >= 50 ? 'pos' : 'neg'}">${wr}%</div>
+          <div class="home-winrate-label">近期胜率</div>
+        </div>
+      </div>
+      <div class="home-ranks">
+        ${rankCard(soloQ, '排位 单双排')}
+        ${rankCard(flexQ, '灵活组排')}
+      </div>
+      <div class="home-stats">
+        <div class="stat-card"><div class="stat-card-val">${totalDurH}:${String(totalDurM).padStart(2, '0')}</div><div class="stat-card-label">总游戏时长</div></div>
+        <div class="stat-card"><div class="stat-card-val">${fmtDur}</div><div class="stat-card-label">场均用时</div></div>
+        <div class="stat-card"><div class="stat-card-val">${totK} / ${totD} / ${totA}</div><div class="stat-card-label">总击杀/死亡/助攻</div></div>
+        <div class="stat-card"><div class="stat-card-val">${avgKda}</div><div class="stat-card-label">场均 KDA</div></div>
+        <div class="stat-card"><div class="stat-card-val">${maxK} / ${maxD}</div><div class="stat-card-label">单局最高杀/死</div></div>
+        <div class="stat-card"><div class="stat-card-val">${penta} / ${fb}</div><div class="stat-card-label">五杀 / 一血</div></div>
+      </div>
+      ${buildHomeFunStats(games, s)}
+      ${buildHomeCoach(games, s)}
+      <div class="home-bottom">
+        <div class="home-champs">
+          <h4>常用英雄</h4>
+          <div class="champ-grid" id="homeChampGrid">${topChampRows}</div>
+        </div>
+        <div class="home-friends">
+          <h4>常一起玩 (基友)</h4>
+          <div class="friend-grid">${friendRows}</div>
+        </div>
+      </div>
+      <div class="home-mode-stats">
+        <h4>模式统计</h4>
+        <table class="mode-table">
+          <thead>
+            <tr><th>类型</th><th>总场次</th><th>胜率</th><th>胜场</th><th>负场</th><th>段位</th><th>胜点</th></tr>
+          </thead>
+          <tbody>
+            ${rankRows.map(r => {
+              const mwr = r.n ? Math.round(r.w / r.n * 100) : 0;
+              return `<tr><td>${escapeHtml(r.name)}</td><td>${r.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td>${r.w}</td><td>${r.n - r.w}</td><td>${escapeHtml(r.rank || '--')}</td><td>${r.lp || '--'}</td></tr>`;
+            }).join('')}
+            ${Object.keys(modeStats).filter(m => shouldShowRecentModeRow(m, qm)).map(m => {
+              const ms = modeStats[m];
+              const mwr = Math.round(ms.w / ms.n * 100);
+              return `<tr><td>${m}</td><td>${ms.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td>${ms.w}</td><td>${ms.n - ms.w}</td><td>--</td><td>--</td></tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="home-games">
+        <div class="rk-summary-bar">
+          <span>近 ${n} 场</span>
+          <span class="${wr >= 50 ? 'pos' : 'neg'}">${wins}胜 ${n - wins}负 (${wr}%)</span>
+          <label class="rk-toggle"><input type="checkbox" ${includePractice ? 'checked' : ''} onchange="toggleIncludePractice(this.checked)"> 训练/自定义计入</label>
+          <span>场均 ${(totK/n).toFixed(1)}/${(totD/n).toFixed(1)}/${(totA/n).toFixed(1)}</span>
+          <span>KDA ${avgKda}</span>
+        </div>
+        <div class="home-mode-filter" id="homeModeFilter"></div>
+        <div id="homeGamesList"></div>
+      </div>
+    </div>`;
+}
+
 async function loadHomeStats(force, opts) {
   const loadStartedAt = performance.now();
   let loadPath = 'network';
@@ -1554,118 +1683,14 @@ async function loadHomeStats(force, opts) {
     const mmrChips = buildHomeMmr(qm,modeStats,wr,s);
     const topFriends = dataSource === "SGP" ? Object.values(friendCount).sort((a, b) => b.count - a.count).slice(0, 8) : [];
 
-    // ========== 渲染 op.gg 风格首页 ==========
-    const soloQ = qm.RANKED_SOLO_5x5;
-    const flexQ = qm.RANKED_FLEX_SR;
-    const spellName = id => spellMap[String(id)] || String(id);
-    const itemIcon = id => id ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${id}.png` : '';
-    // 段位卡片
-    const rankCard = (q, label) => {
-      if (!q || !q.tier) return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier">无排位</div></div>`;
-      const t = rankTierCN(q.tier);
-      const lp = q.leaguePoints || 0;
-      const total = (q.wins || 0) + (q.losses || 0);
-      const wr = total ? Math.round(q.wins / total * 100) : 0;
-      return `<div class="rank-card">
-        <div class="rank-card-label">${label}</div>
-        <div class="rank-card-tier">${t} ${q.division || ''}</div>
-        <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
-      </div>`;
-    };
-    // 常用英雄
-    const topChampRows = buildHomeChampionRows(champCount, champMeta);
-    // 常一起玩
-    const friendList = Object.entries(friendCount).sort((a, b) => b[1].count - a[1].count).slice(0, 8);
-    const friendRows = friendList.map(([puuid, f]) => {
-      const tag = f.tagLine || tagCache[puuid] || '';
-      const displayName = tag ? f.name + '#' + tag : f.name;
-      return `<div class="friend-row">
-        <div class="friend-row-name" onclick="searchPlayerByPuuid(${inlineArg(puuid)}, ${inlineArg(displayName)})">${escapeHtml(displayName)}</div>
-        <div class="friend-row-count">${f.wins}胜${f.losses}负</div>
-      </div>`;
-    }).join('');
-    // 统计数据
-    const avgDur = n ? Math.round(totDur / n) : 0;
-    const avgDurMin = Math.floor(avgDur / 60);
-    const avgDurSec = avgDur % 60;
-    const fmtDur = `${avgDurMin}:${String(avgDurSec).padStart(2, '0')}`;
-    const totalDurH = Math.floor(totDur / 3600);
-    const totalDurM = Math.floor((totDur % 3600) / 60);
-    // 对局列表卡片改由 renderHomeGameList() 按筛选状态生成 (见模板底部), 不再内联全量 gameRows
-    // 右侧对局列表
-    panel.innerHTML = `
-      <div class="home-layout">
-        ${homeSearchMarkup('输入 名字#Tag 查询其他召唤师战绩 (如 召唤师#0000)')}
-        <div class="home-header">
-          <div class="home-avatar">
-            <img src="${s.profileIconId >= 0 ? profileIcon(s.profileIconId) : placeholder((s.gameName||'?')[0])}" onerror="this.src='${placeholder((s.gameName||'?')[0])}'">
-          </div>
-          <div class="home-info">
-            <div class="home-name">${escapeHtml(s.gameName || s.displayName || s.name || '未知玩家')}${s.tagLine ? '#' + escapeHtml(s.tagLine) : ''}</div>
-            <div class="home-server">大区: ${server} · 等级 ${s.summonerLevel || '-'} · ${includePractice ? '近 ' + n + ' 场统计' : (rawGameCount > n ? '拉取 ' + rawGameCount + ' 场 · 统计 ' + n + ' 场 (训练/自定义未计入)' : '近 ' + n + ' 场统计')}</div>
-            <div class="home-mmr">${renderHomeMmr(mmrChips,ranked,rankFromCache,rankPending)}</div>
-          </div>
-          <div class="home-winrate">
-            ${!isSelf ? '<button class="back-to-me" onclick="backToMe()">⟲ 回到我的</button>' : ''}
-            <div class="home-winrate-val ${wr >= 50 ? 'pos' : 'neg'}">${wr}%</div>
-            <div class="home-winrate-label">近期胜率</div>
-          </div>
-        </div>
-        <div class="home-ranks">
-          ${rankCard(soloQ, '排位 单双排')}
-          ${rankCard(flexQ, '灵活组排')}
-        </div>
-        <div class="home-stats">
-          <div class="stat-card"><div class="stat-card-val">${totalDurH}:${String(totalDurM).padStart(2, '0')}</div><div class="stat-card-label">总游戏时长</div></div>
-          <div class="stat-card"><div class="stat-card-val">${fmtDur}</div><div class="stat-card-label">场均用时</div></div>
-          <div class="stat-card"><div class="stat-card-val">${totK} / ${totD} / ${totA}</div><div class="stat-card-label">总击杀/死亡/助攻</div></div>
-          <div class="stat-card"><div class="stat-card-val">${avgKda}</div><div class="stat-card-label">场均 KDA</div></div>
-          <div class="stat-card"><div class="stat-card-val">${maxK} / ${maxD}</div><div class="stat-card-label">单局最高杀/死</div></div>
-          <div class="stat-card"><div class="stat-card-val">${penta} / ${fb}</div><div class="stat-card-label">五杀 / 一血</div></div>
-        </div>
-        ${buildHomeFunStats(games, s)}
-        ${buildHomeCoach(games, s)}
-        <div class="home-bottom">
-          <div class="home-champs">
-            <h4>常用英雄</h4>
-            <div class="champ-grid" id="homeChampGrid">${topChampRows}</div>
-          </div>
-          <div class="home-friends">
-            <h4>常一起玩 (基友)</h4>
-            <div class="friend-grid">${friendRows}</div>
-          </div>
-        </div>
-        <div class="home-mode-stats">
-          <h4>模式统计</h4>
-          <table class="mode-table">
-            <thead>
-              <tr><th>类型</th><th>总场次</th><th>胜率</th><th>胜场</th><th>负场</th><th>段位</th><th>胜点</th></tr>
-            </thead>
-            <tbody>
-              ${rankRows.map(r => {
-                const mwr = r.n ? Math.round(r.w / r.n * 100) : 0;
-                return `<tr><td>${escapeHtml(r.name)}</td><td>${r.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td>${r.w}</td><td>${r.n - r.w}</td><td>${escapeHtml(r.rank || '--')}</td><td>${r.lp || '--'}</td></tr>`;
-              }).join('')}
-              ${Object.keys(modeStats).filter(m => shouldShowRecentModeRow(m, qm)).map(m => {
-                const ms = modeStats[m];
-                const mwr = Math.round(ms.w / ms.n * 100);
-                return `<tr><td>${m}</td><td>${ms.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td>${ms.w}</td><td>${ms.n - ms.w}</td><td>--</td><td>--</td></tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-        <div class="home-games">
-          <div class="rk-summary-bar">
-            <span>近 ${n} 场</span>
-            <span class="${wr >= 50 ? 'pos' : 'neg'}">${wins}胜 ${n - wins}负 (${wr}%)</span>
-            <label class="rk-toggle"><input type="checkbox" ${includePractice ? 'checked' : ''} onchange="toggleIncludePractice(this.checked)"> 训练/自定义计入</label>
-            <span>场均 ${(totK/n).toFixed(1)}/${(totD/n).toFixed(1)}/${(totA/n).toFixed(1)}</span>
-            <span>KDA ${avgKda}</span>
-          </div>
-          <div class="home-mode-filter" id="homeModeFilter"></div>
-          <div id="homeGamesList"></div>
-        </div>
-      </div>`;
+    // 模板见前面的 buildHomeTemplate() —— 这里只负责"挂载"
+    panel.innerHTML = buildHomeTemplate({
+      s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
+      mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
+      totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
+      champCount, champMeta, friendCount, tagCache, rankRows, modeStats,
+      spellMap, version
+    });
     // 模式筛选所需数据缓存
     homeGamesData = games;
     homeGamesOwner = s.puuid;
