@@ -1787,6 +1787,8 @@ async function loadHomeStats(force, opts) {
       champCount, champMeta, friendCount, tagCache, rankRows, modeStats
     });
     // 模式筛选所需数据缓存
+    // prevOwner: 用于"同一玩家重载时保留已展开条数"(见下方 homeGameVisible 的赋值)
+    const prevOwner = homeGamesOwner;
     homeGamesData = games;
     homeGamesOwner = s.puuid;
     // 画像页要能说明"这份画像属于谁" —— 查看其他玩家时是别人的数据。
@@ -1796,7 +1798,12 @@ async function loadHomeStats(force, opts) {
     // 画像页(#page-profile)与首页共用这份数据。若画像页已经挂载过、或用户正停在
     // 画像页等数据, 这里补一次渲染; 否则完全不碰它, 不白算教练分析。
     refreshProfilePageIfMounted();
-    homeGameVisible = HOME_GAME_PAGE_SIZE;
+    // 同一玩家重新载入(新对局落账/返回档案/缓存刷新)时保留已展开条数 ——
+    // 用户往下刷到 60 条, 任何一次后台刷新都不该把它打回 20 条;
+    // 换人查看(含搜索其他玩家)才收回一页。
+    homeGameVisible = prevOwner === s.puuid
+      ? Math.max(HOME_GAME_PAGE_SIZE, homeGameVisible || 0)
+      : HOME_GAME_PAGE_SIZE;
     homeGameRemoteState = !isSelf && (dataSource === 'SGP' || profileOverflow.length) && games.length < 100 ? {
       source: dataSource,
       puuid: s.puuid,

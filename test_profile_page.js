@@ -61,7 +61,7 @@ assert.deepStrictEqual(staleStamp, [], '这些资源的缓存戳早于本次改�
 // 注意同一天第二次改动也要把序号往上走: in-place 升级时 URL 没变, 戳不变就命中缓存。
 const stampOf = p => (stamps.find(s => s.path === p) || {}).stamp;
 for (const p of ['js/home.js', 'js/app.js', 'css/extras.css']) {
-  assert.strictEqual(stampOf(p), '2026092802', p + ' 的缓存戳未升到 2026092802');
+  assert.strictEqual(stampOf(p), '2026092803', p + ' 的缓存戳未升到 2026092803');
 }
 
 // ── 3. app.js 切页接线 ───────────────────────────────────────────────────────
@@ -131,6 +131,9 @@ assert.ok(home.includes("note.classList.toggle('is-other'"),
   '查看他人时提示必须加上 is-other 强调样式，不能和自己的混在一起');
 assert.ok(/\.profile-owner-note\s*\{/.test(extras) && /\.profile-owner-note\.is-other/.test(extras),
   '.profile-owner-note 与 .is-other 必须有样式，且他人态要有区分');
+// 往下刷战绩后, 同一玩家的任何一次重载都不许把已展开条数打回一页 (2026-09-28 用户报告)
+assert.ok(/const prevOwner = homeGamesOwner;[\s\S]{0,1200}?prevOwner === s\.puuid\s*\?\s*Math\.max\(HOME_GAME_PAGE_SIZE, homeGameVisible \|\| 0\)\s*:\s*HOME_GAME_PAGE_SIZE/.test(home),
+  'loadHomeStats 必须在同一玩家重载时保留 homeGameVisible, 换人才收回一页');
 assert.ok(/\.profile-owner-note\[hidden\]\s*\{\s*display:\s*none/.test(extras),
   'hidden 属性必须真的隐藏元素（span 上 hidden 不加这条在某些样式下会失效）');
 

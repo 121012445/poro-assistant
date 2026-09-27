@@ -10,6 +10,9 @@
  *   node _debug_archive/probe_overlay.js ".\Poro\Poro.exe"   # 跑本地已安装的正式包
  */
 const { spawn, spawnSync } = require('child_process');
+console.log('[BANNER] probe_overlay.js 启动 pid=' + process.pid + ' argv=' + JSON.stringify(process.argv.slice(1)));
+process.on('exit', c => console.log('[BANNER] probe 退出 code=' + c));
+process.on('uncaughtException', e => { console.log('[BANNER] uncaughtException: ' + (e && e.stack || e)); });
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -121,13 +124,20 @@ async function waitForTarget(match, tries) {
   const hooked = await cdpEval(main.webSocketDebuggerUrl, "Array.isArray(window.__ovSeen)").catch(() => false);
   check('主窗口可挂 onOverlaySwap 监听', hooked === true);
 
+  // 主进程门禁: overlay:update 只有 lastReportedPhase==='ChampSelect' 才会显示。
+  // 应用自己的 gameflow 轮询随时会把真实阶段(Lobby/None)报回去把门禁关上 —— 和推帧竞速是赌运气。
+  // 所以: 每次推帧前都先报一次 ChampSelect (推帧循环本来就重试多次, 这里保持同一节奏)。
+  // 注意: lolAPI 是 contextBridge 暴露对象, 不能替换其属性(赋值被拒), 只能调用。
+  const realPhase = await cdpEval(main.webSocketDebuggerUrl, "String(window._gameflowPhase || 'None')").catch(e => '__EXC__ ' + e.message);
+  check('读到真实阶段(门禁将在推帧前临时开放)', !String(realPhase).startsWith('__EXC__'), String(realPhase));
+
   // 浮窗通道是否真的在主进程注册了 (未开启时应为 exists=false)
   const st0 = await cdpEval(main.webSocketDebuggerUrl, "(async()=>JSON.stringify(await window.lolAPI.overlayStatus()))()").catch(() => '');
   check('初始 overlayStatus 可读', /visible/.test(String(st0)), st0);
 
-  // 推一帧: 这一步等价于"进了大乱斗选人且开关打开"
+  // 推一帧: 这一步等价于"进了大乱斗选人且开关打开"。先报 ChampSelect 开门禁, 再立刻推帧。
   const pushed = await cdpEval(main.webSocketDebuggerUrl,
-    "(async()=>{try{await window.lolAPI.overlayUpdate({title:'备战区',items:[{id:1,name:'安妮',tag:'备战席'},{id:99,name:'拉克丝',tag:'备选'}],state:'探针推帧: 2 个可换英雄',stateClass:'accent',visible:true});return 'ok'}catch(e){return '__ERR__ '+e.message}})()").catch(e => '__EXC__ ' + e.message);
+    "(async()=>{try{window.lolAPI.reportPhase('ChampSelect');await window.lolAPI.overlayUpdate({title:'备战区',items:[{id:1,name:'安妮',tag:'备战席'},{id:99,name:'拉克丝',tag:'备选'}],state:'探针推帧: 2 个可换英雄',stateClass:'accent',visible:true});return 'ok'}catch(e){return '__ERR__ '+e.message}})()").catch(e => '__EXC__ ' + e.message);
   check('overlayUpdate 推送成功', pushed === 'ok', pushed);
 
   const overlay = await waitForTarget(u => u.includes('overlay.html'), 20);
@@ -141,7 +151,7 @@ async function waitForTarget(match, tries) {
   let st1o = {};
   for (let i = 0; i < 6; i++) {
     await cdpEval(main.webSocketDebuggerUrl,
-      "(async()=>{await window.lolAPI.overlayUpdate({title:'备战区',items:[{id:1,name:'安妮',tag:'备战席'},{id:99,name:'拉克丝',tag:'备选'}],state:'探针推帧: 2 个可换英雄',stateClass:'accent',visible:true});return 'ok'})()").catch(() => {});
+      "(async()=>{window.lolAPI.reportPhase('ChampSelect');await window.lolAPI.overlayUpdate({title:'备战区',items:[{id:1,name:'安妮',tag:'备战席'},{id:99,name:'拉克丝',tag:'备选'}],state:'探针推帧: 2 个可换英雄',stateClass:'accent',visible:true});return 'ok'})()").catch(() => {});
     await sleep(400);
     const s = await cdpEval(main.webSocketDebuggerUrl, "(async()=>JSON.stringify(await window.lolAPI.overlayStatus()))()").catch(() => '');
     try { st1o = JSON.parse(s) || {}; } catch (e) {}
@@ -219,6 +229,11 @@ async function waitForTarget(match, tries) {
   const st2 = await cdpEval(main.webSocketDebuggerUrl, "(async()=>JSON.stringify(await window.lolAPI.overlayStatus()))()").catch(() => '');
   let st2o = {}; try { st2o = JSON.parse(st2); } catch (e) {}
   check('visible=false 后浮窗隐藏', st2o.visible === false, st2);
+
+  // 还原: 把真实阶段报回去, 主进程状态机回到探针前的样子 (reportPhase 未被替换, 直接调用)
+  const restored = await cdpEval(main.webSocketDebuggerUrl,
+    "(function(){ if (window.lolAPI.reportPhase) window.lolAPI.reportPhase(" + JSON.stringify(String(realPhase)) + "); return 'restored:" + String(realPhase) + "'; })()").catch(e => '__EXC__ ' + e.message);
+  check('reportPhase 已还原并把真实阶段报回', String(restored).startsWith('restored:'), String(restored));
 
   P('');
   P('=== 判定 ===');
