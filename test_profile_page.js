@@ -54,13 +54,13 @@ const stamps = [
 assert.ok(stamps.length >= 27, '应解析出至少 27 个渲染层资源, 实际 ' + stamps.length);
 const unstamped = stamps.filter(s => !s.stamp).map(s => s.path);
 assert.deepStrictEqual(unstamped, [], '这些渲染层资源缺少 ?v= 缓存戳: ' + unstamped.join(', '));
-const staleStamp = stamps.filter(s => String(s.stamp).slice(0, 8) < '20260927')
+const staleStamp = stamps.filter(s => String(s.stamp).slice(0, 8) < '20260928')
   .map(s => s.path + '?v=' + s.stamp);
 assert.deepStrictEqual(staleStamp, [], '这些资源的缓存戳早于本次改动日期: ' + staleStamp.join(', '));
 // 本次改动的三个文件必须带最新戳（改了却不升戳 = 用户拿到旧代码）
 const stampOf = p => (stamps.find(s => s.path === p) || {}).stamp;
 for (const p of ['js/home.js', 'js/app.js', 'css/extras.css']) {
-  assert.strictEqual(stampOf(p), '2026092707', p + ' 的缓存戳未升到 2026092707');
+  assert.strictEqual(stampOf(p), '2026092801', p + ' 的缓存戳未升到 2026092801');
 }
 
 // ── 3. app.js 切页接线 ───────────────────────────────────────────────────────
