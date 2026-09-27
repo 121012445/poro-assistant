@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026092104">
-<link rel="stylesheet" href="css/extras.css?v=2026092601">
-<link rel="stylesheet" href="css/dark.css">
-<link rel="stylesheet" href="css/premium.css?v=2026092301">
+<link rel="stylesheet" href="css/style.css?v=2026092702">
+<link rel="stylesheet" href="css/extras.css?v=2026092702">
+<link rel="stylesheet" href="css/dark.css?v=2026092702">
+<link rel="stylesheet" href="css/premium.css?v=2026092702">
 </head>
 <body>
 
@@ -342,6 +342,7 @@
       <div class="tool-card span-all">
         <h3>诊断中心</h3>
         <p>显示当前客户端、账号、区服、对局代际与最近脱敏日志。复制内容不包含完整 PUUID、令牌或用户目录；主动导出的诊断包最多附带最近三张强化卡区域裁图。</p>
+        <p id="elevationNotice" class="elevation-notice" hidden></p>
         <div class="tool-row">
           <button class="btn-secondary" onclick="refreshDiagnostics()">刷新诊断</button>
           <button class="btn-secondary" onclick="copyDiagnostics()">复制诊断信息</button>
@@ -414,28 +415,28 @@
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
 <div id="benchAlert" class="bench-alert"></div>
-<script src="js/utils.js?v=2026092701"></script>
-<script src="js/data-model.js?v=2026092701"></script>
-<script src="js/session-state.js?v=2026092701"></script>
-<script src="js/performance.js?v=2026092701"></script>
-<script src="js/diagnostics.js?v=2026092701"></script>
-<script src="js/bench.js?v=2026092701"></script>
-<script src="js/champions.js?v=2026092701"></script>
-<script src="js/progress-report.js?v=2026092701"></script>
-<script src="js/home.js?v=2026092701"></script>
-<script src="js/review.js?v=2026092701"></script>
-<script src="js/theme.js?v=2026092701"></script>
-<script src="js/hex.js?v=2026092701"></script>
-<script src="js/history.js?v=2026092701"></script>
-<script src="js/live.js?v=2026092701"></script>
-<script src="js/compliance.js?v=2026092701"></script>
-<script src="js/blacklist.js?v=2026092701"></script>
-<script src="js/social.js?v=2026092701"></script>
-<script src="js/chat.js?v=2026092701"></script>
-<script src="js/autobp.js?v=2026092701"></script>
-<script src="js/lcu-events.js?v=2026092701"></script>
-<script src="js/settings.js?v=2026092701"></script>
-<script src="js/persist.js?v=2026092701"></script>
-<script src="js/app.js?v=2026092701"></script>
+<script src="js/utils.js?v=2026092702"></script>
+<script src="js/data-model.js?v=2026092702"></script>
+<script src="js/session-state.js?v=2026092702"></script>
+<script src="js/performance.js?v=2026092702"></script>
+<script src="js/diagnostics.js?v=2026092702"></script>
+<script src="js/bench.js?v=2026092702"></script>
+<script src="js/champions.js?v=2026092702"></script>
+<script src="js/progress-report.js?v=2026092702"></script>
+<script src="js/home.js?v=2026092702"></script>
+<script src="js/review.js?v=2026092702"></script>
+<script src="js/theme.js?v=2026092702"></script>
+<script src="js/hex.js?v=2026092702"></script>
+<script src="js/history.js?v=2026092702"></script>
+<script src="js/live.js?v=2026092702"></script>
+<script src="js/compliance.js?v=2026092702"></script>
+<script src="js/blacklist.js?v=2026092702"></script>
+<script src="js/social.js?v=2026092702"></script>
+<script src="js/chat.js?v=2026092702"></script>
+<script src="js/autobp.js?v=2026092702"></script>
+<script src="js/lcu-events.js?v=2026092702"></script>
+<script src="js/settings.js?v=2026092702"></script>
+<script src="js/persist.js?v=2026092702"></script>
+<script src="js/app.js?v=2026092702"></script>
 </body>
 </html>

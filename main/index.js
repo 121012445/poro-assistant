@@ -1439,6 +1439,17 @@ ipcMain.handle('app:version', async () => {
   try { return String(app.getVersion()); } catch (e) { return 'unknown'; }
 });
 
+// 提权状态: 正式版与受限版(asInvoker)共用同一份代码, 界面上要能如实说明
+// "游戏内热键/聊天预填为什么用不了", 否则用户只会看到一个 Win32 错误码。
+ipcMain.handle('app:elevation', async () => {
+  try {
+    const elevated = require('./elevation').isElevated();
+    return { elevated, inputInjectionAvailable: elevated === true };
+  } catch (e) {
+    return { elevated: null, inputInjectionAvailable: null };
+  }
+});
+
 // ---------- 主进程设置 (托盘/自启) ----------
 let mainSettings = { autoLaunch: false };
 try {

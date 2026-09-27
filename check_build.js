@@ -22,7 +22,9 @@ else {
 // 必须手工登记 —— 漏了它的表现是"开关打得开但浮窗永不出现", 界面上完全看不出是缺文件。
 const htmlSrc = fs.existsSync('renderer/index.html') ? fs.readFileSync('renderer/index.html', 'utf8') : '';
 const rendererScripts = [...htmlSrc.matchAll(/<script src="([^"]+)"/g)].map(m => 'renderer/' + m[1].split('?')[0]);
-const requiredFiles = ['main/index.js', 'main/lcu.js', 'main/lcu-ws.js', 'main/sgp.js', 'main/gamedata.js', 'main/game-settings.js', 'main/preload.js', 'main/native/PoroInput.exe', 'main/native/PoroOcrWorker.ps1', 'main/win-rect.js', 'main/overlay-position.js', ...rendererScripts, 'renderer/index.html', 'renderer/overlay.html', 'renderer/js/overlay.js'];
+// 样式表同样从 index.html 解析: 漏一个的表现是"界面整体错位", 比缺脚本更显眼但也更该在出包前拦住
+const rendererStyles = [...htmlSrc.matchAll(/<link[^>]*href="(css\/[^"?]+)/g)].map(m => 'renderer/' + m[1]);
+const requiredFiles = ['main/index.js', 'main/lcu.js', 'main/lcu-ws.js', 'main/sgp.js', 'main/gamedata.js', 'main/game-settings.js', 'main/preload.js', 'main/native/PoroInput.exe', 'main/native/PoroOcrWorker.ps1', 'main/win-rect.js', 'main/overlay-position.js', ...rendererScripts, ...rendererStyles, 'renderer/index.html', 'renderer/overlay.html', 'renderer/js/overlay.js'];
 for (const f of requiredFiles) {
   if (!fs.existsSync(f)) fail.push(f + ' 缺失');
 }
@@ -30,20 +32,26 @@ for (const f of requiredFiles.filter(f => f.endsWith('.js'))) {
   if (!fs.existsSync(f)) continue;
   try { new Function(fs.readFileSync(f, 'utf8')); } catch (error) { fail.push(f + ' 语法错误: ' + error.message); }
 }
-// 渲染层脚本的缓存戳 (?v=): 打包后做 in-place 升级时 file:// 的 URL 没变,
-// Chromium 可能继续用缓存里的旧副本 —— 表现为"装了新版但跑的还是旧逻辑"。
+// 渲染层资源的缓存戳 (?v=): 打包后做 in-place 升级时 file:// 的 URL 没变,
+// Chromium 可能继续用缓存里的旧副本 —— 表现为"装了新版但跑的还是旧逻辑/旧样式"。
 // 2026-09-27 实测: 23 个脚本里 12 个戳过期, 最旧的落后 11 天, 还有 1 个压根没戳。
+// 同日补充: **CSS 也漏在外面** —— 3 个 <link> 的戳比最近提交还旧, 而改样式时
+// 恰恰最容易忘记刷戳, 后果是"新样式不生效"且从界面上完全看不出原因。
 // 缺戳直接拦下; 戳偏旧只警告 (开发期频繁改动, 每次都拦会很难受), 出包前统一刷一次即可。
-const scriptTags = [...htmlSrc.matchAll(/<script src="js\/([^"?]+)(?:\?v=([0-9]+))?"/g)];
-const noStamp = scriptTags.filter(m => !m[2]).map(m => m[1]);
-if (noStamp.length) fail.push('渲染层脚本缺少 ?v= 缓存戳: ' + noStamp.join(', '));
+const stamped = [
+  ...htmlSrc.matchAll(/<script src="(js\/[^"?]+)(?:\?v=([0-9]+))?"/g),
+  ...htmlSrc.matchAll(/<link[^>]*href="(css\/[^"?]+)(?:\?v=([0-9]+))?"/g)
+].map(m => ({ path: m[1], stamp: m[2] }));
+if (!stamped.length) fail.push('未能从 index.html 解析出任何渲染层资源, 缓存戳检查形同虚设');
+const noStamp = stamped.filter(s => !s.stamp).map(s => s.path);
+if (noStamp.length) fail.push('渲染层资源缺少 ?v= 缓存戳: ' + noStamp.join(', '));
 let headDate = null;
 try {
   headDate = require('child_process').execSync('git log -1 --date=short --format=%cd', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 } catch (e) { headDate = null; }
 if (headDate) {
   const ymd = headDate.replace(/-/g, '');
-  const stale = scriptTags.filter(m => m[2] && String(m[2]).slice(0, 8) < ymd).map(m => `${m[1]}?v=${m[2]}`);
+  const stale = stamped.filter(s => s.stamp && String(s.stamp).slice(0, 8) < ymd).map(s => `${s.path}?v=${s.stamp}`);
   if (stale.length) warn.push(`缓存戳早于最近一次提交 (${headDate}), 出包前建议统一刷新: ` + stale.join(', '));
 }
 // 版本号只能有一个来源: package.json。

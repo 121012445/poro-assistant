@@ -180,6 +180,9 @@
 .legal-card { border-style: dashed; }
 .legal-card p { margin: 6px 0; line-height: 1.65; }
 .diagnostics-output { margin-top: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 12px; border-radius: 8px; background: var(--bg-hover); color: var(--text-primary); font: 11px/1.55 Consolas, monospace; }
+/* 提权状态提示。选择器要带 .tool-card 才能压过 .tool-card p 的次要色 */
+.tool-card p.elevation-notice { margin-bottom: 12px; padding: 8px 10px; border-radius: 8px; border-left: 3px solid var(--warning); background: var(--bg-hover); color: var(--text-primary); font-size: 12px; line-height: 1.6; }
+.tool-card p.elevation-notice[hidden] { display: none; }
 .ako-pendingtag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 /* 首页战绩模式筛选 */

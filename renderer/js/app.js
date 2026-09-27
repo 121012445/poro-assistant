@@ -72,7 +72,11 @@ function switchPage(page) {
   document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add("active");
   if (page === "champions") renderChampionGrid();
   if (page === "counters") updateCounterClientPick();
-  if (page === "tools") populateBgChampionList();
+  if (page === "tools") {
+    populateBgChampionList();
+    // 提权提示要在打开工具箱时就显示，不能等用户点"刷新诊断"才出现
+    refreshElevationNotice();
+  }
   if (page === "hex") {
     renderHexList();
     if (window._gameflowPhase === 'ChampSelect') {
