@@ -112,6 +112,12 @@ const augmentRecognizerFactory = require('./augment-recognizer');
 const augmentVision = require('./augment-vision');
 const augmentOcrMatch = require('./augment-ocr-match');
 const hotkeyPollerFactory = require('./hotkey-poller');
+const { createChangeLog } = require('./log-change');
+
+// 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
+// 2026-09-27 实测这两类占了 crash.log 的 55%，512KB 轮转下会把
+// `=== APP START ===` 挤进 .old —— 排查"装完闪退"时最需要的启动行反而先没了。
+const periodicLog = createChangeLog();
 
 if (process.platform === 'win32') app.setAppUserModelId('com.poro.assistant');
 
@@ -769,7 +775,10 @@ async function recognizeAugmentNamesByOcr(screenshot, candidates) {
         titleText = await requestAugmentOcr(titlePath);
         match = augmentOcrMatch.matchAugmentNames(titleText, candidates, 1)[0] || null;
       }
-      logErr(`[AUGMENT OCR] slot=${slot + 1} text=${String(text).replace(/\s+/g, ' ').substring(0, 80)} title=${String(titleText).replace(/\s+/g, ' ').substring(0, 40)} match=${match?.name || ''}`);
+      // 三个槽位每轮各识别一次，空闲时识别结果完全一样。同一槽位内容没变就不重复写
+      // （实测这一行占日志 483/1806 行），变化时立刻写，不丢信息。
+      const ocrLine = `[AUGMENT OCR] slot=${slot + 1} text=${String(text).replace(/\s+/g, ' ').substring(0, 80)} title=${String(titleText).replace(/\s+/g, ' ').substring(0, 40)} match=${match?.name || ''}`;
+      if (periodicLog.shouldLog('ocr-' + slot, ocrLine)) logErr(ocrLine);
       return match ? Object.assign({ slot }, match) : null;
     } finally {
       try { fs.unlinkSync(imagePath); } catch (e) {}
@@ -812,7 +821,12 @@ ipcMain.handle('augment-overlay:update', async (e, payload) => {
       }, 120);
     }
   } else if (augmentOverlayWindow && !augmentOverlayWindow.isDestroyed()) {
-    logErr('[AUGMENT OVERLAY] hide requested items=' + augmentOverlayPayload.items.length + ' visible=' + !!p.visible);
+    // 渲染层每轮都会推一次 visible=false，无条件记录会占掉日志近三成（实测 515/1806 行）。
+    // 只在 payload 真的变化时写，"状态翻转过"这个信息仍然保留。
+    const hideLine = 'items=' + augmentOverlayPayload.items.length + ' visible=' + !!p.visible;
+    if (periodicLog.shouldLog('overlay-hide', hideLine)) {
+      logErr('[AUGMENT OVERLAY] hide requested ' + hideLine);
+    }
     augmentOverlayWindow.hide();
   }
   return {
