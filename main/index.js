@@ -30,8 +30,33 @@ function formatError(error) {
   if (error instanceof Error) return error.stack || error.message;
   try { return JSON.stringify(error); } catch (e) { return String(error); }
 }
+// 启动环境快照: 排查"别人机器上装完闪退"时, 没有这一行就等于完全不知道对方的环境 ——
+// 同一份安装包在不同 Windows 版本 / 架构 / 显卡上表现可以完全不同, 而崩溃日志本身
+// 只会告诉你哪一行炸了, 不会告诉你炸在什么环境里。
+// 只记版本与架构, 不记任何路径 (日志会被用户整份发出来, 里面不该出现用户名)。
+// 每一段各自 try 包裹: reportFatal 可能在下方 safeModeActive 等声明初始化之前就被触发
+// (比如 requestSingleInstanceLock 抛异常), 直接引用会踩 TDZ 把错误处理器自己炸掉。
+function envSnapshot() {
+  const flags = [];
+  try { if (safeModeActive) flags.push('safeMode'); } catch (e) {}
+  try { if (rendererCompatActive) flags.push('rendererCompat'); } catch (e) {}
+  try { if (previousStartupInterrupted) flags.push('prevStartupInterrupted'); } catch (e) {}
+  const part = (name, fn) => { try { return name + '=' + fn(); } catch (e) { return name + '=?'; } };
+  return [
+    part('app', () => app.getVersion()),
+    part('electron', () => process.versions.electron),
+    part('chrome', () => process.versions.chrome),
+    part('node', () => process.versions.node),
+    part('os', () => (process.getSystemVersion ? process.getSystemVersion() : process.platform)),
+    part('arch', () => process.arch),
+    part('ram', () => Math.round(require('os').totalmem() / 1073741824) + 'GB'),
+    part('packaged', () => app.isPackaged),
+    'flags=' + (flags.join('+') || 'none')
+  ].join(' ');
+}
 function reportFatal(stage, error) {
   const detail = formatError(error);
+  logErr(`[FATAL ${stage}] ${envSnapshot()}`);
   logErr(`[FATAL ${stage}] ${detail}`);
   if (fatalErrorReported) return;
   fatalErrorReported = true;
@@ -111,7 +136,7 @@ if (!hasSingleInstanceLock) {
   logErr('[SINGLE INSTANCE] duplicate launch redirected to the existing instance');
   app.quit();
 } else {
-  logErr('=== APP START ===');
+  logErr('=== APP START === ' + envSnapshot());
   app.on('second-instance', () => {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -1535,6 +1560,12 @@ function createTray() {
 
 if (hasSingleInstanceLock) {
   app.whenReady().then(() => {
+    // GPU 特性状态要在 ready 之后才拿得到。显卡驱动异常是"装完闪退"的一大类原因,
+    // 而这类问题在本机往往复现不出来 —— 记下这一行, 才能从对方的日志里看出来。
+    try {
+      const gpu = app.getGPUFeatureStatus();
+      logErr('[GPU] ' + Object.entries(gpu).map(([k, v]) => k + '=' + v).join(' '));
+    } catch (e) { logErr('[GPU] status unavailable: ' + e.message); }
     createWindow();
     // 托盘不是主窗口启动的必要条件；个别系统若托盘图标初始化失败，不应拖垮整个程序。
     try { createTray(); } catch (error) { logErr('[TRAY INIT FAILED] ' + formatError(error)); }
