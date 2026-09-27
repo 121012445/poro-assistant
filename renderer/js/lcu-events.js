@@ -37,6 +37,7 @@ async function refreshAfterGameEnd(reason) {
     for (const delay of delays) {
       await waitPostGameRefresh(delay);
       if (run !== _postGameRefreshRun) return;
+      if (profileOverride) { window._homeCacheNeedRefresh = true; return; }
       // 新一局已经开始时停止后台结算刷新，避免与实时页取数争用。
       if (['ChampSelect', 'GameStart', 'InProgress'].includes(window._gameflowPhase)) return;
       if (homeStatsLoading) continue;

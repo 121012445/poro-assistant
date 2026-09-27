@@ -165,55 +165,35 @@ function restoreHomeScroll(targetPuuid) {
 }
 
 function buildHomeCoach(games, summoner) {
-  const rows = (games || []).map(game => ({ game, me: findProfileParticipant(game, summoner) })).filter(row => row.me);
-  if (!rows.length) return '';
-  const recent = rows.slice(0, 10);
-  const previous = rows.slice(10, 20);
-  const avg = (list, field) => list.length ? list.reduce((sum, row) => sum + (+row.me[field] || 0), 0) / list.length : 0;
-  const rate = list => list.length ? list.filter(row => row.me.win).length / list.length : 0;
-  const recentDeaths = avg(recent, 'd');
-  const recentKda = (avg(recent, 'k') + avg(recent, 'a')) / Math.max(1, recentDeaths);
-  const recentWinRate = rate(recent);
-  let goal;
-  if (recentDeaths >= 8.5) goal = { title: '减少无效阵亡', detail: '下一阶段目标：单局死亡不超过 8 次', pass: row => (+row.me.d || 0) <= 8 };
-  else if (recentKda < 2.8) goal = { title: '提高稳定参战', detail: '下一阶段目标：单局 KDA 达到 3.0', pass: row => ((+row.me.k || 0) + (+row.me.a || 0)) / Math.max(1, +row.me.d || 0) >= 3 };
-  else if (recentWinRate < 0.5) goal = { title: '把优势转成胜场', detail: '下一阶段目标：最近 5 场至少赢 3 场', pass: row => !!row.me.win };
-  else goal = { title: '保持高质量发挥', detail: '下一阶段目标：单局 KDA 达到 4.0', pass: row => ((+row.me.k || 0) + (+row.me.a || 0)) / Math.max(1, +row.me.d || 0) >= 4 };
-  const progressRows = recent.slice(0, 5);
-  const completed = progressRows.filter(goal.pass).length;
-  const trend = previous.length ? Math.round((recentWinRate - rate(previous)) * 100) : null;
-
-  const pool = new Map();
-  for (const row of rows.slice(0, 30)) {
-    const id = String(row.me.championId || '');
-    if (!id) continue;
-    const item = pool.get(id) || { id, games: 0, wins: 0, k: 0, d: 0, a: 0 };
-    item.games++; item.wins += row.me.win ? 1 : 0;
-    item.k += +row.me.k || 0; item.d += +row.me.d || 0; item.a += +row.me.a || 0;
-    pool.set(id, item);
-  }
-  const champions = [...pool.values()].filter(item => item.games >= 2).sort((a, b) => b.games - a.games || b.wins - a.wins).slice(0, 4);
-  const poolRows = champions.map(item => {
-    const champ = champNumMap?.[item.id] || Object.values(allChampions || {}).find(c => String(c.key) === item.id);
-    const name = champ?.name || champ?.id || '未知英雄';
-    const imageId = champ?.id || Object.keys(allChampions || {}).find(key => String(allChampions[key]?.key) === item.id);
-    const wr = Math.round(item.wins / item.games * 100);
-    const kda = ((item.k + item.a) / Math.max(1, item.d)).toFixed(1);
-    const advice = wr < 50 ? '需要复盘' : item.games >= 5 ? '核心英雄' : '继续观察';
-    return `<div class="hc-champ"><img src="${imageId ? champImg(imageId) : placeholder('?')}" onerror="this.src='${placeholder('?')}'"><span><b>${escapeHtml(name)}</b><small>${item.games}场 · ${wr}% · KDA ${kda}</small></span><em class="${wr >= 50 ? 'pos' : 'neg'}">${advice}</em></div>`;
+  ensureChampMap();
+  const rows=(games||[]).map(game=>({game,me:findProfileParticipant(game,summoner)})).filter(r=>r.me);
+  const data=PoroProgress.analyze(rows,allChampions,buildHomeCoach.selectedQueue||'',typeof allItems==='undefined'?{}:allItems);
+  const fmt=(n,suffix='')=>n==null?'暂无数据':Number(n).toFixed(1)+suffix;
+  const value=(n,suffix='',tone='blue')=>'<b class="hc-value hc-value-'+tone+'">'+fmt(n,suffix)+'</b>';
+  const esc=escapeHtml;
+  const cards=data.categories.map(c=>{
+    if(!c.count) return '<article class="hc-card"><strong>'+c.name+'</strong><p>该模式暂无此类别战绩</p></article>';
+    const reps=c.champions.map(h=>'<span class="hc-champ"><span><b>'+esc(h.name)+'</b><small>'+h.count+' 场 · 胜率 '+fmt(h.winRate*100,'%')+(h.count<3?' · 样本较少':'')+'</small></span></span>').join('');
+    return '<article class="hc-card"><strong>'+c.name+' · '+c.count+' 场</strong>'+
+      '<p>胜率 '+value(c.winRate*100,'%','teal')+' · KDA '+value(c.kda,'','violet')+'</p>'+
+      '<p>伤转 '+value(c.efficiency,'%','gold')+' · 每分钟伤害 '+value(c.dpm)+'<br>'+
+      '每分钟承伤 '+value(c.tanking)+' · 对友治疗/护盾 '+value(c.support,'','teal')+'/分钟</p>'+
+      '<p class="hc-strength"><b>优势依据：</b>'+esc(c.strength)+'</p>'+
+      '<p class="hc-advice"><b>如何提升：</b>'+(c.count<5?'样本较少，以下仅为类别通用建议。':'')+esc(c.tip)+'</p>'+
+      '<p>分类依据：出装辅助判断 '+c.buildCount+' 场 · 基础标签估计 '+c.fallbackCount+' 场，其余按预设玩法。</p>'+
+      '<p>代表英雄（优先至少 3 场、胜率较好的英雄）</p>'+reps+'</article>';
   }).join('');
-  const reviewNames = champions.filter(item => item.wins / item.games < 0.5).map(item => {
-    const champ = champNumMap?.[item.id] || Object.values(allChampions || {}).find(c => String(c.key) === item.id);
-    return champ?.name || champ?.id || '未知英雄';
-  });
-  return `<section class="home-coach">
-    <div class="hc-head"><b>持续提升中心</b><span>根据最近战绩自动更新，不使用虚构段位或胜率</span></div>
-    <div class="hc-grid">
-      <div class="hc-card"><label>本阶段训练目标</label><strong>${goal.title}</strong><p>${goal.detail}</p><div class="hc-progress"><i style="width:${progressRows.length ? completed / progressRows.length * 100 : 0}%"></i></div><small>最近 ${progressRows.length} 场完成 ${completed} 场${trend == null ? '' : ` · 胜率趋势 ${trend >= 0 ? '+' : ''}${trend}%`}</small></div>
-      <div class="hc-card hc-pool"><label>英雄池教练</label>${poolRows || '<p>至少使用同一英雄完成 2 场后生成建议。</p>'}</div>
-      <div class="hc-card"><label>版本影响提示</label><strong>数据版本 ${escapeHtml(typeof version === 'string' ? version : '未知')}</strong><p>${reviewNames.length ? `优先复盘：${escapeHtml(reviewNames.join('、'))}` : '当前核心英雄近期表现稳定，版本更新后继续观察前 5 场。'}</p><small>仅基于你的近期实战变化，不冒充官方改动结论</small></div>
-    </div>
-  </section>`;
+  return '<section class="home-coach"><div class="hc-head"><b>我的擅长与提升</b><span>历史类别画像 · 不设训练目标，不监控进度</span></div>'+
+    '<select aria-label="画像游戏模式" onchange="setProfileQueue(this.value)">'+data.modes.map(m=>'<option value="'+esc(m.queue)+'"'+(m.queue===data.queue?' selected':'')+'>'+esc(m.name)+'（'+m.count+' 场）</option>').join('')+'</select>'+
+    '<p>玩得最多：'+esc(data.mostPlayed?data.mostPlayed.name+'（'+data.mostPlayed.count+' 场）':'暂无数据')+
+    '；近期胜率优势：'+esc(data.best?data.best.name+'（'+data.best.count+' 场，'+fmt(data.best.winRate*100,'%')+'）':'暂不足以区分')+'</p>'+
+    '<small>胜率优势仅比较你本人同模式下至少 5 场的玩法，不是熟练度定论。按预设玩法归类；多定位英雄有至少两件倾向明确的成装时参考出装，否则保留默认定位。分类为规则估计，非官方定位，每场只计一类；未知类别 '+data.unclassified+' 场暂未纳入。样本来自当前已加载历史，不跨模式混算。</small>'+
+    '<div class="hc-profile-grid">'+cards+'</div><small>原始输出、承伤受英雄定位影响；建议是复盘方向，不能从汇总数据认定操作原因。没有同类玩家基准，不生成排名或能力百分位。</small></section>';
+}
+
+function setProfileQueue(queue) {
+  buildHomeCoach.selectedQueue=String(queue);
+  refreshHomeCoach();
 }
 
 // 趣味数据只描述本次首页已加载的近期对局，不包装成“生涯纪录”。保持为纯计算函数，
@@ -227,6 +207,14 @@ function homeCatalogEntryByKey(catalog, numericId) {
   if (!id || !catalog || typeof catalog !== 'object') return null;
   if (catalog[id]) return catalog[id];
   return Object.values(catalog).find(entry => String(entry?.key || '') === id) || null;
+}
+
+
+function refreshHomeCoach() {
+  const old = document.querySelector('.home-coach');
+  if (!old || !homeGamesData?.length || !homeGamesOwner) return;
+  const html = buildHomeCoach(homeGamesData, { puuid: homeGamesOwner });
+  if (html && old.outerHTML !== html) old.outerHTML = html;
 }
 
 // “钟爱装备”只统计最终成装。药水、守卫、饰品、鞋子和仍可继续合成的散件
@@ -601,9 +589,11 @@ function normalizeGame(g, isSgp) {
       teamsObj,
       participants: (g.participants || []).map(p => ({
         puuid: p.puuid || "",
+        partyId: p.partyId ?? p.premadeId ?? p.partyIdHash ?? p.playerPartyId ?? p.player?.partyId ?? '',
         name: p.riotIdGameName || p.summonerName || p.riotId || p.summonerNameLocal || p.player?.summonerName || p.player?.riotIdGameName || "",
         tagLine: p.riotIdTagline || p.player?.riotIdTagline || "",
         championId: normalizeChampId(p.championId),
+        progressDataComplete: [p.deaths, p.totalDamageDealtToChampions, p.goldEarned].every(v => v != null && Number.isFinite(Number(v))),
         championName: p.championName || '',
         k: p.kills || 0, d: p.deaths || 0, a: p.assists || 0,
         win: p.win === true, teamId: p.teamId,
@@ -651,6 +641,8 @@ function normalizeGame(g, isSgp) {
       const ident = idents.find(i => i.participantId === p.participantId);
       return {
         puuid: ident?.player?.puuid || "", name: ident?.player?.gameName || ident?.player?.summonerName || "",
+        partyId: p.partyId ?? p.premadeId ?? p.partyIdHash ?? p.playerPartyId ?? ident?.player?.partyId ?? '',
+        progressDataComplete: [p.stats?.deaths, p.stats?.totalDamageDealtToChampions, p.stats?.goldEarned].every(v => v != null && Number.isFinite(Number(v))),
         championId: normalizeChampId(p.championId), championName: p.championName || p.stats?.championName || '', k: p.stats?.kills || 0, d: p.stats?.deaths || 0, a: p.stats?.assists || 0,
         win: p.stats?.win === true || p.stats?.wins === true, teamId: p.teamId,
         dmg: p.stats?.totalDamageDealtToChampions || 0, dmgTaken: p.stats?.totalDamageTaken || 0,
@@ -736,17 +728,178 @@ async function resolveRanks(puuids) {
 function hasRankedQueueData(value) {
   return !!(value && value.queueMap && Object.values(value.queueMap).some(queue => queue && (queue.tier || queue.wins || queue.losses)));
 }
-async function loadRankedStats(puuid, samePlatform) {
+async function loadRankedStats(puuid, samePlatform, isSelf=false, stale=()=>false) {
   const paths = samePlatform
     ? [`/lol-ranked/v1/ranked-stats/${encodeURIComponent(puuid)}`, `/lol-ranked/v1/cached-ranked-stats/${encodeURIComponent(puuid)}`]
     : [`/lol-ranked/v1/cached-ranked-stats/${encodeURIComponent(puuid)}`];
+  if(isSelf) paths.unshift('/lol-ranked/v1/current-ranked-stats');
+  for(let attempt=0;attempt<3;attempt++) {
+  if(attempt) await new Promise(resolve=>setTimeout(resolve,attempt*1500));
+  if(stale()) return null;
   for (const path of paths) {
     try {
       const value = await lolAPI.lcuRequest('GET', path);
       if (!value?.__error && hasRankedQueueData(value)) return value;
     } catch (e) {}
   }
+  }
   return null;
+}
+
+// 结算页数据会比 SGP/战绩接口早到数秒到一分钟。先把它标准化为首页可直接展示的
+// 临时对局；正式战绩出现同一 gameId 后自动替换，避免用户打完一局却长时间看不到结果。
+function eogStat(stats, ...names) {
+  const source = stats && typeof stats === 'object' ? stats : {};
+  const normalizedKeys = new Map(Object.keys(source).map(key => [key.toLowerCase().replace(/[^a-z0-9]/g, ''), key]));
+  for (const name of names) {
+    if (source[name] != null) return source[name];
+    const hit = normalizedKeys.get(String(name).toLowerCase().replace(/[^a-z0-9]/g, ''));
+    if (hit) return source[hit];
+  }
+  return 0;
+}
+
+function normalizeEogGame(block, ownerPuuid, platformId) {
+  if (!block || !block.gameId || !Array.isArray(block.teams)) return null;
+  const participants = [];
+  for (const team of block.teams) {
+    for (const player of (team?.players || [])) {
+      const stats = player?.stats || {};
+      const winStat = eogStat(stats, 'WIN');
+      const won = team?.isWinningTeam === true || winStat === 1 || winStat === true || String(winStat).toLowerCase() === 'win';
+      const penta = +eogStat(stats, 'PENTA_KILLS', 'PENTAKILLS') || 0;
+      const quadra = +eogStat(stats, 'QUADRA_KILLS', 'QUADRAKILLS') || 0;
+      const triple = +eogStat(stats, 'TRIPLE_KILLS', 'TRIPLEKILLS') || 0;
+      const dbl = +eogStat(stats, 'DOUBLE_KILLS', 'DOUBLEKILLS') || 0;
+      participants.push({
+        puuid: player.puuid || (player.isLocalPlayer ? ownerPuuid : '') || '',
+        name: player.riotIdGameName || player.summonerName || '',
+        tagLine: player.riotIdTagLine || '',
+        championId: normalizeChampId(player.championId), championName: player.championName || '',
+        k: +eogStat(stats, 'CHAMPIONS_KILLED', 'KILLS') || 0,
+        d: +eogStat(stats, 'NUM_DEATHS', 'DEATHS') || 0,
+        a: +eogStat(stats, 'ASSISTS') || 0,
+        win: won, teamId: player.teamId || team.teamId || 0,
+        dmg: +eogStat(stats, 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS', 'TOTAL_DAMAGE_DEALT_TO_CHAMPIONS') || 0,
+        dmgTaken: +eogStat(stats, 'TOTAL_DAMAGE_TAKEN') || 0,
+        healing: +eogStat(stats, 'TOTAL_HEAL', 'TOTAL_HEAL_ON_TEAMMATES') || 0,
+        allyHeal: +eogStat(stats, 'TOTAL_HEALS_ON_TEAMMATES') || 0,
+        shielding: +eogStat(stats, 'TOTAL_DAMAGE_SHIELDED_ON_TEAMMATES') || 0,
+        mitigated: +eogStat(stats, 'DAMAGE_SELF_MITIGATED') || 0,
+        gold: +eogStat(stats, 'GOLD_EARNED') || 0,
+        cs: (+eogStat(stats, 'MINIONS_KILLED', 'TOTAL_MINIONS_KILLED') || 0) + (+eogStat(stats, 'NEUTRAL_MINIONS_KILLED') || 0),
+        level: +eogStat(stats, 'LEVEL', 'CHAMP_LEVEL') || player.level || 1,
+        visionScore: +eogStat(stats, 'VISION_SCORE') || 0,
+        position: player.detectedTeamPosition || player.selectedPosition || '',
+        spells: [player.spell1Id, player.spell2Id].filter(Boolean),
+        items: (player.items || []).filter(id => +id > 0),
+        profileIconId: player.profileIconId || 0,
+        penta, fb: !!eogStat(stats, 'FIRST_BLOOD_KILL'),
+        multi: penta ? '五杀' : quadra ? '四杀' : triple ? '三杀' : dbl ? '双杀' : '',
+        progressDataComplete: true
+      });
+    }
+  }
+  if (!participants.length || !participants.some(p => p.puuid === ownerPuuid)) return null;
+  const mode = String(block.gameMode || block.queueType || '刚结束的对局');
+  return {
+    gid: block.gameId, mode: mode === 'ARAM' ? '极地大乱斗' : mode === 'JADE' ? '海克斯大乱斗' : mode,
+    queueId: +block.queueId || 0, gameType: block.gameType || '', dur: +block.gameLength || 0,
+    time: (() => { const ts = +block.endOfGameTimestamp || Date.now(); return ts > 0 && ts < 100000000000 ? ts * 1000 : ts; })(),
+    participants, teamsObj: {}, platformId: platformId || '',
+    pendingSettlement: true
+  };
+}
+
+function pendingEogKey(puuid) { return 'poro.pendingEog.' + String(puuid || ''); }
+function readPendingEogGames(puuid) {
+  if (!puuid) return [];
+  try {
+    const rows = JSON.parse(localStorage.getItem(pendingEogKey(puuid)) || '[]');
+    return Array.isArray(rows) ? rows.filter(g => g && Date.now() - (+g.savedAt || +g.time || 0) < 6 * 60 * 60 * 1000) : [];
+  } catch (e) { return []; }
+}
+function writePendingEogGames(puuid, games) {
+  try { localStorage.setItem(pendingEogKey(puuid), JSON.stringify((games || []).slice(0, 12))); } catch (e) {}
+}
+function mergePendingEogGames(games, summoner, platformId) {
+  const puuid = summoner?.puuid || '';
+  if (!puuid) return games || [];
+  const officialIds = new Set((games || []).map(g => String(g.gid)));
+  const pending = readPendingEogGames(puuid).filter(g => !officialIds.has(String(g.gid)) && findProfileParticipant(g, summoner));
+  writePendingEogGames(puuid, pending);
+  return pending.concat(games || []);
+}
+function capturePendingEogGame(block) {
+  const puuid = window._myPuuid || cachedSummoner?.puuid || block?.localPlayer?.puuid || '';
+  const game = normalizeEogGame(block, puuid, cachedPlatformId || '');
+  if (!game) return false;
+  const rows = readPendingEogGames(puuid).filter(g => String(g.gid) !== String(game.gid));
+  rows.unshift(Object.assign({}, game, { savedAt: Date.now() }));
+  writePendingEogGames(puuid, rows);
+  if (!profileOverride && homeGamesOwner === puuid && Array.isArray(homeGamesData)) {
+    homeGamesData = [game].concat(homeGamesData.filter(g => String(g.gid) !== String(game.gid)));
+    renderHomeModeFilter();
+    renderHomeGameList();
+  }
+  try { lolAPI.debugLog(`[HOME] local EOG ledger gameId=${game.gid} participants=${game.participants.length}`); } catch (e) {}
+  return true;
+}
+function buildHomeMmr(qm,modeStats,wr,s) {
+    const mmrChips = [];
+    const seasonWrOfQ = r => r && (r.wins + r.losses) ? Math.round(r.wins / (r.wins + r.losses) * 100) : null;
+    const recentWrOf = modeNames => {
+      let nn = 0, ww = 0;
+      for (const m of modeNames) {
+        const ms = modeStats[m];
+        if (ms) { nn += ms.n; ww += ms.w; }
+      }
+      return nn >= 5 ? Math.round(ww / nn * 100) : null;
+    };
+    // 模式聚合战绩 (n/w/k/d/a), 供胜率+KDA 估算使用
+    const recentAggOf = modeNames => {
+      const agg = { n: 0, w: 0, k: 0, d: 0, a: 0 };
+      for (const m of modeNames) {
+        const ms = modeStats[m];
+        if (ms) { agg.n += ms.n; agg.w += ms.w; agg.k += ms.k; agg.d += ms.d; agg.a += ms.a; }
+      }
+      return agg.n >= 5 ? agg : null;
+    };
+    const soloQf = qm.RANKED_SOLO_5x5;
+    const flexQf = qm.RANKED_FLEX_SR;
+    const soloWr = seasonWrOfQ(soloQf) ?? recentWrOf(["单双排", "排位·单双排"]) ?? wr;
+    const flexWr = seasonWrOfQ(flexQf) ?? recentWrOf(["灵活组排", "排位·灵活组排"]) ?? wr;
+    const soloM = mmrFromRanked(soloQf?.tier, soloQf?.division, soloQf?.leaguePoints, soloWr);
+    if (soloM) mmrChips.push(["单双排", soloM]);
+    const flexM = mmrFromRanked(flexQf?.tier, flexQf?.division, flexQf?.leaguePoints, flexWr);
+    if (flexM) mmrChips.push(["灵活组排", flexM]);
+    // 海克斯大乱斗: 优先海斗排位段位 (打过海斗排位时), 否则用 胜率+KDA 独立估算
+    const jadeQ = qm.JADE_RANKED_SOLO_5x5;
+    const jadeAgg = recentAggOf(["海克斯大乱斗"]);
+    const jadeWr = jadeAgg ? Math.round(jadeAgg.w / jadeAgg.n * 100) : null;
+    const jadeM = mmrFromRanked(jadeQ?.tier, jadeQ?.division, jadeQ?.leaguePoints, jadeWr);
+    if (jadeM) mmrChips.push(["海斗排位", jadeM]);
+    else if (jadeAgg) {
+      const est = mmrJadeEstimate(jadeAgg, soloM);
+      if (est) {
+        const jadeKda = ((jadeAgg.k + jadeAgg.a) / Math.max(1, jadeAgg.d)).toFixed(2);
+        const jadeWrPct = Math.round(jadeAgg.w / jadeAgg.n * 100);
+        mmrChips.push(["海斗·估算", est.v, `基于近${jadeAgg.n}场海斗: 胜率${jadeWrPct}% · KDA${jadeKda} · 基准来源: ${est.basis} (非官方估算)`]);
+      }
+    }
+    // 自校准采样: 有海斗排位段位的档案, 记录 (海斗表现, 排位推算MMR) 样本对, 用于修正估算基准
+    if (jadeQ && jadeQ.tier && jadeAgg && jadeAgg.n >= 10 && jadeM) {
+      addJadeCalibSample(s.puuid, jadeAgg.w / jadeAgg.n * 100, (jadeAgg.k + jadeAgg.a) / Math.max(1, jadeAgg.d), jadeM);
+    }
+    // 大乱斗: 胜率+KDA 独立估算 (与海斗分开统计)
+    const aramAgg = recentAggOf(["极地大乱斗"]);
+    if (aramAgg) mmrChips.push(["大乱斗·估算", mmrAram(aramAgg)]);
+    return mmrChips;
+}
+function renderHomeMmr(chips, ranked, fromCache, pending) {
+  const missing=['单双排','灵活组排'].filter(label=>!chips.some(c=>c[0]===label));
+  return '<small>非官方匹配强度'+(fromCache?' · 历史段位缓存':'')+'</small>'+chips.map(([label,value,tip])=>'<span class="mmr-chip" title="'+escapeHtml(tip||'非官方估算')+'">'+escapeHtml(label)+' ~'+value+'</span>').join('')+
+    missing.map(label=>'<span class="mmr-chip">'+label+' · '+(pending?'段位同步中':hasRankedQueueData(ranked)?'暂无可用段位':'段位暂未获取')+'</span>').join('');
 }
 function rankLineOf(p) {
   const qm = rankCache[p.puuid];
@@ -820,6 +973,7 @@ function buildHomeGameCard(g, s) {
     }
   }
   const performanceTags = buildPerformanceTags(p, myTeam, kp, dmgShare, mins, g.mode);
+  const pendingBadge = g.pendingSettlement ? '<span class="ako-tag ako-pendingtag">结算同步中</span>' : '';
   return `<div class="ako-card ${p.win ? 'ako-win' : 'ako-loss'}" onclick="expandOpggGame(this, '${g.gid}')" data-gid="${g.gid}" data-platform="${escapeHtml(g.platformId || '')}">
         <div class="ako-main">
           <div class="ako-top">
@@ -855,8 +1009,9 @@ function buildHomeGameCard(g, s) {
             <div class="ako-itemrow">${itemHtml}</div>
             ${p.multi ? `<span class="ako-tag">${p.multi}</span>` : ''}
             ${p.fb ? '<span class="ako-tag ako-fbtag">一血</span>' : ''}
-            ${cardBadge}
-            ${performanceTags}
+             ${cardBadge}
+            ${pendingBadge}
+             ${performanceTags}
           </div>
           <div class="ako-info">${escapeHtml(g.mode)} · ${fmtTime(g.dur)} · ${timeAgo(g.time)}</div>
         </div>
@@ -1044,18 +1199,31 @@ async function readHomeSelfCache(includePractice) {
 }
 async function writeHomeSelfCache(includePractice, payload) {
   if (!window._userDataPath || !lolAPI.writeFile || !payload) return false;
+  if(!payload.isSelf || !payload.s?.puuid) return false;
+  const status=await lolAPI.lcuStatus().catch(()=>null);
+  if(!status?.connected || status.summoner?.puuid!==payload.s.puuid) return false;
   try { return await lolAPI.writeFile(homeSelfCachePath(includePractice), JSON.stringify(payload)); }
   catch (e) { return false; }
 }
 
+let profileRefreshAfter = 0;
+async function refreshViewedProfile() {
+  if(!profileOverride || homeStatsLoading || Date.now()<profileRefreshAfter || document.hidden) return;
+  profileRefreshAfter=Date.now()+60000;
+  await loadHomeStats(true,{skipCache:true,profileRefresh:true});
+}
 async function loadHomeStats(force, opts) {
   const loadStartedAt = performance.now();
   let loadPath = 'network';
   const skipCache = !!(opts && opts.skipCache);   // true=跳过持久缓存强制走网络(后台刷新用)
+  // Background self refresh must never take ownership of a searched profile.
+  if (skipCache && profileOverride && !opts?.profileRefresh) return;
+  const profileBackground=!!(profileOverride && opts?.profileRefresh);
+  const requestedProfile = profileOverride?.puuid || '';
   if (homeStatsLoaded && !force) return;
   if (homeStatsLoading && !force) return;   // 并发保护: 只有用户主动的 force 请求能打断进行中的加载
   const myToken = ++homeStatsToken;          // 请求代际: 被更新的请求取代后立即放弃渲染
-  const stale = () => myToken !== homeStatsToken;
+  const stale = () => myToken !== homeStatsToken || requestedProfile !== (profileOverride?.puuid || '');
   homeStatsLoading = true;
   const panel = document.getElementById("playerPanel");
   if (!panel) { homeStatsLoading = false; return; }
@@ -1065,7 +1233,14 @@ async function loadHomeStats(force, opts) {
   try {
     // ---- 持久缓存快速路径: 自己的首页 + 有缓存 → 不等客户端连接, 先秒出上次数据 ----
     const includePractice = storeGet('includePractice') === '1';
-    const selfPuuidSaved = localStorage.getItem('poro.selfPuuid') || '';
+    const st=await lolAPI.lcuStatus();
+    if(stale()) return;
+    if(!st?.connected || !st.summoner?.puuid) {
+      if(!profileBackground) panel.innerHTML='<div class="meta-loading">等待客户端确认当前账号后显示战绩...</div>';
+      homeStatsLoaded=false;
+      return;
+    }
+    const selfPuuidSaved = st.summoner.puuid;
     const targetPuuid = profileOverride?.puuid || selfPuuidSaved;
     let cached = null;
     // 强制网络刷新也保留一份只读兜底。它不参与正常请求，只用于阻止瞬时空响应
@@ -1073,35 +1248,17 @@ async function loadHomeStats(force, opts) {
     const durableSelfCache = !profileOverride ? await readHomeSelfCache(includePractice) : null;
     // 自己的首页优先读独立文件缓存：不受 localStorage 容量、压缩和进程退出时机影响。
     if (!profileOverride && !skipCache) cached = durableSelfCache;
-    if (!cached && targetPuuid && !skipCache) {
+    if (!cached && targetPuuid) {
       try { cached = JSON.parse(localStorage.getItem('poro.homeCache.' + targetPuuid + '.' + (includePractice ? 1 : 0)) || 'null'); } catch (e) {}
     }
+    if(cached?.s?.puuid!==targetPuuid) cached=null;
     let cacheUsable = !!(cached && Array.isArray(cached.games) && cached.s && cached.s.puuid);
-    let cacheFresh = cacheUsable && (Date.now() - cached.ts < 3 * 60 * 1000);
+    let cacheFresh = cacheUsable && (Date.now() - cached.ts < (profileOverride ? 60000 : 3 * 60 * 1000));
+    let historyFetchedAt=cached?.ts || 0;
     // 旧版可能把“当前区查不到”的空数组缓存为有效跨区结果；空的他人缓存必须重新自动定位大区。
     if (profileOverride && cacheUsable && cached.games.length === 0) { cacheUsable = false; cacheFresh = false; }
 
-    let st = null, selfSummoner = null;
-    if (profileOverride && cachedSummoner) {
-      selfSummoner = cachedSummoner;
-    } else if (cacheUsable && !profileOverride) {
-      selfSummoner = cached.s;               // 上次会话的自己, 充当 summoner; 客户端没开也能先出数据
-    } else {
-      st = await lolAPI.lcuStatus();
-      if (stale()) return;                   // 已有更新的请求, 本次作废
-      if (!st.connected || !st.summoner || !st.summoner.puuid) {
-        // 后台刷新失败 (客户端未就绪): 页面上是有效的缓存内容, 不能标记失效也不能覆盖成提示;
-        // 挂起补刷标记, 等 pollLoop 检测到 LCU 就绪后自动重试
-        if (skipCache) { homeStatsLoaded = true; window._homeCacheNeedRefresh = true; return; }
-        panel.innerHTML = st.connected
-          ? '<div class="meta-loading">客户端已连接，正在同步玩家档案...</div>'
-          : '<div class="meta-loading">连接客户端后显示玩家数据统计</div>';
-        // 注意: 这里不要重置 homeStatsLoaded —— 单次瞬时超时就失效会导致首页反复重载而闪烁,
-        // 断开判定交给 pollLoop 的"连续两次失败"逻辑处理
-        return;
-      }
-      selfSummoner = st.summoner;
-    }
+    const selfSummoner=st.summoner;
     homeStatsLoaded = true;
     cachedSummonerName = (selfSummoner.gameName || selfSummoner.displayName || selfSummoner.name || '') + (selfSummoner.tagLine ? '#' + selfSummoner.tagLine : '');
     cachedSummoner = selfSummoner;
@@ -1113,20 +1270,30 @@ async function loadHomeStats(force, opts) {
 
     let s = selfSummoner, isSelf = true;
     let games, ranked = null, rawGameCount = 0, dataSource = "SGP", dataError = '', profileOverflow = [];
+    let rankedPromise = Promise.resolve(null), rankPending=false, rankFromCache=false;
     let targetPlatformId = cached?.platformId || cachedPlatformId || '';
     let targetPlatformFound = !!cached?.platformId;
 
-    if (cacheUsable && !skipCache) {
+    if (cacheUsable && !skipCache && (!profileOverride || cacheFresh)) {
       loadPath = 'cache';
       // 缓存命中: 不发任何战绩请求, 启动/回看秒出 (与 Seraphine 同策略)
-      s = cached.s; isSelf = !!cached.isSelf;
+      s = cached.s; isSelf = s.puuid===selfSummoner.puuid;
+      if(isSelf) s={...cached.s,...selfSummoner};
       // 查询档案接口返回的信息比旧缓存可靠，覆盖曾误存的“对局内等级”等占位值。
       if (profileOverride?.summoner?.puuid === s.puuid) s = mergeSummonerProfile(s, profileOverride.summoner);
       games = cached.games; ranked = cached.ranked || null;
       rawGameCount = cached.rawGameCount || cached.games.length;
       dataSource = cached.dataSource || 'SGP';
       targetPlatformId = cached.platformId || cachedPlatformId || '';
+      rankFromCache=hasRankedQueueData(ranked);
+      rankPending=true;
+      rankedPromise=loadRankedStats(s.puuid,isSelf || (!!targetPlatformId && targetPlatformId===cachedPlatformId),isSelf,stale);
     } else {
+      if(profileOverride) {
+        profileRefreshAfter=Date.now()+60000;
+        try { await lolAPI.sgpInvalidateMatchHistory?.(profileOverride.puuid); } catch(e) {}
+        if(stale()) return;
+      }
       if (profileOverride && profileOverride.puuid && profileOverride.puuid !== selfSummoner.puuid) {
         isSelf = false;
         if (profileOverride.summoner?.puuid) {
@@ -1138,7 +1305,7 @@ async function loadHomeStats(force, opts) {
         }
       }
       // SGP 战绩分页拉取: 排除训练/自定义时自动翻页, 直到攒够 100 场有效对局 (上限 500 场原始数据)
-      let rankedPromise = Promise.resolve(null);
+      rankPending=true;
       // 他人查询优先速度：首批 50 场中统计最近 30 场；自己的首页保留 100 场深度统计。
       const isProfileQuery = !!profileOverride;
       const TARGET = isProfileQuery ? 30 : 100;
@@ -1153,7 +1320,7 @@ async function loadHomeStats(force, opts) {
           targetPlatformId = selfPlatformId;
           targetPlatformFound = true;
           dataSource = 'LCU';
-          rankedPromise = loadRankedStats(s.puuid, true);
+          rankedPromise = loadRankedStats(s.puuid, true, isSelf, stale);
           const hist = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/products/lol/${encodeURIComponent(s.puuid)}/matches?begIndex=0&endIndex=${MAX_FETCH}`);
           if (stale()) return;
           if (!hist || hist.__error) throw new Error(hist?.__error || '外服客户端未返回战绩');
@@ -1172,7 +1339,7 @@ async function loadHomeStats(force, opts) {
           let r1;
           if (isProfileQuery) {
             const located = await findSgpPlatform(s.puuid, selfPlatformId, BATCH, (done, total) => {
-              if (!stale() && panel) panel.innerHTML = `<div class="meta-loading">当前大区暂无记录，正在自动查找其他大区 (${done}/${total})...</div>`;
+              if (!profileBackground && !stale() && panel) panel.innerHTML = `<div class="meta-loading">当前大区暂无记录，正在自动查找其他大区 (${done}/${total})...</div>`;
             });
             if (stale()) return;
             targetPlatformId = located.platformId;
@@ -1186,7 +1353,7 @@ async function loadHomeStats(force, opts) {
           }
           // 必须先知道目标所属平台再查段位。跨区只读取客户端的跨区缓存，绝不能拿
           // 当前登录大区的 ranked-stats 冒充目标玩家数据。
-          rankedPromise = loadRankedStats(s.puuid, isSelf || targetPlatformId === selfPlatformId);
+          rankedPromise = loadRankedStats(s.puuid, isSelf || targetPlatformId === selfPlatformId, isSelf, stale);
           const needSecond = !isProfileQuery && !includePractice;   // 自己的百场统计预取第 2 页；ID 查询只发首批
           const p2 = needSecond ? lolAPI.sgpMatchHistory(targetPlatformId, s.puuid, BATCH, BATCH).catch(() => null) : null;
           if (stale()) return;
@@ -1219,6 +1386,7 @@ async function loadHomeStats(force, opts) {
         }
       } catch (e) {
         console.error("SGP 失败, 回退 LCU:", e.message);
+        if(isSelf) rankedPromise=loadRankedStats(s.puuid,true,true,stale);
         dataError = e.message || '';
         dataSource = "LCU";
         const hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${s.puuid}/matches?begIndex=0&endIndex=100`);
@@ -1232,6 +1400,11 @@ async function loadHomeStats(force, opts) {
       // 查询他人时更偏向响应速度；自己的首页稍多等一点以提高首屏段位命中率。
       const rankWaitMs = isProfileQuery ? 400 : 1200;
       ranked = await Promise.race([rankedPromise, new Promise(r => setTimeout(() => r(null), rankWaitMs))]).catch(() => null);
+      if(ranked) rankPending=false;
+      if(!ranked) {
+        const prior=[cached,durableSelfCache].find(c=>c?.s?.puuid===s.puuid && c?.platformId===targetPlatformId && hasRankedQueueData(c.ranked));
+        if(prior) { ranked=prior.ranked; rankFromCache=true; }
+      }
       if (stale()) return;
       // 先验证网络结果再落盘。SGP/LCU 在客户端刚完成登录时可能短暂返回空历史；
       // 若本机已有同一账号的有效缓存，这属于刷新失败，不是“0 场战绩”。
@@ -1244,36 +1417,43 @@ async function loadHomeStats(force, opts) {
         return;
       }
       // 写持久缓存；自己的首页额外写独立文件，保证下一次启动稳定秒开。
-      const cachePayload = { ts: Date.now(), s, isSelf, games, ranked, rawGameCount, dataSource, platformId: targetPlatformFound || isSelf ? targetPlatformId : '' };
+      if(profileOverride && !games.length && cached?.games?.length) {
+        if(profileBackground) return;
+        throw new Error('战绩服务暂未返回有效数据，请稍后重试；已保留旧缓存');
+      }
+      historyFetchedAt=Date.now();
+      const cachePayload = { ts: historyFetchedAt, s, isSelf, games, ranked, rawGameCount, dataSource, platformId: targetPlatformFound || isSelf ? targetPlatformId : '' };
       try { localStorage.setItem(cacheKey, JSON.stringify(cachePayload)); } catch (e) {}
       if (isSelf) await writeHomeSelfCache(includePractice, cachePayload);
       if (!profileOverride && s && s.puuid) { try { localStorage.setItem('poro.selfPuuid', s.puuid); } catch (e) {} }
-      // 排位数据晚到: 后台等它完成后刷新段位相关区块 (不阻塞主渲染)
-      if (!ranked) {
-        rankedPromise.then(rv => {
-          if (stale() || !rv || !rv.queueMap) return;
-          ranked = rv;
-          const updatedPayload = { ts: Date.now(), s, isSelf, games, ranked, rawGameCount, dataSource, platformId: targetPlatformFound || isSelf ? targetPlatformId : '' };
-          try { localStorage.setItem(cacheKey, JSON.stringify(updatedPayload)); } catch (e) {}
-          if (isSelf) writeHomeSelfCache(includePractice, updatedPayload).catch(() => {});
-          // 局部刷新段位卡片与 MMR 芯片 (避免整页重渲染打断用户)
-          const qm2 = rv.queueMap || {};
-          const rkHtml = renderRankCards(qm2);
-          const ranksEl = document.querySelector('.home-ranks');
-          if (ranksEl && rkHtml) ranksEl.innerHTML = rkHtml;
-        }).catch(() => {});
-      }
     }
     if (stale()) return;
     // 只统计确实包含目标玩家的对局；匹配不到时不能拿第一名参赛者冒充目标。
-    games = (games || []).filter(g => !!findProfileParticipant(g, s));
+    games = mergePendingEogGames(games || [], s, targetPlatformId).filter(g => !!findProfileParticipant(g, s));
     for (const game of games) if (!game.platformId && targetPlatformId) game.platformId = targetPlatformId;
     const server = SERVER_NAMES[targetPlatformId] || targetPlatformId || "";
+    if(profileBackground && homeGamesOwner===s.puuid && games.length===homeGamesData.length &&
+      games.every((g,i)=>String(g.gid)===String(homeGamesData[i]?.gid))) return;
     // 请求可能在详情展开前已经发出，因此只在轮询入口判断还不够。提交 DOM 前再次检查，
     // 同一玩家详情仍打开时保留当前节点；网络结果已经写入缓存，关闭后可立即补绘。
-    if (homeGamesOwner === s.puuid && isHomeGameDetailExpanded()) {
+    if (homeGamesOwner === s.puuid && (isHomeGameDetailExpanded() || profileBackground || (skipCache && (homeScrollContainer()?.scrollTop || 0) > 80))) {
       homeRenderDeferred = true;
-      restoreHomeScroll(s.puuid);
+      // Never restore a request-time scroll snapshot over the user's newer position.
+      homeScrollSnapshot = null;
+      panel.style.minHeight = '';
+      if (!document.getElementById('homeRefreshNotice')) {
+        const notice = document.createElement('button');
+        notice.id = 'homeRefreshNotice';
+        notice.className = 'btn-secondary';
+        notice.textContent = '数据已更新 · 点击刷新（将收起详情）';
+        notice.onclick = () => {
+          panel.querySelectorAll('.ako-card.expanded').forEach(card => card.classList.remove('expanded'));
+          homeRenderDeferred = false;
+          notice.remove();
+          loadHomeStats(true);
+        };
+        panel.appendChild(notice);
+      }
       return;
     }
     if (!games.length) {
@@ -1371,54 +1551,7 @@ async function loadHomeStats(force, opts) {
       const lp = r.leaguePoints || 0;
       return { name: label + " (当前赛段)", n: total, w: r.wins, rank, lp, season: true };
     }).filter(Boolean);
-    const mmrChips = [];
-    const seasonWrOfQ = r => r && (r.wins + r.losses) ? Math.round(r.wins / (r.wins + r.losses) * 100) : null;
-    const recentWrOf = modeNames => {
-      let nn = 0, ww = 0;
-      for (const m of modeNames) {
-        const ms = modeStats[m];
-        if (ms) { nn += ms.n; ww += ms.w; }
-      }
-      return nn >= 5 ? Math.round(ww / nn * 100) : null;
-    };
-    // 模式聚合战绩 (n/w/k/d/a), 供胜率+KDA 估算使用
-    const recentAggOf = modeNames => {
-      const agg = { n: 0, w: 0, k: 0, d: 0, a: 0 };
-      for (const m of modeNames) {
-        const ms = modeStats[m];
-        if (ms) { agg.n += ms.n; agg.w += ms.w; agg.k += ms.k; agg.d += ms.d; agg.a += ms.a; }
-      }
-      return agg.n >= 5 ? agg : null;
-    };
-    const soloQf = qm.RANKED_SOLO_5x5;
-    const flexQf = qm.RANKED_FLEX_SR;
-    const soloWr = seasonWrOfQ(soloQf) ?? recentWrOf(["单双排", "排位·单双排"]) ?? wr;
-    const flexWr = seasonWrOfQ(flexQf) ?? recentWrOf(["灵活组排", "排位·灵活组排"]) ?? wr;
-    const soloM = mmrFromRanked(soloQf?.tier, soloQf?.division, soloQf?.leaguePoints, soloWr);
-    if (soloM) mmrChips.push(["单双排", soloM]);
-    const flexM = mmrFromRanked(flexQf?.tier, flexQf?.division, flexQf?.leaguePoints, flexWr);
-    if (flexM) mmrChips.push(["灵活组排", flexM]);
-    // 海克斯大乱斗: 优先海斗排位段位 (打过海斗排位时), 否则用 胜率+KDA 独立估算
-    const jadeQ = qm.JADE_RANKED_SOLO_5x5;
-    const jadeAgg = recentAggOf(["海克斯大乱斗"]);
-    const jadeWr = jadeAgg ? Math.round(jadeAgg.w / jadeAgg.n * 100) : null;
-    const jadeM = mmrFromRanked(jadeQ?.tier, jadeQ?.division, jadeQ?.leaguePoints, jadeWr);
-    if (jadeM) mmrChips.push(["海斗排位", jadeM]);
-    else if (jadeAgg) {
-      const est = mmrJadeEstimate(jadeAgg, soloM);
-      if (est) {
-        const jadeKda = ((jadeAgg.k + jadeAgg.a) / Math.max(1, jadeAgg.d)).toFixed(2);
-        const jadeWrPct = Math.round(jadeAgg.w / jadeAgg.n * 100);
-        mmrChips.push(["海斗·估算", est.v, `基于近${jadeAgg.n}场海斗: 胜率${jadeWrPct}% · KDA${jadeKda} · 基准来源: ${est.basis} (非官方估算)`]);
-      }
-    }
-    // 自校准采样: 有海斗排位段位的档案, 记录 (海斗表现, 排位推算MMR) 样本对, 用于修正估算基准
-    if (jadeQ && jadeQ.tier && jadeAgg && jadeAgg.n >= 10 && jadeM) {
-      addJadeCalibSample(s.puuid, jadeAgg.w / jadeAgg.n * 100, (jadeAgg.k + jadeAgg.a) / Math.max(1, jadeAgg.d), jadeM);
-    }
-    // 大乱斗: 胜率+KDA 独立估算 (与海斗分开统计)
-    const aramAgg = recentAggOf(["极地大乱斗"]);
-    if (aramAgg) mmrChips.push(["大乱斗·估算", mmrAram(aramAgg)]);
+    const mmrChips = buildHomeMmr(qm,modeStats,wr,s);
     const topFriends = dataSource === "SGP" ? Object.values(friendCount).sort((a, b) => b.count - a.count).slice(0, 8) : [];
 
     // ========== 渲染 op.gg 风格首页 ==========
@@ -1470,7 +1603,7 @@ async function loadHomeStats(force, opts) {
           <div class="home-info">
             <div class="home-name">${escapeHtml(s.gameName || s.displayName || s.name || '未知玩家')}${s.tagLine ? '#' + escapeHtml(s.tagLine) : ''}</div>
             <div class="home-server">大区: ${server} · 等级 ${s.summonerLevel || '-'} · ${includePractice ? '近 ' + n + ' 场统计' : (rawGameCount > n ? '拉取 ' + rawGameCount + ' 场 · 统计 ' + n + ' 场 (训练/自定义未计入)' : '近 ' + n + ' 场统计')}</div>
-            <div class="home-mmr"><small>非官方匹配强度</small>${mmrChips.map(([l, v, tip]) => `<span class="mmr-chip"${tip ? ` title="${tip}"` : ''}>${l} ~${v}</span>`).join('')}</div>
+            <div class="home-mmr">${renderHomeMmr(mmrChips,ranked,rankFromCache,rankPending)}</div>
           </div>
           <div class="home-winrate">
             ${!isSelf ? '<button class="back-to-me" onclick="backToMe()">⟲ 回到我的</button>' : ''}
@@ -1559,14 +1692,29 @@ async function loadHomeStats(force, opts) {
     // 静态英雄数据可能刚好在首页模板生成与挂载之间完成；挂载后再补绘一次，彻底消除竞态空白。
     refreshHomeChampionRows();
     restoreHomeScroll(s.puuid);
+    // Attach only after DOM mounting; never replace the history list or scroll position.
+    rankedPromise.then(rv=>{
+      if(stale() || homeGamesOwner!==s.puuid) return;
+      if(hasRankedQueueData(rv)) {
+        ranked=rv; rankFromCache=false;
+        const payload={ts:historyFetchedAt,rankedTs:Date.now(),s,isSelf,games,ranked,rawGameCount,dataSource,platformId:targetPlatformId};
+        try { localStorage.setItem(cacheKey,JSON.stringify(payload)); } catch(e) {}
+        if(isSelf) writeHomeSelfCache(includePractice,payload).catch(()=>{});
+        const ranksEl=panel.querySelector('.home-ranks');
+        if(ranksEl) ranksEl.innerHTML=renderRankCards(rv.queueMap);
+      }
+      const chipsEl=panel.querySelector('.home-mmr');
+      if(chipsEl) chipsEl.innerHTML=renderHomeMmr(buildHomeMmr(ranked?.queueMap||{},modeStats,wr,s),ranked,rankFromCache,false);
+    }).catch(()=>{});
     try {
       lolAPI.debugLog(`[PERF] home path=${loadPath} target=${profileOverride ? 'profile' : 'self'} games=${games.length} render=${Math.round(performance.now() - loadStartedAt)}ms`);
     } catch (e) {}
     // 缓存已过期 (>3分钟): 标记待刷新, 由 pollLoop 在 LCU 就绪后静默补刷 (替换之前的 setTimeout 方案,
     // 因为客户端可能还没连接, 立即刷新只会失败)
-    if (cacheUsable && !skipCache && !cacheFresh) window._homeCacheNeedRefresh = true;
+    if (!profileOverride && cacheUsable && !skipCache && !cacheFresh) window._homeCacheNeedRefresh = true;
   } catch (e) {
     if (stale()) return; // 被新查询取代的失败结果也不能覆盖当前玩家页面
+    if(profileBackground) { homeScrollSnapshot=null; return; }
     // 他人查询失败后保留当前错误页，等待用户修正名称或主动重试；若设为 false，
     // pollLoop 会把它当作“本人首页尚未加载”而永久重试，形成周期性整页闪烁。
     homeStatsLoaded = !!profileOverride;
@@ -1578,7 +1726,10 @@ async function loadHomeStats(force, opts) {
       target: profileOverride ? 'profile' : 'self',
       stale: myToken !== homeStatsToken
     });
-    if (myToken === homeStatsToken) homeStatsLoading = false;
+    if (myToken === homeStatsToken) {
+      homeStatsLoading = false;
+      if(profileBackground) homeScrollSnapshot=null;
+    }
   }
 }
 
@@ -1597,10 +1748,13 @@ async function expandOpggGame(el, gameId) {
   detail.innerHTML = '<div class="meta-loading">加载中...</div>';
   ensureChampMap();
   let norm = null;
+  let platformId = el.dataset.platform || '';
+  if (!platformId) {
+    try { platformId = await getPlatformId(); } catch (e) {}
+  }
   // SGP SUMMARY (含完整玩家统计+符文; DETAILS 是时间线格式不能用于玩家表), 失败回退 LCU
   try {
-    const platformId = el.dataset.platform || await getPlatformId();
-    if (isTencentPlatform(platformId)) {
+    if (platformId && isTencentPlatform(platformId)) {
       const resp = await lolAPI.sgpGameSummary(platformId, gameId);
       if (!resp.__error) { const g = resp.json || resp; if (g.participants?.length) norm = normalizeGame(g, true); }
     }
@@ -1624,12 +1778,30 @@ async function expandOpggGame(el, gameId) {
   await resolveRanks(allPuuids);
   try {
     renderOpggGameDetail(norm, detail);
+    applyMatchPremadeBadges(detail, resolveMatchPremadeGroups(norm.participants, [], 3), true);
   } catch (e) {
     console.error("渲染详情失败:", e);
     detail.innerHTML = `<div class="msg-error">详情渲染失败: ${escapeHtml(e.message)}</div>`;
     return;
   }
   renderGameReview(norm, gameId, detail, el.dataset.platform || '');
+  // 组队推断不阻塞详情首屏。近期战绩查询完成后仅更新徽标，不重绘详情，
+  // 因此不会把已经展开的复盘内容合上或造成页面跳动。
+  void (async () => {
+    if (typeof recentProfileFor !== 'function') {
+      applyMatchPremadeBadges(detail, resolveMatchPremadeGroups(norm.participants, [], 3), false);
+      return;
+    }
+    const profiles = [];
+    await mapWithConcurrency(norm.participants.filter(p => p.puuid), 4, async player => {
+      try {
+        const profile = await recentProfileFor(platformId, player.puuid, 30);
+        if (profile) profiles.push(profile);
+      } catch (e) {}
+    });
+    if (!detail.isConnected || !el.classList.contains('expanded')) return;
+    applyMatchPremadeBadges(detail, resolveMatchPremadeGroups(norm.participants, profiles, 3), false);
+  })();
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { deriveHomeFunStats, isHomeSignatureItem };

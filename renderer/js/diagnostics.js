@@ -59,3 +59,14 @@ async function copyDiagnostics() {
   const result = await lolAPI.copyText(lastDiagnosticsText);
   showToast(result?.ok === false ? '复制失败' : '诊断信息已复制', result?.ok === false ? 'negative' : 'positive');
 }
+
+async function exportDiagnostics() {
+  const report = await refreshDiagnostics();
+  const result = await lolAPI.exportDiagnostics(report);
+  if (result?.canceled) return;
+  if (!result || result.__error) {
+    showToast(result?.__error || '诊断包导出失败', 'negative');
+    return;
+  }
+  showToast(`诊断包已导出${result.attachments ? `（含 ${result.attachments} 张识别裁图）` : ''}`, 'positive');
+}

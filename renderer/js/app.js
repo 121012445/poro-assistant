@@ -174,6 +174,7 @@ async function init() {
           // 静态资源可能刚好在用户查看详情时完成。不要因此替换整批战绩卡片。
           if (typeof isHomeGameDetailExpanded !== 'function' || !isHomeGameDetailExpanded()) renderHomeGameList();
           refreshHomeChampionRows();
+          refreshHomeCoach();
           if (typeof refreshHomeFunStats === 'function') refreshHomeFunStats();
         }
       } catch (e) { console.error("静态数据加载失败", e); }

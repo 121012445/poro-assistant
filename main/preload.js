@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   recognizeAugments: (candidates) => ipcRenderer.invoke('game:recognizeAugments', candidates),
   augmentOverlayUpdate: (payload) => ipcRenderer.invoke('augment-overlay:update', payload),
   augmentOverlayStatus: () => ipcRenderer.invoke('augment-overlay:status'),
+  getAugmentOverlayLayout: () => ipcRenderer.invoke('augment-overlay:layout:get'),
+  setAugmentOverlayLayout: (layout) => ipcRenderer.invoke('augment-overlay:layout:set', layout),
   onAugmentOverlayData: (cb) => { ipcRenderer.on('augment-overlay:data', (e, d) => cb(d)); },
   // 对局内简报: 可预填，也可在用户明确启用的快捷键流程中直接发送
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
@@ -61,6 +63,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   // 诊断日志 (渲染层关键链路写入 crash.log 便于排查)
   debugLog: (msg) => ipcRenderer.send('app:debugLog', String(msg)),
   getRecentLogs: () => ipcRenderer.invoke('diag:recentLogs'),
+  exportDiagnostics: (report) => ipcRenderer.invoke('diag:export', report),
   // AI 复盘 (OpenAI 兼容接口, API Key 由主进程安全存储)
   getAiConfig: () => ipcRenderer.invoke('ai:getConfig'),
   saveAiConfig: (config) => ipcRenderer.invoke('ai:saveConfig', config),

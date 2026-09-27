@@ -178,10 +178,11 @@ function hexAugList(championId = 0, stage = 'all') {
     const globalGames = +s.g || 0;
     const own = champ?.aug?.[id];
     const heroGames = +own?.g || 0;
+    const heroWins = +own?.w || 0;
     const published = publicAugments[id] || null;
     return {
       id: +id, name: meta.name, icon: meta.icon, rarity: meta.rarity,
-      key: meta.key || '', games: globalGames, heroGames,
+      key: meta.key || '', games: globalGames, heroGames, heroWins,
       winRate: published && Number.isFinite(+published.winRate) ? +published.winRate : null,
       publicGames: published ? (+published.games || 0) : 0,
       pickRate: published ? (+published.pickRate || 0) : 0,
@@ -206,6 +207,7 @@ function hexAugList(championId = 0, stage = 'all') {
     }
     previous.games += row.games;
     previous.heroGames += row.heroGames;
+    previous.heroWins += row.heroWins;
     previous.sourceIds.push(row.id);
     // 海克斯大乱斗优先使用 ARAM 专用元数据与图标。
     const preferRow = String(row.key).startsWith('ARAM_') && !String(previous.key).startsWith('ARAM_');
@@ -326,12 +328,14 @@ function resetHexRecommendationContext() {
 // ========== 对局内三选一强化识别 ==========
 let _augmentScanTimer = null;
 let _augmentScanBusy = false;
+let _augmentScanGeneration = 0;
 let _augmentScanFailures = 0;
 let _augmentLastOfferKey = '';
 let _augmentLayoutMisses = 0;
 let _augmentShownAt = 0;
 let _augmentManualPending = false;
 let _augmentOfferMemory = new Map();
+let _augmentOcrMemory = new Map();
 let _augmentVisionMemory = new Map();
 let _augmentLastPayload = null;
 let _augmentOverlayHeartbeatAt = 0;
@@ -364,12 +368,14 @@ function augmentStageFromLevel(level) {
 
 async function probeLiveAugmentState(force = false) {
   const now = Date.now();
+  const generation = _augmentScanGeneration;
   if (!force && now - _augmentLiveProbe.checkedAt < 1200) return _augmentLiveProbe.pending || _augmentLiveProbe.state;
   if (_augmentLiveProbe.pending) return _augmentLiveProbe.pending;
   _augmentLiveProbe.pending = (async () => {
     let itemIds = [];
     try {
       const data = await lolAPI.liveGameData();
+      if (generation !== _augmentScanGeneration) return null;
       if (data && !data.__error) {
         _augmentCurrentStage = augmentStageFromLevel(data.activePlayer?.level);
         const localName = String(data.activePlayer?.summonerName || data.activePlayer?.riotIdGameName || '');
@@ -384,6 +390,7 @@ async function probeLiveAugmentState(force = false) {
         }
       }
     } catch (e) {}
+    if (generation !== _augmentScanGeneration) return null;
     _augmentLiveProbe.checkedAt = Date.now();
     _augmentLiveProbe.state = { stage: _augmentCurrentStage, selectedIds: _augmentKnownSelectedIds.slice(), itemIds };
     _augmentLiveProbe.pending = null;
@@ -439,6 +446,14 @@ function scoreAugmentRecommendation(stat, combo, context, baseline) {
     ? Math.min(0.5, Math.max(0.12, (Number(combo.games) || 0) / ((Number(combo.games) || 0) + 5000) * 0.5))
     : 0;
   let score = Number.isFinite(comboAdjusted) ? base * (1 - comboWeight) + comboAdjusted * comboWeight : base;
+  // 本机历史样本只做轻量校准：样本来自本机已采集战绩，先向英雄基准强收缩，且最多
+  // 占推荐分 12%，绝不能让几场偶然胜负推翻数万场公开数据。
+  const localGames = Math.max(0, Number(stat?.heroGames) || 0);
+  const localWins = Math.max(0, Math.min(localGames, Number(stat?.heroWins) || 0));
+  const localPrior = 12;
+  const localAdjusted = localGames ? (localWins + (Number.isFinite(baseline) ? baseline : 0.5) * localPrior) / (localGames + localPrior) : null;
+  const localWeight = Number.isFinite(localAdjusted) ? Math.min(0.12, localGames / (localGames + 20) * 0.12) : 0;
+  if (localWeight) score = score * (1 - localWeight) + localAdjusted * localWeight;
   const itemSynergy = augmentOwnedItemSynergy(stat, context?.itemIds);
   if (itemSynergy) score += 0.008;
   const confidence = augmentSampleConfidence(stat?.publicGames, combo?.games);
@@ -451,8 +466,9 @@ function scoreAugmentRecommendation(stat, combo, context, baseline) {
     reasons.push('暂无可靠胜率样本');
   }
   if (itemSynergy) reasons.push(`适配已装备${itemSynergy.name}`);
+  if (localGames >= 3) reasons.push(`结合本机${localGames}场同英雄样本`);
   if (confidence.level === 'low' && Number.isFinite(stat?.winRate)) reasons.push('已做低样本保守修正');
-  return { score, comboAdjusted, comboWeight, itemSynergy, confidence, reason: reasons.join(' · ') };
+  return { score, comboAdjusted, comboWeight, localAdjusted, localWeight, itemSynergy, confidence, reason: reasons.join(' · ') };
 }
 
 function augmentCandidateRows(championId) {
@@ -466,12 +482,77 @@ function augmentCandidateRows(championId) {
     priority: row.publicGames || 0
   }));
 }
+async function loadAugmentOverlayLayout() {
+  try {
+    const layout = await lolAPI.getAugmentOverlayLayout();
+    const anchor = document.getElementById('augmentOverlayAnchor');
+    const scale = document.getElementById('augmentOverlayScale');
+    if (anchor) anchor.value = layout?.anchor || 'top-left';
+    if (scale) scale.value = String(layout?.scale || 1);
+  } catch (e) {}
+}
+async function saveAugmentOverlayLayout() {
+  const anchor = document.getElementById('augmentOverlayAnchor')?.value || 'top-left';
+  const scale = Number(document.getElementById('augmentOverlayScale')?.value) || 1;
+  const result = await lolAPI.setAugmentOverlayLayout({ anchor, scale });
+  if (result?.__error) showToast('浮窗布局保存失败: ' + result.__error, 'negative');
+  else showToast('强化浮窗布局已更新', 'positive');
+}
+
+// Local decision log: visual disappearance is not evidence of a selected augment.
+let _augmentJournalPending = null;
+function readAugmentJournal() {
+  try {
+    const rows = JSON.parse(typeof storeGet === 'function' ? storeGet('augmentJournal') || '[]' : '[]');
+    return Array.isArray(rows) ? rows.slice(0, 120) : [];
+  } catch (_) { return []; }
+}
+function recordAugmentJournal(championId, stage, rows, selectedIds) {
+  if (typeof storeSet !== 'function') return;
+  const entry = {
+    at: Date.now(), championId, stage, selectedBefore: selectedIds.slice(),
+    choices: rows.map(r => ({ name: r.name, slot: r.slot, winRate: r.winRate, games: r.games, reason: r.reason })),
+    selected: null
+  };
+  const journal = readAugmentJournal();
+  journal.unshift(entry);
+  storeSet('augmentJournal', JSON.stringify(journal.slice(0, 120)));
+  _augmentJournalPending = entry.at;
+  renderAugmentJournal();
+}
+function confirmAugmentJournal(selectedIds) {
+  if (!_augmentJournalPending || typeof storeSet !== 'function') return;
+  const journal = readAugmentJournal();
+  const entry = journal.find(r => r.at === _augmentJournalPending);
+  if (!entry) return;
+  const added = selectedIds.filter(id => !entry.selectedBefore.includes(id));
+  if (added.length !== 1) return;
+  const name = hexAugMeta[added[0]]?.name;
+  if (!name || !entry.choices.some(r => r.name === name)) return;
+  entry.selected = name;
+  storeSet('augmentJournal', JSON.stringify(journal));
+  _augmentJournalPending = null;
+  renderAugmentJournal();
+}
+function renderAugmentJournal() {
+  const el = document.getElementById('augmentJournal');
+  if (!el) return;
+  el.innerHTML = readAugmentJournal().map(entry => '<div class="hex-context"><b>' +
+    escapeHtml(champNumMap?.[String(entry.championId)]?.name || ('英雄 #' + entry.championId)) +
+    ' · 第' + escapeHtml(entry.stage) + '轮</b><div>' + escapeHtml(new Date(entry.at).toLocaleString()) +
+    ' · ' + escapeHtml(entry.selected ? '已确认选择：' + entry.selected : '选择未确认（可能换牌或接口未提供）') +
+    '</div>' + entry.choices.slice().sort((a,b) => a.slot-b.slot).map(r => '<div>' +
+      escapeHtml(['左', '中', '右'][r.slot] || '') + '：' + escapeHtml(r.name) + ' · ' +
+      escapeHtml(r.reason) + ' · 样本 ' + escapeHtml(r.games) + '</div>').join('') + '</div>').join('') ||
+    '<p>尚无记录。成功识别三张卡后自动保存，仅存本机，最多保留 120 次；不推测未确认的选择。</p>';
+}
 
 function hideAugmentRecommendation() {
   _augmentLastOfferKey = '';
   _augmentLayoutMisses = 0;
   _augmentShownAt = 0;
   _augmentOfferMemory.clear();
+  _augmentOcrMemory.clear();
   _augmentVisionMemory.clear();
   _augmentLastPayload = null;
   _augmentShownSelectedCount = null;
@@ -482,10 +563,12 @@ function hideAugmentRecommendation() {
 
 async function restoreAugmentOverlayIfNeeded() {
   if (!_augmentLastPayload || Date.now() - _augmentOverlayHeartbeatAt < 1500) return;
+  const payload = _augmentLastPayload;
+  const generation = _augmentScanGeneration;
   _augmentOverlayHeartbeatAt = Date.now();
   try {
     const status = window.lolAPI?.augmentOverlayStatus ? await lolAPI.augmentOverlayStatus() : null;
-    if (!status?.visible) await lolAPI.augmentOverlayUpdate(_augmentLastPayload);
+    if (!status?.visible && generation === _augmentScanGeneration && payload === _augmentLastPayload) await lolAPI.augmentOverlayUpdate(payload);
   } catch (e) {}
 }
 
@@ -496,8 +579,11 @@ async function scanCurrentAugmentOffers(manual = false) {
     return false;
   }
   _augmentScanBusy = true;
+  const generation = _augmentScanGeneration;
+  const canceled = () => generation !== _augmentScanGeneration;
   try {
     await updateHexRecommendationContext(null, false);
+    if (canceled()) return false;
     const championId = +hexRecommendContext.champId || 0;
     if (!hexRecommendContext.isHex || !championId) {
       if (manual) lolAPI.notify?.('Poro 海斗强化', '尚未识别到海克斯大乱斗或当前英雄');
@@ -505,9 +591,12 @@ async function scanCurrentAugmentOffers(manual = false) {
       return false;
     }
     if (hexWinStats.championId !== championId || (!hexWinStats.data && !hexWinStats.loading)) {
-      await loadHexWinStats(championId);
+      // Statistics must not block card detection (network may take seconds).
+      loadHexWinStats(championId).catch(() => {});
     }
     const liveState = await probeLiveAugmentState(manual);
+    if (canceled()) return false;
+    confirmAugmentJournal(liveState?.selectedIds || []);
     const stage = liveState?.stage || _augmentCurrentStage || 1;
     // Live Client Data 一旦确认已选强化数量增加，说明点击已经落地，不需要再等
     // 画面识别超时；连续视觉判定只作为没有强化字段时的兜底。
@@ -519,6 +608,7 @@ async function scanCurrentAugmentOffers(manual = false) {
     }
     const all = hexAugList(championId, String(stage));
     const result = await lolAPI.recognizeAugments(augmentCandidateRows(championId));
+    if (canceled()) return false;
     if (!result || result.__error) {
       _augmentScanFailures++;
       if (manual) lolAPI.notify?.('Poro 海斗强化', result?.__error || '未能识别当前强化选项');
@@ -538,14 +628,19 @@ async function scanCurrentAugmentOffers(manual = false) {
     }
     _augmentLayoutMisses = 0;
     const now = Date.now();
-    // 后期棱彩光效会让单次 OCR 偶尔漏掉一张。OCR 命中立即采信；图标识别必须
-    // 同一槽位连续两帧同名才作为兜底，既提升第三/四轮成功率，也避免单帧误判。
+    // 后期棱彩光效会让单帧 OCR 把相似短标题串成另一个强化。OCR 与图标都要求
+    // 同一槽位跨两帧同名后才入选；槽位记忆允许三张卡分帧补齐，兼顾准确率和后两轮成功率。
     for (const offer of (result.offers || [])) {
       const slot = Number(offer?.slot);
       if (!offer?.accepted || !offer?.name || slot < 0 || slot > 2) continue;
       if (offer.confirmedBy === 'ocr' || !offer.confirmedBy) {
-        _augmentOfferMemory.set(slot, Object.assign({}, offer, { seenAt: now }));
-        _augmentVisionMemory.delete(slot);
+        const previous = _augmentOcrMemory.get(slot);
+        const hits = previous && previous.name === offer.name && now - previous.seenAt <= AUGMENT_OFFER_MEMORY_MS ? previous.hits + 1 : 1;
+        _augmentOcrMemory.set(slot, { name: offer.name, hits, seenAt: now });
+        if (hits >= 2) {
+          _augmentOfferMemory.set(slot, Object.assign({}, offer, { seenAt: now, confirmedBy: 'ocr-repeat' }));
+          _augmentVisionMemory.delete(slot);
+        }
       } else if (String(offer.confirmedBy || '').startsWith('vision')) {
         const previous = _augmentVisionMemory.get(slot);
         const hits = previous && previous.name === offer.name && now - previous.seenAt <= AUGMENT_OFFER_MEMORY_MS ? previous.hits + 1 : 1;
@@ -556,6 +651,8 @@ async function scanCurrentAugmentOffers(manual = false) {
     for (const [slot, offer] of _augmentOfferMemory) {
       if (now - offer.seenAt > AUGMENT_OFFER_MEMORY_MS) _augmentOfferMemory.delete(slot);
     }
+    for (const [slot, vote] of _augmentOcrMemory) if (now - vote.seenAt > AUGMENT_OFFER_MEMORY_MS) _augmentOcrMemory.delete(slot);
+    for (const [slot, vote] of _augmentVisionMemory) if (now - vote.seenAt > AUGMENT_OFFER_MEMORY_MS) _augmentVisionMemory.delete(slot);
     const detected = [0, 1, 2].map(slot => _augmentOfferMemory.get(slot)).filter(Boolean);
     const uniqueNames = new Set(detected.map(x => x.name));
     const seenTimes = detected.map(x => x.seenAt);
@@ -577,7 +674,7 @@ async function scanCurrentAugmentOffers(manual = false) {
         stage,
         itemIds: liveState?.itemIds || []
       }, hexWinStats.data?.baseline);
-      const baseline = Number(hexWinStats.data?.baseline);
+      const baseline = hexWinStats.data?.baseline == null ? NaN : Number(hexWinStats.data.baseline);
       const hasStat = Number.isFinite(stat.winRate) || Number.isFinite(scored.comboAdjusted);
       // “收益”统一相对当前英雄在该模式下的基准胜率计算。极小样本不展示一个看似
       // 很精确的正负数字，避免把噪声包装成结论；排序仍使用收缩后的推荐分。
@@ -595,7 +692,7 @@ async function scanCurrentAugmentOffers(manual = false) {
         comboGames: combo?.games || 0,
         recommendationScore: scored.score,
         baselineWinRate: Number.isFinite(baseline) ? baseline : null,
-        gain: gainReliable && Number.isFinite(scored.score) && Number.isFinite(baseline) ? scored.score - baseline : null,
+        gain: gainReliable && Number.isFinite(stat.winRate) && Number.isFinite(baseline) ? stat.winRate - baseline : null,
         gainReliable,
         confidenceLevel: scored.confidence.level,
         confidenceLabel: scored.confidence.label,
@@ -611,6 +708,7 @@ async function scanCurrentAugmentOffers(manual = false) {
         || a.slot - b.slot);
     const key = championId + ':' + rows.map(row => row.slot + '-' + row.name).join('|');
     const isNewOffer = key !== _augmentLastOfferKey;
+    if (isNewOffer) recordAugmentJournal(championId, stage, rows, liveState?.selectedIds || []);
     _augmentLastOfferKey = key;
     if (isNewOffer || !_augmentShownAt) {
       _augmentShownAt = Date.now();
@@ -645,6 +743,7 @@ async function scanCurrentAugmentOffers(manual = false) {
     if (manual) lolAPI.notify?.('Poro 海斗强化', error.message || '识别失败');
     return false;
   } finally {
+    if (canceled()) return;
     _augmentScanBusy = false;
     if (_augmentManualPending) {
       _augmentManualPending = false;
@@ -661,12 +760,18 @@ function startAugmentRecognition() {
 }
 
 function stopAugmentRecognition() {
+  _augmentScanGeneration++;
+  _augmentJournalPending = null;
+  _augmentKnownSelectedIds = [];
+  _augmentCurrentStage = 1;
+  _augmentLiveProbe = { checkedAt: 0, pending: null, state: null };
   if (_augmentScanTimer) clearInterval(_augmentScanTimer);
   _augmentScanTimer = null;
   _augmentScanBusy = false;
   _augmentScanFailures = 0;
   _augmentManualPending = false;
   _augmentOfferMemory.clear();
+  _augmentOcrMemory.clear();
   _augmentVisionMemory.clear();
   hideAugmentRecommendation();
 }
@@ -677,6 +782,7 @@ function syncAugmentRecognitionForPhase(phase) {
 }
 
 if (window.lolAPI?.onAugmentShortcut) lolAPI.onAugmentShortcut(() => scanCurrentAugmentOffers(true));
+setTimeout(loadAugmentOverlayLayout, 0);
 
 function hexCompactNumber(value) {
   const n = Number(value) || 0;
@@ -889,6 +995,7 @@ function renderOpggGameDetail(norm, container) {
         <div class="ak-name-row">
           ${pIconId ? `<img class="ak-picon" src="${profileIcon(pIconId)}" onerror="this.style.display='none'">` : ''}
           <div class="ak-name" onclick="event.stopPropagation();searchPlayerByPuuid(${inlineArg(p.puuid)}, ${inlineArg(getName(p))})">${escapeHtml(getName(p))}</div>
+          <span class="ak-party-slot" data-puuid="${escapeHtml(p.puuid || '')}"></span>
           ${(() => { const n = sampleEncounterCount(p.puuid, ownerPuuid); return n >= 2 ? `<span class="ak-enc" title="战绩样本(${homeGamesData ? homeGamesData.length : 0}场)中同场${n}次">同场${n}次</span>` : ''; })()}
           ${p.puuid !== myPuuid ? (() => {
             const bl = isBlacklisted(getName(p));
@@ -952,9 +1059,35 @@ function renderOpggGameDetail(norm, container) {
 
   container.innerHTML = `
     <div class="ogd-wrap">
+      <div class="ak-party-summary" data-party-summary>组队关系识别中…</div>
       ${teamBlock(tids[0])}
       ${tids[1] ? teamBlock(tids[1]) : ''}
     </div>`;
+}
+
+function applyMatchPremadeBadges(container, info, loading = false) {
+  if (!container) return;
+  const result = info || { groups: {}, sources: {}, officialCount: 0, inferredCount: 0, threshold: 3 };
+  for (const slot of container.querySelectorAll('.ak-party-slot')) {
+    const puuid = slot.dataset.puuid || '';
+    const groupId = result.groups?.[puuid];
+    const source = result.sources?.[puuid];
+    if (!groupId) { slot.innerHTML = ''; continue; }
+    const inferred = source === 'inferred';
+    slot.innerHTML = `<span class="ak-party ${inferred ? 'ak-party-inferred' : 'ak-party-official'}" title="${inferred
+      ? `推测组队：近 30 场至少 ${result.threshold || 3} 次同队，不代表官方确认`
+      : '本局数据提供的组队关系'}">👥${inferred ? '推测' : '组队'}${groupId}</span>`;
+  }
+  const summary = container.querySelector('[data-party-summary]');
+  if (!summary) return;
+  const officialGroups = new Set(Object.entries(result.groups || {}).filter(([puuid]) => result.sources?.[puuid] === 'official').map(([, id]) => id)).size;
+  const inferredGroups = new Set(Object.entries(result.groups || {}).filter(([puuid]) => result.sources?.[puuid] === 'inferred').map(([, id]) => id)).size;
+  const parts = [];
+  if (officialGroups) parts.push(`接口确认 ${officialGroups} 组`);
+  if (inferredGroups) parts.push(`近期同队推测 ${inferredGroups} 组`);
+  if (loading) parts.push('其余玩家识别中…');
+  summary.textContent = parts.length ? `组队关系：${parts.join(' · ')}` : '组队关系：未发现近 30 场至少 3 次同队的组合';
+  summary.classList.toggle('is-loading', !!loading);
 }
 function homeSearch() {
   const v = (document.getElementById("homeSearchInput") || {}).value || '';

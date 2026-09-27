@@ -191,7 +191,7 @@ const BENCH_OVERLAY_TITLE = '备战区';
 
 function _benchOverlayItemKey(it) {
   const rate = Number.isFinite(Number(it?.winRate)) ? Number(it.winRate).toFixed(5) : '-';
-  return it.id + ':' + it.tag + ':' + rate;
+  return it.id + ':' + it.tag + ':' + rate + ':' + (it.comparison || '');
 }
 
 async function _benchLoadHexWinRates(ids) {
@@ -399,6 +399,22 @@ function _benchSwapRequest(championId) {
 //   备战席 (benchChampions) —— 队伍备战区里的英雄, 通常可以立即换到; 只有"刚被骰子重随进来"
 //                              的那一个带 3 秒保护期 (服务器判定, 队友在此期间不能选)
 //   备选池 (subset)         —— ARAM 类模式开局就固定的抽卡池, 从来没有 3 秒冷却, 点了就是瞬换
+function benchSwapComparison(session, championId) {
+  if (typeof champDataOfLive !== 'function') return '';
+  const team = session?.myTeam || [];
+  const self = team.find(p => p.cellId === session.localPlayerCellId);
+  if (!self?.championId) return '当前英雄未确认，暂不比较';
+  const before = champDataOfLive(self.championId)?.tags;
+  const after = champDataOfLive(championId)?.tags;
+  if (!before?.length || !after?.length) return '英雄类别数据不足';
+  const labels = { Tank: '坦克', Fighter: '战士', Mage: '法师', Assassin: '刺客', Marksman: '射手', Support: '辅助' };
+  const changes = Object.keys(labels).filter(tag => before.includes(tag) !== after.includes(tag)).map(tag => {
+    const n = team.filter(p => champDataOfLive(p.championId)?.tags?.includes(tag)).length;
+    return labels[tag] + ' ' + n + '→' + (n + (after.includes(tag) ? 1 : -1));
+  });
+  return (changes.join(' · ') || '英雄类别构成不变') + '（仅类别对比，非胜率预测）';
+}
+
 function benchRenderSwapButtons(session) {
   const box = document.getElementById('benchSwapBtns');
   if (!box) return;
@@ -420,6 +436,7 @@ function benchRenderSwapButtons(session) {
     id: it.id,
     name: (champNumMap?.[String(it.id)]?.name) || ('英雄#' + it.id),
     tag: it.tag,
+    comparison: benchSwapComparison(s, it.id),
     ...(hexRecommendContext?.isHex && _benchHexRateCache.has(it.id) ? _benchHexRateCache.get(it.id) : {})
   }));
   _benchOverlaySync();
@@ -429,7 +446,7 @@ function benchRenderSwapButtons(session) {
   // 一眼就能看出是「可选列表」语义和备战席/抽卡池对不上, 而不是功能没生效。
   const blocked = items.length - usable.length;
   const gateN = Array.isArray(_benchPickableIds) ? _benchPickableIds.length : -1;
-  const key = usable.map(it => it.id + ':' + it.tag).join(',') + '|' + blocked + '|' + gateN;
+  const key = usable.map(it => it.id + ':' + it.tag + ':' + benchSwapComparison(s, it.id) + ':' + _benchHexRateCache.get(it.id)?.winRate).join(',') + '|' + blocked + '|' + gateN;
   if (key === _benchSwapBtnsKey) return;
   _benchSwapBtnsKey = key;
   try {
@@ -448,7 +465,7 @@ function benchRenderSwapButtons(session) {
     const rate = hexRecommendContext?.isHex ? _benchHexRateCache.get(it.id) : null;
     const rateText = Number.isFinite(rate?.winRate) ? ' · ' + (rate.winRate * 100).toFixed(1) + '%' : '';
     return '<button class="btn-secondary" onclick="benchSwapNow(' + it.id + ')">换到 ' + name +
-      ' <span class="bench-tag">' + it.tag + rateText + '</span></button>';
+      ' <span class="bench-tag">' + it.tag + rateText + '</span><small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
   }).join('') + (blocked
     ? '<span class="tool-state">另有 ' + blocked + ' 个备选池英雄暂不可选' +
       (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'
@@ -616,7 +633,12 @@ function wireLcuEvents() {
       else if (uri === '/lol-lobby-team-builder/champ-select/v1') benchFetchLists();
       else if (uri === '/lol-matchmaking/v1/ready-check') handleReadyCheckEvent(data);
       // eog-stats-block 比 gameflow 阶段更接近结算数据真正生成的时刻，可立即唤醒同一条补刷链。
-      else if (uri === '/lol-end-of-game/v1/eog-stats-block') refreshAfterGameEnd('eog-stats');
+      else if (uri === '/lol-end-of-game/v1/eog-stats-block') {
+        // EOG payload 已包含双方完整结算数据，先写本地流水账立即展示；正式 SGP 战绩
+        // 到达后会按 gameId 无缝替换。这样服务器慢时也不会出现“刚打完但首页没这局”。
+        if (data && typeof capturePendingEogGame === 'function') capturePendingEogGame(data);
+        refreshAfterGameEnd('eog-stats');
+      }
       // 仅在切换账号时才刷新首页数据 (该事件高频触发, 避免整页重渲染导致详情自动收起)
       else if (uri === '/lol-summoner/v1/current-summoner' && data && data.puuid && data.puuid !== window._myPuuid) {
         // 切换账号也可能意味着切换 Riot 区服，不能沿用上一个客户端会话的平台缓存。
@@ -647,10 +669,24 @@ async function pollLoop() {
     // 连续两次失败才判定为断开 (瞬时超时不触发首页重渲染)
     if (!lcuConnected) _lcuFailCount++; else _lcuFailCount = 0;
     if (!lcuConnected && _lcuFailCount >= 2) homeStatsLoaded = false;
+    if(lcuConnected && st.summoner?.puuid && window._myPuuid && st.summoner.puuid!==window._myPuuid) {
+      homeStatsToken++;
+      homeStatsLoading=false;
+      homeStatsLoaded=false;
+      cachedSummoner=st.summoner;
+      window._myPuuid=st.summoner.puuid;
+      window._homeCacheNeedRefresh=true;
+      if(!profileOverride) {
+        homeGamesOwner=null;
+        const accountPanel=document.getElementById('playerPanel');
+        if(accountPanel) accountPanel.innerHTML='<div class="meta-loading">账号已切换，正在加载当前账号...</div>';
+      }
+    }
     // 有展开中的对局详情时跳过整页重渲染, 避免"详情自动关闭"
     // 查看他人由用户查询链独占驱动。轮询只负责本人首页，不能在跨区查询或错误页上
     // 每 4/12 秒再开一个整页加载，否则页面会持续闪烁并偶尔闪回本人。
     if (lcuConnected && !profileOverride && !homeStatsLoaded && !homeStatsLoading && !document.querySelector('.ako-card.expanded')) loadHomeStats();
+    if (lcuConnected && profileOverride && homeStatsLoaded && !homeStatsLoading) refreshViewedProfile();
     // 缓存补刷/账号校验: 页面显示的是本地缓存时, LCU 一旦就绪:
     // 1) 登录账号变了 → 切回新账号数据  2) 缓存过期 → 静默拉最新
     if (lcuConnected && !profileOverride && !homeStatsLoading && st.summoner && window._homeCacheNeedRefresh && !document.querySelector('.ako-card.expanded')) {

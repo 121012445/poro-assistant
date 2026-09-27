@@ -70,6 +70,7 @@ assert.deepStrictEqual(db.champSeen.map(Number), [1, 2]);
 const personal = JSON.parse(vm.runInContext('JSON.stringify(hexAugList(81))', context));
 assert.strictEqual(personal[0].id, 1205);
 assert.strictEqual(personal[0].heroGames, 2);
+assert.strictEqual(personal[0].heroWins, 1);
 
 // 卢锡安必须按英雄维度的真实胜率排序，不能被个人使用次数干扰。
 vm.runInContext(`hexAugMeta = {
@@ -120,12 +121,22 @@ const itemFit = JSON.parse(vm.runInContext(`JSON.stringify(scoreAugmentRecommend
 ))`, context));
 assert.strictEqual(itemFit.itemSynergy.name, '无尽之刃');
 assert.ok(itemFit.reason.includes('适配已装备无尽之刃'));
+const locallyAdjusted = JSON.parse(vm.runInContext(`JSON.stringify(scoreAugmentRecommendation(
+  {name:'测试强化',winRate:0.52,adjustedWinRate:0.52,publicGames:8000,heroGames:8,heroWins:7},
+  null, {stage:2,itemIds:[]}, 0.50
+))`, context));
+assert.ok(locallyAdjusted.localWeight > 0 && locallyAdjusted.localWeight <= 0.12, '本机样本只能轻量校准');
+assert.ok(locallyAdjusted.reason.includes('本机8场同英雄样本'));
 
 const overlaySource = fs.readFileSync('renderer/js/augment-overlay.js', 'utf8');
 const mainSource = fs.readFileSync('main/index.js', 'utf8');
+const preloadSource = fs.readFileSync('main/preload.js', 'utf8');
+const htmlSource = fs.readFileSync('renderer/index.html', 'utf8');
 assert.ok(overlaySource.includes('item.reason') && overlaySource.includes('confidenceLevel'), '浮窗应展示推荐依据与可信度');
-assert.ok(overlaySource.includes('gainText') && overlaySource.includes('参考不足') && overlaySource.includes('修正 '), '浮窗应以相对收益为主，并保留修正胜率与低样本提示');
+assert.ok(overlaySource.includes('gainText') && overlaySource.includes('参考不足') && overlaySource.includes('百分点') && overlaySource.includes('胜率 '), '浮窗应区分原始胜率差与推荐分，并保留低样本提示');
 assert.ok(mainSource.includes("reason: String(item?.reason") && mainSource.includes('recommendationScore:') && mainSource.includes('gainReliable:'), '主进程不得丢弃条件化推荐字段');
+assert.ok(mainSource.includes("ipcMain.handle('augment-overlay:layout:set'") && mainSource.includes("anchor.endsWith('right')"), '强化浮窗应支持四角布局持久化');
+assert.ok(preloadSource.includes('setAugmentOverlayLayout:') && htmlSource.includes('augmentOverlayAnchor'), '强化页应提供布局控制入口');
 
 context.__session = {
   localPlayerCellId: 3,
@@ -156,6 +167,7 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
   // OCR 已确认三张卡后，必须真正推送透明浮窗，不能在排序或英雄映射阶段静默失败。
   flowResponse = { gameData: { queue: { id: 2400, gameMode: 'JADE' }, playerChampionId: 236 } };
   vm.runInContext('hexRecommendContext = {isHex:true,champId:236,queueId:2400,checkedAt:Date.now(),checking:false}', context);
+  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), false, '单帧 OCR 不得直接显示，避免相似标题误识');
   const scanOk = await vm.runInContext('scanCurrentAugmentOffers(false)', context);
   assert.strictEqual(scanOk, true, '完整识别三张卡后应成功推送浮窗');
   assert.ok(overlayPayload?.visible, '强化推荐浮窗应为可见');
@@ -167,7 +179,7 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
   vm.runInContext('hideAugmentRecommendation()', context);
   overlayPayload = null;
   let partialCall = 0;
-  context.lolAPI.recognizeAugments = async () => (++partialCall === 1 ? {
+  context.lolAPI.recognizeAugments = async () => (partialCall++ < 2 ? {
     layoutDetected: true,
     offers: [
       { slot: 0, id: 2095, name: '掷骰狂人', icon: 'roller', score: 0.99, accepted: true, confirmedBy: 'ocr' },
@@ -182,10 +194,47 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
       { slot: 2, id: 1048, name: '珠光护手', icon: 'jg', score: 0.99, accepted: true, confirmedBy: 'ocr' }
     ]
   });
-  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), false, '只确认两张时不应过早显示');
-  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), true, '下一帧补齐第三张后应合并显示');
+  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), false, '第一帧只观察，不应过早显示');
+  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), false, '两张卡完成跨帧确认时仍不应过早显示');
+  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), false, '第三张第一帧仍需等待共识');
+  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), true, '第三张跨帧确认后应合并显示');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(overlayPayload.items.map(x => x.name))), ['掷骰狂人', '易损', '珠光护手']);
   console.log('海斗强化真实胜率排序测试通过');
+
+  // A delayed OCR completion must never revive an overlay after leaving the game.
+  let finishRecognition;
+  let recognitionStarted;
+  const started = new Promise(resolve => { recognitionStarted = resolve; });
+  context.lolAPI.recognizeAugments = () => {
+    recognitionStarted();
+    return new Promise(resolve => { finishRecognition = resolve; });
+  };
+  const pendingScan = vm.runInContext('scanCurrentAugmentOffers(false)', context);
+  await started;
+  vm.runInContext('stopAugmentRecognition()', context);
+  finishRecognition({ layoutDetected: true, offers: [] });
+  await pendingScan;
+  assert.strictEqual(overlayPayload.visible, false, '过期识别不能重新显示浮窗');
+  assert.strictEqual(vm.runInContext('_augmentScanBusy', context), false);
+
+  const store = {};
+  context.storeGet = key => store[key];
+  context.storeSet = (key, value) => { store[key] = value; };
+  vm.runInContext(`
+    hexAugMeta[1048] = { name: '珠光护手' };
+    recordAugmentJournal(236, 3, [{ name:'珠光护手',slot:2,games:100,reason:'样本' }], []);
+    confirmAugmentJournal([]);
+  `, context);
+  assert.strictEqual(JSON.parse(store.augmentJournal)[0].selected, null, '不能根据视觉消失猜测选择');
+  vm.runInContext('confirmAugmentJournal([1048])', context);
+  assert.strictEqual(JSON.parse(store.augmentJournal)[0].selected, '珠光护手');
+  assert.strictEqual(JSON.parse(store.augmentJournal)[0].stage, 3);
+  for (const stage of [1, 2, 3, 4]) {
+    context.testStage = stage;
+    vm.runInContext(`recordAugmentJournal(236, testStage, [{ name:'珠光护手',slot:2,games:100,reason:'样本' }], [])`, context);
+    assert.strictEqual(JSON.parse(store.augmentJournal)[0].stage, stage);
+  }
+  console.log('识别取消竞态与本地选择档案测试通过');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

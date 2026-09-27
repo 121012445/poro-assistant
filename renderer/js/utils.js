@@ -75,6 +75,67 @@ function inferPremadeGroups(players, profiles, threshold = 3) {
   return result;
 }
 
+// 战绩详情的组队关系：优先采用对局数据自带的 party 标识；缺失时再用
+// 近期共同对局推断。返回每名玩家的来源，界面必须把推断结果明确标注为“推测”。
+function resolveMatchPremadeGroups(players, profiles = [], threshold = 3) {
+  const list = Array.isArray(players) ? players : [];
+  const groups = {};
+  const sources = {};
+  let nextGroup = 1;
+  const invalidPartyIds = new Set(['', '0', '-1', 'none', 'null', 'undefined', 'unknown']);
+
+  for (const team of [100, 200]) {
+    const buckets = new Map();
+    for (const player of list) {
+      if ((+player.teamId || +player.team) !== team || !player.puuid) continue;
+      const raw = player.partyId ?? player.premadeId ?? player.partyIdHash ?? player.playerPartyId ?? '';
+      const partyId = String(raw).trim();
+      if (invalidPartyIds.has(partyId.toLowerCase())) continue;
+      if (!buckets.has(partyId)) buckets.set(partyId, []);
+      buckets.get(partyId).push(player.puuid);
+    }
+    for (const members of buckets.values()) {
+      const unique = [...new Set(members)];
+      if (unique.length < 2) continue;
+      for (const puuid of unique) {
+        groups[puuid] = nextGroup;
+        sources[puuid] = 'official';
+      }
+      nextGroup++;
+    }
+  }
+
+  const inferred = inferPremadeGroups(
+    list.map(player => ({ puuid: player.puuid, team: +player.teamId || +player.team })),
+    profiles,
+    threshold
+  );
+  const inferredComponents = new Map();
+  for (const [puuid, groupId] of Object.entries(inferred)) {
+    if (!inferredComponents.has(groupId)) inferredComponents.set(groupId, []);
+    inferredComponents.get(groupId).push(puuid);
+  }
+  for (const members of inferredComponents.values()) {
+    // 官方组员不再被推断结果重新编号；与官方组重叠的连通分量整体跳过，
+    // 避免一个玩家同时显示两个互相矛盾的组队关系。
+    if (members.some(puuid => groups[puuid])) continue;
+    if (members.length < 2) continue;
+    for (const puuid of members) {
+      groups[puuid] = nextGroup;
+      sources[puuid] = 'inferred';
+    }
+    nextGroup++;
+  }
+
+  return {
+    groups,
+    sources,
+    officialCount: Object.values(sources).filter(source => source === 'official').length,
+    inferredCount: Object.values(sources).filter(source => source === 'inferred').length,
+    threshold
+  };
+}
+
 // 将单局数据转成简短、可解释的表现标签。相对队内均值判断可兼容
 // 不同模式和对局时长；辅助位或高治疗贡献玩家不会被简单标记为输出乏力。
 function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') {

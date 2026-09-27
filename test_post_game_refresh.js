@@ -15,9 +15,12 @@ assert(preload.includes('sgpInvalidateMatchHistory:'), 'preload must expose SGP 
 assert(events.includes("['ChampSelect', 'GameStart', 'InProgress'].includes(window._gameflowPhase)"), 'retry loop must stop when a new game starts');
 assert(events.includes("loadHomeStats(true, { skipCache: true })"), 'post-game refresh must bypass the persistent home cache');
 assert(bench.includes("uri === '/lol-end-of-game/v1/eog-stats-block'"), 'EOG stats event must trigger refresh');
+assert(bench.includes('capturePendingEogGame(data)'), 'EOG stats must enter the local ledger before remote settlement');
+assert(home.includes('normalizeEogGame') && home.includes('mergePendingEogGames'), 'home must merge the account-scoped local EOG ledger');
+assert(home.includes('pendingSettlement: true') && home.includes('结算同步中'), 'pending games must be visibly marked until official history replaces them');
 assert(bench.includes('await lolAPI.sgpInvalidateMatchHistory(st.summoner.puuid)'), 'poll fallback must also invalidate SGP history cache');
 assert(events.includes('latestGameId !== baselineGameId'), 'retry loop must wait for a genuinely new game id');
-assert(home.includes('homeGamesOwner === s.puuid && isHomeGameDetailExpanded()')
+assert(home.includes('homeGamesOwner === s.puuid && (isHomeGameDetailExpanded()')
   && home.includes('homeRenderDeferred = true'),
   'an in-flight refresh must not replace the DOM while a match detail is expanded');
 assert(home.includes('resumeDeferredHomeRefresh();'),

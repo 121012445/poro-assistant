@@ -180,6 +180,7 @@
 .legal-card { border-style: dashed; }
 .legal-card p { margin: 6px 0; line-height: 1.65; }
 .diagnostics-output { margin-top: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 12px; border-radius: 8px; background: var(--bg-hover); color: var(--text-primary); font: 11px/1.55 Consolas, monospace; }
+.ako-pendingtag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 /* 首页战绩模式筛选 */
 .home-mode-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
@@ -236,6 +237,29 @@
 .hc-card strong { display:block; color:var(--text-primary); font-size:13px; }
 .hc-card p { margin:5px 0; color:var(--text-secondary); font-size:10px; line-height:1.5; }
 .hc-card small { color:var(--text-muted); font-size:9px; }
+.hc-comparable { grid-column:1/-1; }
+.hc-profile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0; }
+.hc-profile-grid .hc-card p { font-size:12px; line-height:1.65; }
+.hc-profile-grid .hc-champ { margin-top:5px; }
+/* Match the homepage data palette without coloring whole paragraphs. */
+.home-coach { color:var(--text-secondary); }
+.home-coach .hc-head b,.home-coach .hc-card > strong { color:var(--data-blue,var(--accent)); }
+.home-coach > small,.home-coach .hc-head span,.home-coach .hc-champ small { color:var(--text-secondary); }
+.home-coach > small { display:block; font-size:11px; line-height:1.65; }
+.home-coach .hc-value { font-weight:700; font-variant-numeric:tabular-nums; }
+.home-coach .hc-value-blue,.home-coach .hc-champ b { color:var(--data-blue,var(--accent)); }
+.home-coach .hc-value-teal,.home-coach .hc-strength > b { color:var(--data-teal,var(--positive)); }
+.home-coach .hc-value-violet,.home-coach .hc-advice > b { color:var(--data-violet,var(--accent)); }
+.home-coach .hc-value-gold { color:var(--data-gold,var(--warning)); }
+.home-coach .hc-strength,.home-coach .hc-advice { padding:7px 9px; border-radius:7px; background:color-mix(in srgb,var(--accent) 5%,var(--bg-card)); }
+.home-coach .hc-strength { border-left:2px solid var(--data-teal,var(--positive)); }
+.home-coach .hc-advice { border-left:2px solid var(--data-violet,var(--accent)); }
+.home-coach select { color:var(--text-secondary); background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
+.home-coach select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media(max-width:1200px){.hc-profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.hc-profile-grid{grid-template-columns:1fr}}
+.hc-comparable p { font-size:12px; }
+.hc-comparable small { font-size:11px; line-height:1.6; }
 .hc-progress { height:6px; margin:8px 0 5px; overflow:hidden; border-radius:6px; background:color-mix(in srgb,var(--border) 55%,transparent); }
 .hc-progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--accent2),var(--positive)); }
 .hc-pool { display:grid; grid-template-columns:1fr 1fr; gap:5px; }

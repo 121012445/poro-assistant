@@ -442,6 +442,7 @@ ipcMain.handle('overlay:update', async (e, payload) => {
         id: Number(it.id),
         name: String(it.name || ('英雄#' + it.id)).substring(0, 24),
         tag: String(it.tag || '').substring(0, 8),
+        comparison: String(it.comparison || '').substring(0, 240),
         winRate: it?.winRate != null && Number.isFinite(Number(it.winRate)) ? Number(it.winRate) : null,
         games: Math.max(0, Number(it?.games) || 0)
       })),
@@ -504,6 +505,16 @@ let augmentOverlayWindow = null;
 let augmentOverlayPayload = { champion: '', items: [], state: '' };
 const AUGMENT_OVERLAY_SIZE = { width: 410, height: 262 };
 let lastAugmentOverlayScale = 1;
+const AUGMENT_LAYOUT_FILE = () => path.join(USER_DATA, 'augment-overlay-layout.json');
+function readAugmentOverlayLayout() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(AUGMENT_LAYOUT_FILE(), 'utf8'));
+    return {
+      anchor: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(raw?.anchor) ? raw.anchor : 'top-left',
+      scale: [0.85, 1, 1.15].includes(Number(raw?.scale)) ? Number(raw.scale) : 1
+    };
+  } catch (e) { return { anchor: 'top-left', scale: 1 }; }
+}
 
 function augmentOverlayMetrics() {
   let game = null;
@@ -511,14 +522,19 @@ function augmentOverlayMetrics() {
   let display = null;
   try { display = game ? electronScreen.getDisplayMatching(game) : electronScreen.getPrimaryDisplay(); } catch (e) {}
   const area = display?.workArea || { x: 0, y: 0, width: 1280, height: 720 };
+  const layout = readAugmentOverlayLayout();
   // 以 1440p 为视觉基准，同时考虑系统 DPI。限制范围避免小屏不可读或大屏遮挡过多。
   const heightScale = game?.height ? game.height / 1440 : area.height / 1080;
   const dpiScale = Math.max(1, Number(display?.scaleFactor) || 1);
-  const scale = Math.max(0.78, Math.min(1.18, heightScale * Math.min(1.12, Math.sqrt(dpiScale))));
+  const scale = Math.max(0.70, Math.min(1.30, heightScale * Math.min(1.12, Math.sqrt(dpiScale)) * layout.scale));
   const width = Math.round(AUGMENT_OVERLAY_SIZE.width * scale);
   const height = Math.round(AUGMENT_OVERLAY_SIZE.height * scale);
-  const x = game ? game.x + 18 : area.x + 18;
-  const y = game ? game.y + Math.max(54, Math.round(game.height * 0.065)) : area.y + 60;
+  const padX = 18;
+  const padY = game ? Math.max(54, Math.round(game.height * 0.065)) : 60;
+  const right = layout.anchor.endsWith('right');
+  const bottom = layout.anchor.startsWith('bottom');
+  const x = game ? (right ? game.x + game.width - width - padX : game.x + padX) : (right ? area.x + area.width - width - padX : area.x + padX);
+  const y = game ? (bottom ? game.y + game.height - height - padY : game.y + padY) : (bottom ? area.y + area.height - height - padY : area.y + padY);
   return { scale, bounds: {
     x: Math.max(area.x, Math.min(x, area.x + area.width - width)),
     y: Math.max(area.y, Math.min(y, area.y + area.height - height)),
@@ -528,6 +544,20 @@ function augmentOverlayMetrics() {
 }
 
 function augmentOverlayBounds() { return augmentOverlayMetrics().bounds; }
+
+ipcMain.handle('augment-overlay:layout:get', async () => readAugmentOverlayLayout());
+ipcMain.handle('augment-overlay:layout:set', async (e, input) => {
+  try {
+    const layout = {
+      anchor: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(input?.anchor) ? input.anchor : 'top-left',
+      scale: [0.85, 1, 1.15].includes(Number(input?.scale)) ? Number(input.scale) : 1
+    };
+    fs.mkdirSync(USER_DATA, { recursive: true });
+    fs.writeFileSync(AUGMENT_LAYOUT_FILE(), JSON.stringify(layout, null, 2), 'utf8');
+    if (augmentOverlayWindow && !augmentOverlayWindow.isDestroyed()) showAugmentOverlayWindow(augmentOverlayWindow, 'layout-change');
+    return { ok: true, layout };
+  } catch (error) { return { __error: error.message }; }
+});
 
 function pushAugmentOverlayData() {
   if (!augmentOverlayWindow || augmentOverlayWindow.isDestroyed()) return;
@@ -1283,6 +1313,43 @@ ipcMain.handle('fs:writeFile', async (e, filePath, content) => {
     fs.writeFileSync(filePath, content, 'utf8');
     return true;
   } catch (err) { return false; }
+});
+
+ipcMain.handle('diag:export', async (e, rendererReport) => {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效的诊断导出来源' };
+    // 报告由用户主动导出。仅附最近的强化识别裁图，便于定位“漏识别/识错卡面”；
+    // 不包含令牌、完整 PUUID、AI Key 或任意用户目录路径。
+    const safeReport = rendererReport && typeof rendererReport === 'object'
+      ? JSON.parse(JSON.stringify(rendererReport)) : {};
+    const attachments = [];
+    const candidates = fs.existsSync(USER_DATA) ? fs.readdirSync(USER_DATA)
+      .filter(name => /^augment-ocr-.*\.png$/i.test(name))
+      .map(name => ({ name, path: path.join(USER_DATA, name), mtime: fs.statSync(path.join(USER_DATA, name)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime).slice(0, 3) : [];
+    let attachmentBytes = 0;
+    for (const file of candidates) {
+      const size = fs.statSync(file.path).size;
+      if (size > 1024 * 1024 || attachmentBytes + size > 3 * 1024 * 1024) continue;
+      attachments.push({ name: file.name, mime: 'image/png', dataBase64: fs.readFileSync(file.path).toString('base64') });
+      attachmentBytes += size;
+    }
+    const bundle = {
+      kind: 'poro-diagnostics', version: 1, generatedAt: new Date().toISOString(),
+      privacy: '已脱敏；可能包含最近三张强化卡区域截图，仅在你主动导出后生成。',
+      report: safeReport, attachments
+    };
+    const content = JSON.stringify(bundle, null, 2);
+    if (Buffer.byteLength(content, 'utf8') > MAX_USER_FILE_BYTES) return { __error: '诊断包过大，请清理旧识别截图后重试' };
+    const chosen = await dialog.showSaveDialog(mainWindow, {
+      title: '导出 Poro 诊断包',
+      defaultPath: `Poro-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.poro-diagnostics.json`,
+      filters: [{ name: 'Poro 诊断包', extensions: ['json'] }]
+    });
+    if (chosen.canceled || !chosen.filePath) return { canceled: true };
+    fs.writeFileSync(chosen.filePath, content, 'utf8');
+    return { ok: true, filePath: chosen.filePath, attachments: attachments.length };
+  } catch (error) { return { __error: '导出失败: ' + error.message }; }
 });
 
 ipcMain.handle('backup:export', async (e, payload) => {

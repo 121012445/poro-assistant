@@ -11,9 +11,23 @@ const main = fs.readFileSync('main/index.js', 'utf8');
 const diagnostics = fs.readFileSync('renderer/js/diagnostics.js', 'utf8');
 const css = fs.readFileSync('renderer/css/extras.css', 'utf8');
 
-assert(home.includes('function buildHomeCoach('), '首页应包含持续训练目标');
-assert(home.includes('英雄池教练'), '首页应包含英雄池建议');
-assert(home.includes('版本影响提示'), '首页应包含版本影响观察');
+assert(home.includes('我的擅长与提升'));
+assert(!home.includes('startComparableGoal') && !home.includes('progressGoal:'));
+assert(fs.readFileSync('renderer/js/app.js','utf8').includes('refreshHomeCoach();'));
+const coachContext={
+  PoroProgress:require('./renderer/js/progress-report'), ensureChampMap(){},
+  findProfileParticipant:g=>g.me, allChampions:{Yi:{key:11,name:'无极剑圣',tags:['Fighter']}},
+  escapeHtml:s=>String(s).replace(/</g,'&lt;')
+};
+vm.createContext(coachContext);
+vm.runInContext(home.slice(home.indexOf('function buildHomeCoach('),home.indexOf('// 趣味数据只描述')),coachContext);
+coachContext.games=[{gid:1,queueId:2400,dur:1000,mode:'海斗',me:{championId:60011,win:true,k:2,d:1,a:3}}];
+const html=vm.runInContext('buildHomeCoach(games,{})',coachContext);
+assert(html.includes('无极剑圣') && html.includes('样本不足 5 场'));
+assert(!html.includes('开始跟踪') && !html.includes('已记录'));
+coachContext.allChampions={};
+coachContext.games[0].me.championId=999;
+assert(vm.runInContext('buildHomeCoach(games,{})',coachContext).includes('未知类别 1 场'));
 assert(home.includes('非官方匹配强度'), '匹配强度必须明确标注为非官方');
 assert(live.includes('function buildLiveDecisionPanel('), '实时对局应包含阵容决策中心');
 assert(live.includes('综合态势不是官方胜率'), '阵容评分必须避免冒充精确胜率');
