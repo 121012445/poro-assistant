@@ -50,27 +50,66 @@ async function loadHexWinStats(championId, force = false) {
   if (document.querySelector('.page.active')?.id === 'page-hex') renderHexList();
 }
 
-async function loadHexAugments() {
-  const base = 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global';
-  const urls = [base + '/zh_cn/v1/cherry-augments.json', base + '/default/v1/cherry-augments.json'];
-  for (const u of urls) {
-    try {
-      const r = await fetch(u);
-      if (!r.ok) continue;
-      const arr = await r.json();
-      hexAugMeta = {};
-      for (const a of arr) {
-        if (!a || a.id == null || a.id < 0) continue;
-        const small = (a.augmentSmallIconPath || '').replace(/^\/lol-game-data\/assets\//i, '').toLowerCase();
-        hexAugMeta[a.id] = {
-          name: a.nameTRA || a.augmentNameId || String(a.id),
-          icon: small ? 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/' + small : '',
-          rarity: HEX_RARITY_CN[a.rarity] || '',
-          key: a.augmentNameId || ''
-        };
-      }
-      if (Object.keys(hexAugMeta).length) return;
-    } catch (e) {}
+const HEX_AUG_META_CACHE_KEY = 'poro.hexAugMeta.v1';
+let _hexAugFetching = null;
+let _hexAugLastTryAt = 0;
+
+// 强化元数据 (id -> 名称/图标) 只来源 CommunityDragon 的 cherry-augments.json。
+// 2026-09-28 教训: 用户在"重连进对局"的同时启动应用, 启动那一瞬间拉取失败,
+// 而这里原本只在启动时拉一次、没有重试也没有兜底 —— 整个会话强化列表一直是空的,
+// 三选一识别全程报"强化图标资料尚未加载"。现在三层防御:
+//   1) 列表为空时扫描入口会自动补拉 (下方 ensureHexAugments, 带 20s 冷却);
+//   2) 拉取失败时回退 localStorage 里上次成功的完整列表 (离线/断网也能识别);
+//   3) 成功结果写回 localStorage, 供下次兜底。
+async function loadHexAugments(force = false) {
+  const now = Date.now();
+  // 冷却: 自动扫描每 ~1s 一轮, 不能把 CDN 打爆; force 只用于用户手动刷新
+  if (!force && now - _hexAugLastTryAt < 20000) return Object.keys(hexAugMeta).length > 0;
+  _hexAugLastTryAt = now;
+  if (_hexAugFetching) return _hexAugFetching;
+  _hexAugFetching = (async () => {
+    const base = 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global';
+    const urls = [base + '/zh_cn/v1/cherry-augments.json', base + '/default/v1/cherry-augments.json'];
+    for (const u of urls) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        const r = await fetch(u, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!r.ok) continue;
+        const arr = await r.json();
+        const meta = {};
+        for (const a of arr) {
+          if (!a || a.id == null || a.id < 0) continue;
+          const small = (a.augmentSmallIconPath || '').replace(/^\/lol-game-data\/assets\//i, '').toLowerCase();
+          meta[a.id] = {
+            name: a.nameTRA || a.augmentNameId || String(a.id),
+            icon: small ? 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/' + small : '',
+            rarity: HEX_RARITY_CN[a.rarity] || '',
+            key: a.augmentNameId || ''
+          };
+        }
+        if (Object.keys(meta).length) {
+          hexAugMeta = meta;
+          try { localStorage.setItem(HEX_AUG_META_CACHE_KEY, JSON.stringify(meta)); } catch (e) {}
+          return true;
+        }
+      } catch (e) {}
+    }
+    // 网络拉不到: 回退上次成功的缓存。元数据不含胜率, 陈旧一两个版本只影响
+    // 少数新强化, 远好于整个会话无法识别。
+    if (!Object.keys(hexAugMeta).length) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(HEX_AUG_META_CACHE_KEY) || 'null');
+        if (cached && Object.keys(cached).length) { hexAugMeta = cached; return true; }
+      } catch (e) {}
+    }
+    return false;
+  })();
+  try {
+    return await _hexAugFetching;
+  } finally {
+    _hexAugFetching = null;
   }
 }
 function normalizeHexDB(db) {
@@ -635,6 +674,15 @@ async function scanCurrentAugmentOffers(manual = false) {
   const generation = _augmentScanGeneration;
   const canceled = () => generation !== _augmentScanGeneration;
   try {
+    // 列表为空时先补拉再识别 —— 重连/断网窗口期启动的应用靠这里自愈
+    // (loadHexAugments 内部有 20s 冷却, 不会打爆 CDN)。拉满之前本轮直接跳过:
+    // 空候选进主进程只会得到"强化图标资料尚未加载", 白白计一次失败。
+    if (!Object.keys(hexAugMeta).length) {
+      await loadHexAugments(!!manual);
+      if (Object.keys(hexAugMeta).length && document.querySelector('.page.active')?.id === 'page-hex') renderHexList();
+      if (canceled()) return false;
+      if (!Object.keys(hexAugMeta).length) return false;
+    }
     await updateHexRecommendationContext(null, false);
     if (canceled()) return false;
     const championId = +hexRecommendContext.champId || 0;
@@ -934,7 +982,7 @@ function renderHexList(filter = "") {
     const sampleLabel = a.publicGames ? `${hexCompactNumber(a.publicGames)}场 · 选取 ${(a.pickRate * 100).toFixed(2)}%` : heroLabel;
     return `<div class="hex-row" title="${escapeHtml(a.name)} · ${escapeHtml(heroLabel)}">
       <div class="hex-rank">${index + 1}</div>
-      <img class="hex-icon" src="${escapeHtml(a.icon)}" onerror="this.style.visibility='hidden'">
+      <img class="hex-icon" src="${escapeHtml(a.icon)}" onerror="retryImg(this)">
       <div class="hex-name">${escapeHtml(a.name)}<span class="hex-rarity">${escapeHtml(a.rarity)}</span><span class="hex-fit">${escapeHtml(adjustedLabel)}</span></div>
       <div class="hex-tier t-${escapeHtml(a.tier || '')}">${escapeHtml(a.tier || '--')}</div>
       <div class="hex-wr${hasWinRate ? '' : ' unavailable'}">${escapeHtml(winLabel)}<small>胜率</small></div>
@@ -996,12 +1044,12 @@ function renderOpggGameDetail(norm, container) {
     const mins = norm.dur > 0 ? norm.dur / 60 : 1;
     const csMin = ((p.cs || 0) / mins).toFixed(1);
     const goldMin = ((p.gold || 0) / mins).toFixed(1);
-    const spellHtml = (p.spells || []).map(id => `<img class="ak-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellMap[String(id)] || id).replace(/\.png$/, "")}.png" onerror="this.style.visibility='hidden'">`).join('');
+    const spellHtml = (p.spells || []).map(id => `<img class="ak-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellMap[String(id)] || id).replace(/\.png$/, "")}.png" onerror="retryImg(this)">`).join('');
     const runeIcon = (map, id) => id && map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/${map[id]}` : null;
     const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
     const runesExist = p.perkPrimary || p.perkSub;
-    const runeHtml = runesExist ? `<div class="ak-runecol">${rk1 ? `<img class="ak-rune" src="${rk1}" onerror="this.style.visibility='hidden'">` : ''}${rk2 ? `<img class="ak-rune" src="${rk2}" onerror="this.style.visibility='hidden'">` : ''}</div>` : '';
-    const itemHtml = (p.items || []).slice(0, 7).map((id, i) => `<img class="ak-item${i === (p.items || []).length - 1 ? ' ak-trinket' : ''}" src="${itemIcon(id)}" onerror="this.style.visibility='hidden'">`).join('');
+    const runeHtml = runesExist ? `<div class="ak-runecol">${rk1 ? `<img class="ak-rune" src="${rk1}" onerror="retryImg(this)">` : ''}${rk2 ? `<img class="ak-rune" src="${rk2}" onerror="retryImg(this)">` : ''}</div>` : '';
+    const itemHtml = (p.items || []).slice(0, 7).map((id, i) => `<img class="ak-item${i === (p.items || []).length - 1 ? ' ak-trinket' : ''}" src="${itemIcon(id)}" onerror="retryImg(this)">`).join('');
     const posText = POS_MAP[p.position] || '';
     const score = rating(p).toFixed(1);
     const badge = mvpSet[pkey(p)] ? '<span class="ak-badge ak-mvp">MVP</span>'

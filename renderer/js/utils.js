@@ -260,3 +260,22 @@ function deriveRiskProfile(recent) {
   const confidence = Math.min(95, Math.round(sampleScore + consistency * 8 + decisiveness * 12));
   return { level, label, confidence, evidence };
 }
+
+// 图片一次性重试 (2026-09-28): 头像/装备/符文/技能图标都是 ddragon/communitydragon
+// 的直连 <img>, 首屏网络被游戏重连挤占时可能瞬时加载失败 —— 原先 onerror 直接
+// visibility='hidden', 之后哪怕网络恢复也不再有人重试 (要等下一次整块重渲染)。
+// 这里延迟几秒带 cache-buster 重试一次; 重试也失败(真 404)就维持隐藏, 不无限循环。
+// 内联 onerror 用: onerror="retryImg(this)"
+function retryImg(el) {
+  try {
+    if (!el) return;
+    if (el.dataset.imgRetry) { el.style.visibility = 'hidden'; return; }
+    const src = el.getAttribute('src');
+    if (!src) return;
+    el.dataset.imgRetry = '1';
+    setTimeout(() => {
+      el.style.visibility = '';
+      el.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'poroRetry=1';
+    }, 5000);
+  } catch (e) {}
+}

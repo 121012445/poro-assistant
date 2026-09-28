@@ -234,6 +234,49 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
     vm.runInContext(`recordAugmentJournal(236, testStage, [{ name:'珠光护手',slot:2,games:100,reason:'样本' }], [])`, context);
     assert.strictEqual(JSON.parse(store.augmentJournal)[0].stage, stage);
   }
+
+  // ===== 2026-09-28 强化列表三层防御 (重连窗口启动导致整会话"资料尚未加载") =====
+  // VM 里补齐 loadHexAugments 需要的全局
+  context.AbortController = class { constructor() { this.signal = {}; } abort() {} };
+  const augStore = {};
+  context.localStorage = {
+    getItem: k => (k in augStore ? augStore[k] : null),
+    setItem: (k, v) => { augStore[k] = String(v); }
+  };
+  // a) 网络失败时回退 localStorage 缓存, 不能把空列表留到下一局
+  vm.runInContext('hexAugMeta = {};', context);   // 模拟"启动时拉取失败后的空列表"
+  augStore['poro.hexAugMeta.v1'] = JSON.stringify({ 7001: { name: '缓存强化', icon: 'cached', rarity: '', key: 'K' } });
+  assert.strictEqual(await vm.runInContext('loadHexAugments(true)', context), true,
+    '网络失败时必须回退上次成功的缓存');
+  assert.strictEqual(JSON.parse(vm.runInContext('JSON.stringify(hexAugMeta[7001])', context)).name, '缓存强化');
+  // b) 成功路径: fetch 拿到数据要写入 hexAugMeta 并回写 localStorage
+  context.fetch = async () => ({ ok: true, json: async () => [
+    { id: 7002, nameTRA: '网拉强化', augmentSmallIconPath: '/lol-game-data/assets/ASSETS/Characters/X.PNG', rarity: 'Chromatic', augmentNameId: 'NET_AUG' }
+  ] });
+  assert.strictEqual(await vm.runInContext('loadHexAugments(true)', context), true, '正常拉取应返回成功');
+  const netMeta = JSON.parse(vm.runInContext('JSON.stringify(hexAugMeta[7002])', context));
+  assert.strictEqual(netMeta.name, '网拉强化');
+  assert.strictEqual(netMeta.icon, 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/characters/x.png',
+    '图标路径必须剥掉 /lol-game-data/assets/ 前缀并转小写');
+  assert.ok(augStore['poro.hexAugMeta.v1'].includes('7002'), '成功结果必须写回 localStorage 供下次兜底');
+  // c) 空列表 + 补拉也失败: 扫描必须跳过本轮, 空候选不进主进程
+  vm.runInContext(`hexAugMeta = {}; localStorage.setItem('poro.hexAugMeta.v1', '{}'); _hexAugLastTryAt = 0;`, context);
+  context.fetch = async () => ({ ok: false });
+  let recognized = 0;
+  context.lolAPI.recognizeAugments = async () => { recognized++; return { offers: [] }; };
+  assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), false,
+    '列表为空且补拉失败时本轮扫描应跳过');
+  assert.strictEqual(recognized, 0, '空列表不得触发识别调用 (主进程只会白报一次"资料尚未加载")');
+  // d) 列表在扫描入口自动补拉成功后, 同一轮就能继续正常识别 (自愈路径)
+  context.fetch = async () => ({ ok: true, json: async () => [
+    { id: 7003, nameTRA: '自愈强化', augmentSmallIconPath: '/lol-game-data/assets/heal.png', rarity: 'Chromatic', augmentNameId: 'HEAL' }
+  ] });
+  vm.runInContext('_hexAugLastTryAt = 0;', context);   // 越过 20s 冷却, 模拟"下一轮扫描"
+  await vm.runInContext('scanCurrentAugmentOffers(false)', context);
+  assert.strictEqual(JSON.parse(vm.runInContext('JSON.stringify(hexAugMeta[7003])', context)).name, '自愈强化',
+    '扫描入口的补拉必须真的把列表填上');
+  assert.strictEqual(recognized, 1, '补拉成功后同一轮扫描应继续走到识别');
+
   console.log('识别取消竞态与本地选择档案测试通过');
 })().catch(error => {
   console.error(error);

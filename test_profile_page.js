@@ -61,7 +61,7 @@ assert.deepStrictEqual(staleStamp, [], '这些资源的缓存戳早于本次改�
 // 注意同一天第二次改动也要把序号往上走: in-place 升级时 URL 没变, 戳不变就命中缓存。
 const stampOf = p => (stamps.find(s => s.path === p) || {}).stamp;
 for (const p of ['js/home.js', 'js/app.js', 'css/extras.css']) {
-  assert.strictEqual(stampOf(p), '2026092803', p + ' 的缓存戳未升到 2026092803');
+  assert.strictEqual(stampOf(p), '2026092804', p + ' 的缓存戳未升到 2026092804');
 }
 
 // ── 3. app.js 切页接线 ───────────────────────────────────────────────────────

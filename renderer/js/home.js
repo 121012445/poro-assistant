@@ -1041,12 +1041,12 @@ function buildHomeGameCard(g, s) {
   const csMin = ((p.cs || 0) / mins).toFixed(1);
   const spellName = id => spellMap[String(id)] || String(id);
   const itemIcon = id => id ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${id}.png` : '';
-  const spellHtml = (p.spells || []).map(id => `<img class="ako-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellName(id) || "").replace(/\.png$/, "")}.png" onerror="this.style.visibility='hidden'">`).join('');
+  const spellHtml = (p.spells || []).map(id => `<img class="ako-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellName(id) || "").replace(/\.png$/, "")}.png" onerror="retryImg(this)">`).join('');
   const runeIcon = (map, id) => id && map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/${map[id]}` : null;
   const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
-  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol">${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="this.style.visibility='hidden'">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="this.style.visibility='hidden'">` : ''}</div>` : '';
-  const itemHtml = (p.items || []).slice(0, 6).map(id => `<img class="ako-item" src="${itemIcon(id)}" onerror="this.style.visibility='hidden'">`).join('')
-    + (p.items && p.items[6] ? `<img class="ako-item ako-trinket" src="${itemIcon(p.items[6])}" onerror="this.style.visibility='hidden'">` : '');
+  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol">${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)">` : ''}</div>` : '';
+  const itemHtml = (p.items || []).slice(0, 6).map(id => `<img class="ako-item" src="${itemIcon(id)}" onerror="retryImg(this)">`).join('')
+    + (p.items && p.items[6] ? `<img class="ako-item ako-trinket" src="${itemIcon(p.items[6])}" onerror="retryImg(this)">` : '');
   const posText = POS_MAP[p.position] || '';
   const rosterCol = tid => (teams[tid] || []).slice(0, 5).map(x => {
     const xc = champNumMap[String(x.championId)];
