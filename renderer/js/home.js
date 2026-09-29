@@ -4,7 +4,7 @@
 
 // ========== 召唤师段位 (合并到首页) ==========
 const TIER_CN = { IRON: "坚韧黑铁", BRONZE: "英勇黄铜", SILVER: "不屈白银", GOLD: "荣耀黄金", PLATINUM: "华贵铂金", EMERALD: "翡翠", DIAMOND: "璀璨钻石", MASTER: "超凡大师", GRANDMASTER: "傲世宗师", CHALLENGER: "最强王者" };
-const RANK_QUEUE_LABELS = [["RANKED_SOLO_5x5", "排位 单双排"], ["RANKED_FLEX_SR", "灵活组排"], ["RANKED_FLEX_TT", "极地大乱斗排位"]];
+const RANK_QUEUE_LABELS = [["RANKED_SOLO_5x5", "排位 单双排"], ["RANKED_FLEX_SR", "灵活组排"]];
 function rankTierCN(tier) { return TIER_CN[tier] || tier || ""; }
 // 隐藏分估算 (校准至主流工具量级): 段位基准 + 分区 + LP + 该模式胜率修正 (非官方, 仅供参考)
 const MMR_BASE = { IRON: 1500, BRONZE: 1700, SILVER: 1900, GOLD: 2100, PLATINUM: 2300, EMERALD: 2500, DIAMOND: 2700, MASTER: 2750, GRANDMASTER: 2900, CHALLENGER: 3050 };
@@ -68,15 +68,20 @@ function mmrJadeEstimate(agg, soloMmr) {
   }
   return { v: Math.max(1000, Math.min(3000, Math.round(base + perf))), basis };
 }
+// 段位卡片 (统一用 home-ranks 大卡片, 与 premium 设计一致; 旧 rank-mini 已弃用)
 function renderRankCards(queues) {
-  return RANK_QUEUE_LABELS.map(([q, label]) => {
-    const r = queues[q];
-    if (!r || !r.tier) return "";
-    const total = (r.wins || 0) + (r.losses || 0);
-    const wr = total ? Math.round(r.wins / total * 100) : 0;
-    const div = r.division ? " " + r.division : (r.rank ? " " + r.rank : "");
-    const lp = (r.leaguePoints !== undefined && r.leaguePoints !== null) ? ` · ${r.leaguePoints}LP` : "";
-    return `<div class="rank-mini"><div class="rm-label">${label}</div><div class="rm-tier">${rankTierCN(r.tier)}${div}</div><div class="rm-wr">${r.wins}胜${r.losses}负 · ${wr}%${lp}</div></div>`;
+  return RANK_QUEUE_LABELS.map(([queueKey, label]) => {
+    const q = queues ? queues[queueKey] : null;
+    if (!q || !q.tier) return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier">无排位</div></div>`;
+    const t = rankTierCN(q.tier);
+    const lp = q.leaguePoints || 0;
+    const total = (q.wins || 0) + (q.losses || 0);
+    const wr = total ? Math.round(q.wins / total * 100) : 0;
+    return `<div class="rank-card">
+      <div class="rank-card-label">${label}</div>
+      <div class="rank-card-tier">${t} ${q.division || ''}</div>
+      <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
+    </div>`;
   }).join("");
 }
 
