@@ -96,6 +96,18 @@ assert.deepStrictEqual(ocrMatch.matchAugmentNames('蛋 白 奶 昔 功 能', [{ 
 assert.deepStrictEqual(ocrMatch.matchAugmentNames('功 能 获 得 强 化', [{ id: 7, name: '大力' }]), [],
   '两字标题被完全漏读时禁止 OCR 模糊猜测');
 assert.deepStrictEqual(ocrMatch.matchAugmentNames(
+  '坚 不 可 摧 碎 片 属 性 锻 造 器 + 010 护 甲 。',
+  [{ id: 1421, name: '属性！' }]
+), [], '两字强化名是卡面其它文字的子串时必须拒绝（属性锻造器碎片卡曾全被误配成「属性！」导致浮窗整轮不显示）');
+assert.deepStrictEqual(ocrMatch.matchAugmentNames('属 性 ！ 伤 害 在 施 放', [{ id: 1421, name: '属性！' }]).map(x => x.name),
+  ['属性！'], '两字名出现在 OCR 文本开头（标题区裁剪）时仍应正常识别');
+assert.strictEqual(ocrMatch.matchShardName('坚 不 可 摧 碎 片 属 性 锻 造 器 + 010 护 甲 。'), '坚不可摧碎片',
+  '碎片卡应从 OCR 文本提取碎片名');
+assert.strictEqual(ocrMatch.matchShardName('护 甲 碎 片 属 性 造 器 + 12 护 甲 。'), '护甲碎片',
+  'OCR 漏字后的碎片名也应能提取');
+assert.strictEqual(ocrMatch.matchShardName('杀 戮 时 间 到 了 伤 害 在 施 放 你 的 终 极 技 能 后'), null,
+  '普通强化的说明文字不能被误判成碎片卡');
+assert.deepStrictEqual(ocrMatch.matchAugmentNames(
   '伤 害 你 的 法 力 消 耗 翻 倍 。',
   [{ id: 1311, name: '溢流' }, { id: 1330, name: '活力再生' }]
 ).map(x => x.name), ['溢流'], '标题漏读时应由唯一说明短语确认溢流，不能误报活力再生');
@@ -106,6 +118,10 @@ assert.strictEqual(augmentRecognizer.isSafeVisualMatch({ score: 0.91, margin: 0.
 assert.strictEqual(augmentRecognizer.isSafeVisualMatch({ score: 0.93, margin: 0.12 }, false), false,
   '共享图标即使高分也不能仅凭视觉猜名称');
 const hexSource = fs.readFileSync('renderer/js/hex.js', 'utf8');
+assert.ok(hexSource.includes("offer.confirmedBy === 'ocr-shard'"),
+  '碎片卡必须参与两帧同名投票确认');
+assert.ok(hexSource.includes('属性碎片：无胜率数据'),
+  '碎片轮浮窗必须给出明确的"无胜率数据"说明');
 assert.ok(hexSource.includes('AUGMENT_LAYOUT_MISSES_TO_HIDE = 3') && hexSource.includes('AUGMENT_MIN_VISIBLE_MS = 1800'),
   '推荐浮窗应在卡片布局连续消失后快速隐藏');
 assert.ok(hexSource.includes('selectedCount > _augmentShownSelectedCount'),
@@ -121,8 +137,8 @@ assert.ok(hexSource.includes('restoreAugmentOverlayIfNeeded') && hexSource.inclu
   '选卡界面仍存在时应自动恢复意外消失的悬浮层');
 const mainSource = fs.readFileSync('main/index.js', 'utf8');
 assert.ok(mainSource.includes("Object.assign({ source: source.name, layoutDetected: true }, result)"), '识别成功必须显式回传 layoutDetected=true');
-assert.ok(mainSource.includes("confirmedBy: 'ocr'") && mainSource.includes('const ocrBySlot = new Map'),
-  '主进程必须回传每个已确认的 OCR 卡槽，不能要求三张同帧成功');
+assert.ok(mainSource.includes("confirmedBy: item.confirmedBy || 'ocr'") && mainSource.includes('const ocrBySlot = new Map'),
+  '主进程必须回传每个已确认的 OCR 卡槽（含碎片卡的 ocr-shard 标记），不能要求三张同帧成功');
 assert.ok(mainSource.includes('cropSize.width * 2') && mainSource.includes("quality: 'best'"),
   '强化名称 OCR 必须先高清放大，避免短标题被说明文字吞掉');
 assert.ok(mainSource.includes('titleSize.width * 3') && mainSource.includes('offerTitleRects'),

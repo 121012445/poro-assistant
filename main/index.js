@@ -785,6 +785,13 @@ async function recognizeAugmentNamesByOcr(screenshot, candidates) {
         titleText = await requestAugmentOcr(titlePath);
         match = augmentOcrMatch.matchAugmentNames(titleText, candidates, 1)[0] || null;
       }
+      if (!match) {
+        // 属性锻造器随机碎片不在候选库里，视觉恒 0 分、名称匹配必失败；
+        // 按「XX碎片」识别成碎片卡（id=0）后照常走两帧确认，浮窗以
+        // "无胜率数据"形态出现，而不是整轮静默失败。
+        const shardName = augmentOcrMatch.matchShardName(String(text) + String(titleText));
+        if (shardName) match = { id: 0, name: shardName, icon: '', confirmedBy: 'ocr-shard' };
+      }
       // 三个槽位每轮各识别一次，空闲时识别结果完全一样。同一槽位内容没变就不重复写
       // （实测这一行占日志 483/1806 行），变化时立刻写，不丢信息。
       const ocrLine = `[AUGMENT OCR] slot=${slot + 1} text=${String(text).replace(/\s+/g, ' ').substring(0, 80)} title=${String(titleText).replace(/\s+/g, ' ').substring(0, 40)} match=${match?.name || ''}`;
@@ -921,7 +928,7 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
             score: visionOffer?.score || 1,
             margin: 1,
             accepted: true,
-            confirmedBy: 'ocr',
+            confirmedBy: item.confirmedBy || 'ocr',
             alternatives: []
           };
           const iconUnique = iconNames.get(String(visionOffer?.icon || '').trim().toLowerCase())?.size === 1;

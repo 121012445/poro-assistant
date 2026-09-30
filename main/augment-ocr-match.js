@@ -95,6 +95,11 @@ function matchAugmentNames(text, candidates, limit = 3) {
     while (from <= normalized.length - needle.length) {
       const index = normalized.indexOf(needle, from);
       if (index < 0) break;
+      // 两字强化名（如「属性！」归一化后只剩「属性」）极易成为其它卡面文字的
+      // 子串——实测「属性锻造器」碎片卡的三张卡全被误配成同一个「属性！」，
+      // 触发渲染层"三名互异"门禁后浮窗整轮不显示。OCR 名称区裁剪天然以标题
+      // 开头，因此短名只允许出现在文本开头（index 0）；中段命中一律跳过。
+      if (needle.length <= 2 && index !== 0) { from = index + 1; continue; }
       occurrences.push({
         index,
         end: index + needle.length,
@@ -123,4 +128,14 @@ function matchAugmentNames(text, candidates, limit = 3) {
   return fuzzy ? [Object.assign({ index: 0, end: fuzzy.length }, fuzzy)] : [];
 }
 
-module.exports = { DESCRIPTION_HINTS, normalizeOcrText, editDistance, descriptionHintMatches, fuzzyTitleMatch, matchAugmentNames };
+// 属性锻造器等程序生成的随机属性碎片强化不在候选库里（cherry-augments 无此项），
+// 图标模板也没有，视觉匹配恒为 0 分；OCR 文本里的「XX碎片」是唯一可靠信号。
+// 返回碎片名（如「坚不可摧碎片」），非碎片卡返回 null。
+function matchShardName(text) {
+  const normalized = normalizeOcrText(text);
+  if (!normalized) return null;
+  const m = normalized.match(/[\u3400-\u9fff]{2,8}碎片/);
+  return m ? m[0] : null;
+}
+
+module.exports = { DESCRIPTION_HINTS, normalizeOcrText, editDistance, descriptionHintMatches, fuzzyTitleMatch, matchAugmentNames, matchShardName };

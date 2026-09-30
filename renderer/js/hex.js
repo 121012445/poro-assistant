@@ -632,6 +632,9 @@ function buildAugmentOverlayRows(detected, ctx) {
     }, winStats?.baseline);
     const baseline = winStats?.baseline == null ? NaN : Number(winStats.baseline);
     const hasStat = Number.isFinite(stat.winRate) || Number.isFinite(scored.comboAdjusted);
+    // 属性锻造器随机碎片不在数据源里（主进程以 id=0 回传），给一句明确的说明，
+    // 而不是让通用兜底文案看起来像"识别出错"。
+    const isShard = !stat.id && /碎片$/.test(String(offer.name || ''));
     // “收益”统一相对当前英雄在该模式下的基准胜率计算。极小样本不展示一个看似
     // 很精确的正负数字，避免把噪声包装成结论；排序仍使用收缩后的推荐分。
     const gainReliable = hasStat && ((Number(stat.publicGames) || 0) >= 500 || (Number(combo?.games) || 0) >= 300);
@@ -652,7 +655,7 @@ function buildAugmentOverlayRows(detected, ctx) {
       gainReliable,
       confidenceLevel: scored.confidence.level,
       confidenceLabel: scored.confidence.label,
-      reason: scored.reason,
+      reason: isShard ? '属性碎片：无胜率数据，按出装方向选择' : scored.reason,
       itemSynergy: scored.itemSynergy?.name || '',
       confidence: offer.score || 0
     };
@@ -734,7 +737,7 @@ async function scanCurrentAugmentOffers(manual = false) {
     for (const offer of (result.offers || [])) {
       const slot = Number(offer?.slot);
       if (!offer?.accepted || !offer?.name || slot < 0 || slot > 2) continue;
-      if (offer.confirmedBy === 'ocr' || !offer.confirmedBy) {
+      if (offer.confirmedBy === 'ocr' || offer.confirmedBy === 'ocr-shard' || !offer.confirmedBy) {
         const previous = _augmentOcrMemory.get(slot);
         const hits = previous && previous.name === offer.name && now - previous.seenAt <= AUGMENT_OFFER_MEMORY_MS ? previous.hits + 1 : 1;
         _augmentOcrMemory.set(slot, { name: offer.name, hits, seenAt: now });
