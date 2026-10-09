@@ -4,6 +4,7 @@ const https = require('https');
 const { StringDecoder } = require('string_decoder');
 const { exec } = require('child_process');
 const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 const LCU_DEBUG = process.env.PORO_LCU_DEBUG === '1';
 
@@ -47,7 +48,15 @@ async function fromProcess() {
 }
 
 // 注册表查询 (输出为 GBK, 需转码; 兼容国服腾讯/外服 Riot 键)
+// 安装路径几乎不会变, 而客户端未运行时 probe 每 5 秒会走到这里: 每次起 3 个 reg 子进程纯属浪费。
+// 查到路径缓存 10 分钟; 一个都没查到只缓存 1 分钟 (用户可能刚装好客户端)。reset() 会清掉。
+let _regPathsCache = null;   // { t, paths }
+const REG_CACHE_TTL = 10 * 60 * 1000;
+const REG_CACHE_EMPTY_TTL = 60 * 1000;
 async function regInstallPaths() {
+  if (_regPathsCache && Date.now() - _regPathsCache.t < (_regPathsCache.paths.length ? REG_CACHE_TTL : REG_CACHE_EMPTY_TTL)) {
+    return _regPathsCache.paths;
+  }
   const keys = [
     'HKLM\\SOFTWARE\\WOW6432Node\\Tencent\\LOL',
     'HKCU\\Software\\Tencent\\LOL',
@@ -59,38 +68,87 @@ async function regInstallPaths() {
     const m = out.match(/REG_SZ\s+(.+)/);
     if (m) paths.push(m[1].trim());
   }
+  _regPathsCache = { t: Date.now(), paths };
   return paths;
 }
 
 // 策略2: lockfile (国服客户端写的是空文件, 读取失败则跳过)
-function fromLockfile(dir) {
+async function fromLockfile(dir) {
   try {
-    const txt = fs.readFileSync(path.join(dir, 'lockfile'), 'utf8');
+    const txt = await fsp.readFile(path.join(dir, 'lockfile'), 'utf8');
     const [, , port, token] = txt.split(':');
     return port && token ? [{ port: +port, token, clientDir: dir }] : [];
   } catch (e) { return []; }
 }
 
 // 策略3: 客户端日志 (国服唯一可行来源, 取最新3个日志解析 token/port)
-function fromLogs(dir) {
-  const targets = [dir, path.join(dir, 'Logs')];
-  const out = [];
-  for (const t of targets) {
-    try {
-      const logs = fs.readdirSync(t)
-        .filter(f => f.endsWith('_LeagueClientUx.log'))
-        .sort()
-        .reverse()
-        .slice(0, 3);
-      for (const f of logs) {
-        try {
-          const conn = parseConn(fs.readFileSync(path.join(t, f), 'utf8'));
-          if (conn) out.push({ ...conn, clientDir: dir });
-        } catch (e) { /* 单个日志读取失败 */ }
+//
+// 这里原先是 readFileSync 整文件读入再正则匹配, 跑在主进程上: 客户端日志可能很大, 且未连接时
+// 每 5 秒重来一次, 会直接卡住主进程事件循环 (IPC、轮询、定时器全部排队)。现在:
+//   · 异步 I/O, 不阻塞事件循环
+//   · 分块读取, 拿到 port 和 token 就停 (连接参数在启动命令行里, 通常在文件最前面)
+//   · 按 mtime+size 缓存解析结果, 没变化的旧日志不再重读
+// parseConn 的两个正则都不跨行, 所以"逐行段解析 + 各取第一个匹配"与整文件匹配结果一致。
+const CONN_READ_CHUNK = 64 * 1024;
+const CONN_FILE_CACHE_MAX = 64;
+const _connFileCache = new Map();   // file → { mtimeMs, size, conn }
+const PORT_RE = /--app-port=(\d+)/;
+const TOKEN_RE = /--remoting-auth-token=([\w-]+)/;
+
+async function readConnFromFile(file) {
+  let stat;
+  try { stat = await fsp.stat(file); } catch (e) { return null; }
+  const hit = _connFileCache.get(file);
+  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.conn;
+
+  let port = null;
+  let token = null;
+  let handle = null;
+  try {
+    handle = await fsp.open(file, 'r');
+    let position = 0;
+    let carry = Buffer.alloc(0);   // 上一块末尾不完整的行 (字节级保留, 避免截断多字节字符或 token)
+    for (;;) {
+      const chunk = Buffer.alloc(CONN_READ_CHUNK);
+      const { bytesRead } = await handle.read(chunk, 0, CONN_READ_CHUNK, position);
+      position += bytesRead;
+      const eof = bytesRead === 0;
+      const data = Buffer.concat([carry, chunk.subarray(0, bytesRead)]);
+      // 只解析到最后一个换行: 0x0A 不会出现在多字节 UTF-8 字符中间, 也保证 token 不被块边界截断。
+      const lastNewline = eof ? data.length : data.lastIndexOf(0x0a);
+      const usable = lastNewline >= 0 ? data.subarray(0, eof ? data.length : lastNewline + 1) : null;
+      carry = usable ? data.subarray(usable.length) : data;
+      if (usable && usable.length) {
+        const text = usable.toString('utf8');
+        if (!port) { const m = text.match(PORT_RE); if (m) port = +m[1]; }
+        if (!token) { const m = text.match(TOKEN_RE); if (m) token = m[1]; }
+        if (port && token) break;
       }
-    } catch (e) { /* 目录不存在 */ }
-  }
-  return out;
+      if (eof) break;
+    }
+  } catch (e) { return null; /* 单个日志读取失败: 不缓存, 下次再试 */ }
+  finally { if (handle) await handle.close().catch(() => {}); }
+
+  const conn = port && token ? { port, token } : null;
+  _connFileCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, conn });
+  if (_connFileCache.size > CONN_FILE_CACHE_MAX) _connFileCache.delete(_connFileCache.keys().next().value);
+  return conn;
+}
+
+async function fromLogs(dir) {
+  const targets = [dir, path.join(dir, 'Logs')];
+  const perTarget = await Promise.all(targets.map(async t => {
+    let names;
+    try { names = await fsp.readdir(t); } catch (e) { return []; /* 目录不存在 */ }
+    const logs = names
+      .filter(f => f.endsWith('_LeagueClientUx.log'))
+      .sort()
+      .reverse()
+      .slice(0, 3);
+    const conns = await Promise.all(logs.map(f => readConnFromFile(path.join(t, f))));
+    return conns.filter(Boolean).map(conn => ({ ...conn, clientDir: dir }));
+  }));
+  return perTarget.flat();   // 顺序与原实现一致: 先 dir 再 dir/Logs, 各自新→旧
 }
 
 const KNOWN_CLIENT_DIRS = [
@@ -106,13 +164,18 @@ const KNOWN_CLIENT_DIRS = [
   'D:\\英雄联盟\\LeagueClient'
 ];
 
-function collectCandidates(dirs, initial) {
+async function collectCandidates(dirs, initial) {
   const candidates = initial ? initial.slice() : [];
   const seen = new Set();
   for (const c of candidates) seen.add(c.port + '|' + c.token);
-  for (const d of dirs) {
-    if (!fs.existsSync(d)) continue;
-    for (const c of [...fromLockfile(d), ...fromLogs(d)]) {
+  // 各目录并行读取, 但按 dirs 的原顺序合并, 候选优先级不变。
+  const perDir = await Promise.all(dirs.map(async d => {
+    try { await fsp.access(d); } catch (e) { return []; }
+    const [lock, logs] = await Promise.all([fromLockfile(d), fromLogs(d)]);
+    return [...lock, ...logs];
+  }));
+  for (const list of perDir) {
+    for (const c of list) {
       const key = c.port + '|' + c.token;
       if (!seen.has(key)) { seen.add(key); candidates.push(c); }
     }
@@ -122,7 +185,7 @@ function collectCandidates(dirs, initial) {
 
 async function probe() {
   // 国服通常以管理员权限运行，进程命令行不可读；先直接扫常见目录的最新日志，避免每次启动等待 PowerShell/注册表。
-  const fast = collectCandidates(KNOWN_CLIENT_DIRS);
+  const fast = await collectCandidates(KNOWN_CLIENT_DIRS);
   if (fast.length) return fast;
 
   const { conn, exeDir } = await fromProcess();
@@ -142,7 +205,7 @@ async function getLCU() {
   return probing;
 }
 
-function reset() { cached = null; lastProbe = 0; }
+function reset() { cached = null; lastProbe = 0; _regPathsCache = null; _connFileCache.clear(); }
 
 // 供 WebSocket 模块读取当前凭证 (未连接时返回 null)
 function getCached() { return cached; }
@@ -282,4 +345,8 @@ async function fixLCUWindow() {
   return out.includes('OK');
 }
 
-module.exports = { getLCU, lcuRequest, liveRequest, fixLCUWindow, reset, getCached, getGameConfigDir };
+module.exports = {
+  getLCU, lcuRequest, liveRequest, fixLCUWindow, reset, getCached, getGameConfigDir,
+  // 仅供测试
+  _internals: { parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK }
+};
