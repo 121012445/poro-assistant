@@ -1078,17 +1078,17 @@ function buildHomeGameCard(g, s) {
   const csMin = ((p.cs || 0) / mins).toFixed(1);
   const spellName = id => spellMap[String(id)] || String(id);
   const itemIcon = id => id ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${id}.png` : '';
-  const spellHtml = (p.spells || []).map(id => `<img class="ako-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellName(id) || "").replace(/\.png$/, "")}.png" onerror="retryImg(this)">`).join('');
+  const spellHtml = (p.spells || []).map(id => `<img class="ako-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellName(id) || "").replace(/\.png$/, "")}.png" onerror="retryImg(this)" loading="lazy" decoding="async">`).join('');
   const runeIcon = (map, id) => id && map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/${map[id]}` : null;
   const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
-  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol">${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)">` : ''}</div>` : '';
-  const itemHtml = (p.items || []).slice(0, 6).map(id => `<img class="ako-item" src="${itemIcon(id)}" onerror="retryImg(this)">`).join('')
-    + (p.items && p.items[6] ? `<img class="ako-item ako-trinket" src="${itemIcon(p.items[6])}" onerror="retryImg(this)">` : '');
+  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol">${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}</div>` : '';
+  const itemHtml = (p.items || []).slice(0, 6).map(id => `<img class="ako-item" src="${itemIcon(id)}" onerror="retryImg(this)" loading="lazy" decoding="async">`).join('')
+    + (p.items && p.items[6] ? `<img class="ako-item ako-trinket" src="${itemIcon(p.items[6])}" onerror="retryImg(this)" loading="lazy" decoding="async">` : '');
   const posText = POS_MAP[p.position] || '';
   const rosterCol = tid => (teams[tid] || []).slice(0, 5).map(x => {
     const xc = champNumMap[String(x.championId)];
     return `<div class="ako-player${x.puuid === s.puuid ? ' ako-me' : ''}" onclick="event.stopPropagation();searchPlayerByPuuid(${inlineArg(x.puuid)}, ${inlineArg(getName(x))})">
-      <img src="${xc ? champImg(xc.id) : placeholder('?')}"><span>${escapeHtml(getName(x).split('#')[0])}</span>
+      <img src="${xc ? champImg(xc.id) : placeholder('?')}" loading="lazy" decoding="async"><span>${escapeHtml(getName(x).split('#')[0])}</span>
     </div>`;
   }).join('');
   const tids = Object.keys(teams);
@@ -1109,7 +1109,7 @@ function buildHomeGameCard(g, s) {
         <div class="ako-main">
           <div class="ako-top">
             <div class="ako-champwrap">
-              <img class="ako-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">
+              <img class="ako-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`} loading="lazy" decoding="async">
               ${posText ? `<span class="ako-pos">${posText}</span>` : ''}
             </div>
             ${spellHtml ? `<div class="ako-spellcol">${spellHtml}</div>` : ''}

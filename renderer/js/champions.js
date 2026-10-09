@@ -95,7 +95,7 @@ function renderChampionGrid(filter = "", role = "all") {
     const posIcon = POS_ICON[entry.position] || 'top';
     return `<div class="champ-row" onclick="showChampionDetail('${c.id}')">
       <div class="champ-rank">${idx + 1}</div>
-      <img class="champ-icon" src="${champImg(c.id)}" onerror="this.src='${placeholder(c.name)}'">
+      <img class="champ-icon" src="${champImg(c.id)}" ${champIconAttrs(c.id, c.name)} loading="lazy" decoding="async">
       <div class="champ-name">${escapeHtml(c.name)}</div>
       <div class="champ-tier t-${tier}">${tier}</div>
       <div class="champ-pos pos-${posIcon}">${poroIcon(POS_GLYPH[posIcon] || 'sword')}${entry.position}</div>
@@ -110,6 +110,29 @@ function renderChampionGrid(filter = "", role = "all") {
     </div>
     ${rows}
   </div>`;
+}
+// 英雄头像加载失败的两级兜底: ddragon → CommunityDragon (按数字 ID) → 占位图。
+// ddragon 在国服经常超时, 原先 onerror 直接换成占位图, 页面上一片字母方块。
+// 兜底地址缺失/也失败时回到占位图, 最坏情况与改动前一致。仅英雄头像有这种简单的按 ID 映射,
+// 装备/技能/符文仍走 retryImg。
+function champIconAlt(id) {
+  const key = allChampions[id]?.key;
+  return key && /^\d+$/.test(String(key)) ? `${CDG}/v1/champion-icons/${key}.png` : '';
+}
+function champIconError(el, fallback) {
+  if (!el) return;
+  const alt = el.dataset ? el.dataset.cdg : '';
+  if (alt && !el.dataset.cdgTried) {
+    el.dataset.cdgTried = '1';   // 只试一次, 防止兜底地址也失败时无限循环
+    el.src = alt;
+    return;
+  }
+  el.onerror = null;
+  el.src = fallback;
+}
+// 拼进 <img> 的属性串。占位图 URI 来自 placeholder(), 已剔除能突破单引号属性的字符。
+function champIconAttrs(id, name) {
+  return `data-cdg="${escapeHtml(champIconAlt(id))}" onerror="champIconError(this,'${placeholder(name)}')"`;
 }
 function placeholder(name) {
   // 首字符会进入 SVG data URI, 且该 URI 被当作 HTML 属性值使用 (onerror="this.src='...'"),

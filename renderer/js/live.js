@@ -500,7 +500,7 @@ function recentIcon(r) {
   const isWin = r.win === true || r.win === 'Win';
   const modeLabel = r.mode ? `<span class="ri-mode">${escapeHtml(r.mode)}</span>` : '';
   return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}" title="${escapeHtml(r.mode || '')} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}">
-    <img src="${rc ? champImg(rc.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">
+    <img src="${rc ? champImg(rc.id) : placeholder('?')}" ${rc ? champIconAttrs(rc.id, rc.name) : `onerror="this.src='${placeholder('?')}'"`}>
     <span class="ri-copy">${modeLabel}<span class="ri-result">${isWin ? '胜' : '负'}</span></span>
     <span class="ri-kda">${r.k} / ${r.d} / ${r.a}</span>
   </div>`;
@@ -583,7 +583,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     // 属静默死功能。1.5.2 摘除, 要恢复请连同函数体一起补。
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
-        <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">
+        <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
           <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${premadeTag}${marksHtml}</div>
           <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
