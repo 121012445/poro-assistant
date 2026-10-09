@@ -6,7 +6,9 @@ const vm = require('vm');
 
 const source = fs.readFileSync('renderer/js/hex.js', 'utf8');
 assert.ok(source.includes("phase === 'GameStart' || phase === 'InProgress'"), '加载页开始就应自动监听强化弹窗');
-assert.ok(source.includes('setInterval(() => scanCurrentAugmentOffers(false), 500)'), '强化弹窗应每 500ms 自动检测，快捷键只能作为兜底');
+// 自动检测不再是固定 500ms 的 setInterval: 有卡片/浮窗时 500ms, 空闲时放慢 (见文件末尾的行为测试)。
+assert.ok(source.includes('const AUGMENT_SCAN_ACTIVE_MS = 500;'), '强化弹窗活跃期应保持 500ms 自动检测，快捷键只能作为兜底');
+assert.ok(!source.includes('setInterval(() => scanCurrentAugmentOffers'), '强化扫描不应退回固定频率的 setInterval');
 let flowResponse = { gameData: { queue: { id: 2400, gameMode: 'JADE' } } };
 let overlayPayload = null;
 const context = vm.createContext({
@@ -278,6 +280,82 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
   assert.strictEqual(recognized, 1, '补拉成功后同一轮扫描应继续走到识别');
 
   console.log('识别取消竞态与本地选择档案测试通过');
+
+  // ---------- 自适应扫描频率 + 非海斗暂停 ----------
+  const timers = [];
+  context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  context.clearTimeout = () => {};
+  const run = code => vm.runInContext(code, context);
+  const fire = async () => { const t = timers.shift(); await t.fn(); };
+  const tick = () => new Promise(resolve => setTimeout(resolve, 3));   // 保证两次 gameflow 刷新的 checkedAt 不同
+
+  run('stopAugmentRecognition(); _augmentLastPayload = null;');
+  timers.length = 0;
+  assert.strictEqual(run('augmentNextScanDelay()'), 1200, '没有卡片、没有浮窗时应放慢到空闲频率');
+  run('_augmentActiveUntil = Date.now() + 1000');
+  assert.strictEqual(run('augmentNextScanDelay()'), 500, '刚见过卡片版面时应保持高频');
+  run('_augmentActiveUntil = 0; _augmentLastPayload = { visible: true }');
+  assert.strictEqual(run('augmentNextScanDelay()'), 500, '浮窗显示期间需高频以便及时判定消失');
+  run('_augmentLastPayload = null');
+
+  // 非海斗: 连续 5 次确认后暂停, 且重复上报同一阶段不能把它拉起来
+  flowResponse = { gameData: { queue: { id: 420, gameMode: 'CLASSIC' } } };
+  run("window._gameflowPhase = 'InProgress'; syncAugmentRecognitionForPhase('InProgress')");
+  assert.strictEqual(timers.length, 1, '进入对局应启动识别循环');
+  assert.strictEqual(timers[0].ms, 100, '首轮 100ms 后立即扫描');
+  for (let i = 1; i <= 4; i++) {
+    await tick(); run('hexRecommendContext.checkedAt = 0'); await fire();
+    assert.strictEqual(timers.length, 1, `第 ${i} 次确认非海斗后仍应继续`);
+    assert.strictEqual(timers[0].ms, 1200, '空闲期应使用 1200ms 间隔');
+  }
+  await tick(); run('hexRecommendContext.checkedAt = 0'); await fire();
+  assert.strictEqual(timers.length, 0, '连续 5 次确认非海斗后应暂停，不再排下一轮');
+  assert.strictEqual(run('_augmentPausedNonHex'), true);
+  run("syncAugmentRecognitionForPhase('InProgress')");
+  assert.strictEqual(timers.length, 0, '暂停后轮询重复上报同一阶段，不得重新启动循环');
+  run("syncAugmentRecognitionForPhase('None')");
+  assert.strictEqual(run('_augmentPausedNonHex'), false, '离开对局阶段应清除暂停');
+  run("syncAugmentRecognitionForPhase('GameStart')");
+  assert.strictEqual(timers.length, 1, '下一局应重新评估并启动');
+
+  // 海斗: 连续计数被清零, 循环不暂停
+  timers.length = 0; run('stopAugmentRecognition()');
+  flowResponse = { gameData: { queue: { id: 2400, gameMode: 'KIWI_JADE' } } };
+  run("syncAugmentRecognitionForPhase('InProgress')");
+  for (let i = 0; i < 7; i++) { await tick(); run('hexRecommendContext.checkedAt = 0'); await fire(); }
+  assert.strictEqual(timers.length, 1, '海斗对局不得被暂停');
+  assert.strictEqual(run('_augmentPausedNonHex'), false);
+
+  // 队列 ID 未知 (gameflow 读取失败/加载期空数据) 不能算作"非海斗"
+  timers.length = 0; run('stopAugmentRecognition()');
+  flowResponse = { gameData: {} };
+  run("syncAugmentRecognitionForPhase('GameStart')");
+  for (let i = 0; i < 7; i++) { await tick(); run('hexRecommendContext.checkedAt = 0'); await fire(); }
+  assert.strictEqual(run('_augmentPausedNonHex'), false, '队列未知时不得下结论');
+  assert.strictEqual(timers.length, 1);
+
+  // 已作废的旧循环 (stop 之后才返回) 不得继续排程，否则重启后会出现两条并行循环
+  timers.length = 0; run('stopAugmentRecognition()');
+  run("syncAugmentRecognitionForPhase('InProgress')");
+  const staleTimer = timers.shift();
+  run('stopAugmentRecognition()');
+  await staleTimer.fn();
+  assert.strictEqual(timers.length, 0, 'stop 之后触发的旧定时器不得再排下一轮');
+  run('stopAugmentRecognition()');
+
+  // 扫描进行到一半时被 stop (例如离开对局): 扫描返回后同样不得续排
+  timers.length = 0;
+  flowResponse = { gameData: { queue: { id: 2400, gameMode: 'KIWI_JADE' } } };
+  const originalLcuRequest = context.lolAPI.lcuRequest;
+  run("syncAugmentRecognitionForPhase('InProgress')");
+  context.lolAPI.lcuRequest = async () => { run('stopAugmentRecognition()'); return flowResponse; };
+  run('hexRecommendContext.checkedAt = 0');
+  await fire();
+  context.lolAPI.lcuRequest = originalLcuRequest;
+  assert.strictEqual(timers.length, 0, '扫描途中被 stop 后，返回时不得再排下一轮 (否则离开对局后循环仍在跑)');
+  run('stopAugmentRecognition()');
+
+  console.log('强化扫描自适应频率与非海斗暂停测试通过');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

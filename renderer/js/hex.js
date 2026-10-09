@@ -381,6 +381,14 @@ let _augmentOcrMemory = new Map();
 let _augmentVisionMemory = new Map();
 let _augmentLastPayload = null;
 let _augmentOverlayHeartbeatAt = 0;
+let _augmentActiveUntil = 0;             // 此刻之前保持高频扫描 (见 augmentNextScanDelay)
+let _augmentNonHexStreak = 0;
+let _augmentNonHexLastCheckedAt = 0;
+let _augmentPausedNonHex = false;
+const AUGMENT_SCAN_ACTIVE_MS = 500;
+const AUGMENT_SCAN_IDLE_MS = 1200;
+const AUGMENT_SCAN_ACTIVE_HOLD_MS = 4000;
+const AUGMENT_NON_HEX_CHECKS_TO_PAUSE = 5;
 const AUGMENT_OFFER_MEMORY_MS = 6500;
 const AUGMENT_LAYOUT_MISSES_TO_HIDE = 3;
 const AUGMENT_MIN_VISIBLE_MS = 1800;
@@ -735,6 +743,7 @@ async function scanCurrentAugmentOffers(manual = false) {
     }
     _augmentLayoutMisses = 0;
     const now = Date.now();
+    _augmentActiveUntil = now + AUGMENT_SCAN_ACTIVE_HOLD_MS;   // 见到卡片版面: 接下来保持高频, 完成两帧确认
     // 后期棱彩光效会让单帧 OCR 把相似短标题串成另一个强化。OCR 与图标都要求
     // 同一槽位跨两帧同名后才入选；槽位记忆允许三张卡分帧补齐，兼顾准确率和后两轮成功率。
     for (const offer of (result.offers || [])) {
@@ -828,20 +837,66 @@ async function scanCurrentAugmentOffers(manual = false) {
   }
 }
 
+// 下一轮扫描的间隔。每轮扫描都要抓一次全屏 (desktopCapturer) 并做边缘检测, 这是整局
+// 最贵的持续开销, 而三选一卡片只在少数时刻出现:
+//   · 活跃 (浮窗正在显示, 或最近 4 秒内见过卡片版面): 500ms, 保证两帧确认和消失判定够快
+//   · 空闲 (没有卡片): 1200ms, 抓屏次数减半以上; 卡片出现后最多多等 1.2 秒就切回活跃
+function augmentNextScanDelay(now = Date.now()) {
+  return (_augmentLastPayload || now < _augmentActiveUntil) ? AUGMENT_SCAN_ACTIVE_MS : AUGMENT_SCAN_IDLE_MS;
+}
+
+// 当前不是海克斯大乱斗时, 识别循环没有任何意义 (每 ~2 秒白白请求一次 gameflow)。
+// 连续多次(且 gameflow 数据确实更新过)确认队列不是海斗才暂停, 避免加载期读到旧队列就误停。
+// 同一局内保持暂停; 离开对局阶段 (stopAugmentRecognition) 后下一局重新评估。
+function augmentTrackNonHex() {
+  const ctx = hexRecommendContext || {};
+  if (ctx.isHex) { _augmentNonHexStreak = 0; return false; }
+  if (!ctx.checkedAt || ctx.checkedAt === _augmentNonHexLastCheckedAt) return false;   // 同一份数据不重复计数
+  _augmentNonHexLastCheckedAt = ctx.checkedAt;
+  if (!(ctx.queueId > 0)) { _augmentNonHexStreak = 0; return false; }              // 队列未知: 不下结论
+  _augmentNonHexStreak++;
+  return _augmentNonHexStreak >= AUGMENT_NON_HEX_CHECKS_TO_PAUSE;
+}
+
+function pauseAugmentRecognitionForNonHex() {
+  _augmentScanGeneration++;          // 作废仍在途中的扫描
+  if (_augmentScanTimer) clearTimeout(_augmentScanTimer);
+  _augmentScanTimer = null;
+  _augmentScanBusy = false;
+  _augmentPausedNonHex = true;
+  lolAPI.debugLog?.('[AUGMENT SCAN] paused: queue ' + hexRecommendContext.queueId + ' is not hex');
+}
+
+function scheduleAugmentScan(delay, generation) {
+  _augmentScanTimer = setTimeout(async () => {
+    if (generation !== _augmentScanGeneration) return;
+    try { await scanCurrentAugmentOffers(false); } catch (e) { /* 单轮失败不应中断循环 */ }
+    // 扫描期间可能已被 stop / pause / 重新 start: 世代不一致说明这条链已作废。
+    if (generation !== _augmentScanGeneration) return;
+    if (augmentTrackNonHex()) { pauseAugmentRecognitionForNonHex(); return; }
+    scheduleAugmentScan(augmentNextScanDelay(), generation);
+  }, delay);
+}
+
 function startAugmentRecognition() {
-  if (_augmentScanTimer) return;
+  if (_augmentScanTimer || _augmentPausedNonHex) return;
   _augmentScanFailures = 0;
-  setTimeout(() => scanCurrentAugmentOffers(false), 100);
-  _augmentScanTimer = setInterval(() => scanCurrentAugmentOffers(false), 500);
+  _augmentNonHexStreak = 0;
+  _augmentNonHexLastCheckedAt = 0;
+  scheduleAugmentScan(100, _augmentScanGeneration);
 }
 
 function stopAugmentRecognition() {
   _augmentScanGeneration++;
+  _augmentPausedNonHex = false;
+  _augmentNonHexStreak = 0;
+  _augmentNonHexLastCheckedAt = 0;
+  _augmentActiveUntil = 0;
   _augmentJournalPending = null;
   _augmentKnownSelectedIds = [];
   _augmentCurrentStage = 1;
   _augmentLiveProbe = { checkedAt: 0, pending: null, state: null };
-  if (_augmentScanTimer) clearInterval(_augmentScanTimer);
+  if (_augmentScanTimer) clearTimeout(_augmentScanTimer);
   _augmentScanTimer = null;
   _augmentScanBusy = false;
   _augmentScanFailures = 0;
@@ -853,7 +908,8 @@ function stopAugmentRecognition() {
 }
 
 function syncAugmentRecognitionForPhase(phase) {
-  if (phase === 'GameStart' || phase === 'InProgress') startAugmentRecognition();
+  // 已确认本局不是海斗而暂停时, 轮询每 12 秒重复上报同一阶段, 不能借机把循环拉起来。
+  if (phase === 'GameStart' || phase === 'InProgress') { if (!_augmentPausedNonHex) startAugmentRecognition(); }
   else stopAugmentRecognition();
 }
 
