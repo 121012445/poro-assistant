@@ -524,6 +524,11 @@ body {
 .ban-cell img { width: 36px; height: 36px; border-radius: 6px; filter: grayscale(0.8); }
 .ban-cell .cs-empty { width: 36px; height: 36px; font-size: 14px; }
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+/* 工具箱分区标题: 横跨整行, 右侧拖一条细线, 让 20+ 张卡片有分组感 */
+.tools-section { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: 10px 0 -2px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-muted); }
+.tools-section::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.tools-section:first-child { margin-top: 0; }
+.sel-reward-list { margin: 8px 0; font-size: 11px; max-height: 168px; overflow-y: auto; }
 .tool-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
 .tool-card h3 { font-size: 15px; margin-bottom: 8px; color: var(--accent-deep); }
 .tool-card p { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6; }
@@ -995,7 +1000,7 @@ body {
 .lp-name { display: inline-block; min-width: 0; max-width: 100%; font-weight: 750; color: var(--text-primary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .lp-premade { font-size: 10px; cursor: help; vertical-align: middle; }
 .lp-rank { margin-top: 2px; font-size: 9px; color: var(--accent-deep); overflow: hidden; text-overflow: ellipsis; }
-.lp-flash { display: inline-flex; align-items: center; margin-left: 2px; padding: 1px 4px; border-radius: 999px; color: var(--accent-deep); background: #e8f5fc; border: 1px solid #b9dff2; font-size: 8px; line-height: 1.3; cursor: help; vertical-align: middle; }
+.lp-flash { display: inline-flex; align-items: center; margin-left: 2px; padding: 1px 4px; border-radius: 999px; color: var(--accent-deep); background: #e8f5fc; border: 1px solid #b9dff2; font-size: 9px; line-height: 1.3; cursor: help; vertical-align: middle; }
 .lp-flash.mixed { color: #a96b12; background: #fff5df; border-color: #f4d79b; }
 .lp-overview { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 4px; margin: 4px 0; padding: 3px 5px; border-radius: 7px; background: var(--bg-hover); border: 1px solid #dfedf6; }
 .lp-winrate { color: var(--negative); font-size: 15px; font-weight: 800; }

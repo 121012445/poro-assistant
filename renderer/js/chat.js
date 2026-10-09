@@ -89,6 +89,8 @@ function resetChampSelectSideAnnouncement() {
 
 async function maybeAnnounceChampSelectSide(champSession) {
   if (window._gameflowPhase !== 'ChampSelect' || complianceOn || _champSelectSideAnnounceBusy) return false;
+  // 用户开关: 组队提示卡"选人时向队伍聊天发送红蓝方提示" (默认关闭)
+  if (storeGet('sideAnnounce') !== '1') return false;
   const now = Date.now();
   if (now - _champSelectSideLastAttempt < 1200) return false;
   _champSelectSideLastAttempt = now;

@@ -36,8 +36,12 @@ assert.strictEqual(scriptSrcs[0], 'js/utils.js', 'utils.js 必须最先加载 (�
 assert.ok(premiumCss.includes('body.dark .stat-card-val'), '暗色主题必须覆盖首页统计数字颜色');
 assert.ok(premiumCss.includes('body.dark .home-champs h4'), '暗色主题必须覆盖首页区块标题颜色');
 assert.ok(premiumCss.includes('button:not(.win-btn):not(.item)'), '普通操作按钮必须使用统一 Poro 按钮基础样式');
-assert.ok(premiumCss.includes('.btn-secondary, .role-btn'), '次要按钮和筛选按钮必须共用统一描边风格');
-assert.ok(premiumCss.includes('Unified transparent Poro action buttons'), '所有页面操作按钮必须使用统一透明风格');
+assert.ok(/\.btn-secondary,\s*\n?\s*\.role-btn/.test(premiumCss), '次要按钮和筛选按钮必须共用统一描边风格');
+// 2026-10-02 视觉重构：按钮从"全部透明描边"改为"主次两级"——
+// 主操作实心强调色、其余中性描边。断言随之改为守住这条层级规则。
+assert.ok(premiumCss.includes('.btn-primary, .home-search button, .back-to-me'),
+  '主操作按钮必须共用统一的实心强调色样式');
+assert.ok(/background:\s*var\(--accent\)/.test(premiumCss), '主操作按钮必须使用品牌强调色实底');
 
 const context = vm.createContext({ Promise, Array, String, JSON, Math, setTimeout });
 vm.runInContext(read('renderer/js/utils.js'), context);

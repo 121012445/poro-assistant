@@ -204,7 +204,11 @@ function setProfileQueue(queue) {
 // 趣味数据只描述本次首页已加载的近期对局，不包装成“生涯纪录”。保持为纯计算函数，
 // 便于用固定样本回归最长连胜、活跃时段和幸运英雄等边界。
 const HOME_ROLE_LABELS = { Fighter: '战士', Mage: '法师', Assassin: '刺客', Marksman: '射手', Support: '辅助', Tank: '坦克' };
-const HOME_ROLE_ICONS = { Fighter: '⚔️', Mage: '🔮', Assassin: '🗡️', Marksman: '🏹', Support: '💚', Tank: '🛡️' };
+// icons.js 提供 poroIcon；但 Node 测试会直接 require 本文件，那时它不在作用域里
+// （顶层常量 HOME_ROLE_ICONS 在模块加载期就要算图标字符串，会 ReferenceError）。
+// 这里兜一个空 SVG 保证纯计算函数可被测试调用；浏览器里这行不会执行。
+if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="pi"></svg>'; }
+const HOME_ROLE_ICONS = { Fighter: poroIcon('sword'), Mage: poroIcon('orb'), Assassin: poroIcon('dagger'), Marksman: poroIcon('bow'), Support: poroIcon('heart'), Tank: poroIcon('shield') };
 const HOME_ITEM_EXCLUDES = new Set([2003, 2010, 2031, 2033, 2055, 2138, 2139, 2140, 2141, 2142, 2143, 2144, 3340, 3348, 3363, 3364]);
 
 function homeCatalogEntryByKey(catalog, numericId) {
@@ -299,10 +303,10 @@ function classifyCombatStyle(performance, participation, avgDamage, avgTaken) {
 function deriveHomeFunStats(rows, catalogs = {}) {
   const list = Array.isArray(rows) ? rows.filter(row => row?.game && row?.me) : [];
   const periods = [
-    { key: 'late', label: '深夜档', icon: '🌙', from: 0, to: 5 },
-    { key: 'morning', label: '上午档', icon: '☀️', from: 6, to: 11 },
-    { key: 'afternoon', label: '下午档', icon: '🌤️', from: 12, to: 17 },
-    { key: 'evening', label: '晚间档', icon: '🌆', from: 18, to: 23 }
+    { key: 'late', label: '深夜档', icon: poroIcon('moon'), from: 0, to: 5 },
+    { key: 'morning', label: '上午档', icon: poroIcon('sun'), from: 6, to: 11 },
+    { key: 'afternoon', label: '下午档', icon: poroIcon('cloudSun'), from: 12, to: 17 },
+    { key: 'evening', label: '晚间档', icon: poroIcon('sunset'), from: 18, to: 23 }
   ].map(period => ({ ...period, games: 0, wins: 0 }));
   let longestWinStreak = 0, runningWins = 0, zeroDeaths = 0;
   let maxDamage = { value: 0, championId: 0 };
@@ -474,26 +478,26 @@ function buildHomeFunStats(games, summoner) {
   const longestMinutes = Math.round(stats.longestGame.seconds / 60);
   const oneDecimal = value => Number(value || 0).toFixed(1);
   const cards = [
-    ['🔥', '最长连胜', `${stats.longestWinStreak} 连胜`, `近 ${stats.sampleSize} 场中的最长纪录`],
-    ['🛡️', '完美生存', `${stats.zeroDeaths} 场`, stats.zeroDeaths ? '整局保持零阵亡' : '近期还没有零阵亡对局'],
-    ['⚔️', '输出天花板', fmtNumLocal(stats.maxDamage.value), `${homeFunChampionName(stats.maxDamage.championId)} · 单局英雄伤害`],
-    [period?.icon || '🕒', '最常出没', period?.games ? period.label : '时间未知', period?.games ? `${period.games} 场集中在 ${period.from}:00–${period.to}:59` : '战绩未提供开局时间'],
-    ['🎭', '近期英雄池', `${stats.uniqueChampions} 位`, `最长一局 ${longestMinutes || '--'} 分钟`],
-    ['🍀', '幸运英雄', lucky ? homeFunChampionName(lucky.id) : '样本不足', lucky ? `${lucky.games} 场 ${lucky.wins} 胜 · ${Math.round(lucky.wins / lucky.games * 100)}%` : '同一英雄至少使用 2 场后生成'],
-    ['🧰', '钟爱装备', favoriteItem ? homeFunItemName(favoriteItem.id) : '样本不足', favoriteItem ? `${favoriteItem.games} 场携带 · ${Math.round(favoriteItem.wins / favoriteItem.games * 100)}% 胜率` : '成装数据加载后自动生成'],
-    [HOME_ROLE_ICONS[favoriteRole?.tag] || '🧭', '擅长英雄分类', favoriteRole ? `${HOME_ROLE_LABELS[favoriteRole.tag]}型` : '样本不足', favoriteRole ? `${favoriteRole.games} 场 · ${favoriteRole.championCount} 位英雄 · ${Math.round(favoriteRole.wins / favoriteRole.games * 100)}%` : '同类英雄至少使用 2 场后生成'],
-    ['🎨', '战斗风格', stats.combatStyle.label, stats.combatStyle.detail],
-    ['🃏', '英雄池专一度', stats.heroPoolProfile.label, stats.heroPoolProfile.detail],
-    ['🧩', '常用三件套', favoriteTriple ? favoriteTriple.ids.map(homeFunItemName).join(' + ') : '样本不足', favoriteTriple ? `${favoriteTriple.games} 场成型 · ${Math.round(favoriteTriple.wins / favoriteTriple.games * 100)}% 胜率` : '至少一局拥有三件最终成装后生成'],
-    ['🤜', '黄金搭档', goldenPartner ? `${goldenPartner.name}${goldenPartner.tagLine ? '#' + goldenPartner.tagLine : ''}` : '样本不足', goldenPartner ? `共同 ${goldenPartner.games} 场 · ${Math.round(goldenPartner.wins / goldenPartner.games * 100)}% 胜率` : '与同一队友完成至少 2 场后生成'],
-    ['👿', '宿敌英雄', nemesis ? homeFunChampionName(nemesis.id) : '样本不足', nemesis ? `对阵 ${nemesis.games} 场 · 负率 ${Math.round(nemesis.losses / nemesis.games * 100)}%` : '对阵同一英雄至少 2 场后生成'],
-    [bestPeriod?.icon || '⏰', '最佳上分时间', bestPeriod ? bestPeriod.label : '样本不足', bestPeriod ? `${bestPeriod.games} 场 ${bestPeriod.wins} 胜 · ${Math.round(bestPeriod.wins / bestPeriod.games * 100)}%` : '同一时间段至少 2 场后生成'],
-    ['🎯', '近期平均 KDA', performance.averageKda.toFixed(2), `场均 ${oneDecimal(performance.averageKills)} / ${oneDecimal(performance.averageDeaths)} / ${oneDecimal(performance.averageAssists)}`],
-    ['💱', '伤害转化率', performance.damageConversion == null ? '--' : `${Math.round(performance.damageConversion)}%`, performance.damageConversion == null ? '战绩未提供金币数据' : '每 100 金币转化的英雄伤害'],
-    ['⚡', '每分钟输出', performance.damagePerMinute == null ? '--' : fmtNumLocal(Math.round(performance.damagePerMinute)), '按有效对局时长折算'],
-    ['🤝', '平均参团率', performance.averageParticipation == null ? '--' : `${Math.round(performance.averageParticipation)}%`, performance.participationGames ? `${performance.participationGames} 场具备队伍击杀数据` : '战绩未提供队伍击杀数据'],
-    ['💥', '场均英雄伤害', performance.averageDamage == null ? '--' : fmtNumLocal(Math.round(performance.averageDamage)), '仅统计对英雄造成的伤害'],
-    ['🧱', '场均承受伤害', performance.averageDamageTaken == null ? '--' : fmtNumLocal(Math.round(performance.averageDamageTaken)), '近期对局平均承伤']
+    [poroIcon('flame'), '最长连胜', `${stats.longestWinStreak} 连胜`, `近 ${stats.sampleSize} 场中的最长纪录`],
+    [poroIcon('shield'), '完美生存', `${stats.zeroDeaths} 场`, stats.zeroDeaths ? '整局保持零阵亡' : '近期还没有零阵亡对局'],
+    [poroIcon('trendUp'), '输出天花板', fmtNumLocal(stats.maxDamage.value), `${homeFunChampionName(stats.maxDamage.championId)} · 单局英雄伤害`],
+    [period?.icon || poroIcon('clock'), '最常出没', period?.games ? period.label : '时间未知', period?.games ? `${period.games} 场集中在 ${period.from}:00–${period.to}:59` : '战绩未提供开局时间'],
+    [poroIcon('mask'), '近期英雄池', `${stats.uniqueChampions} 位`, `最长一局 ${longestMinutes || '--'} 分钟`],
+    [poroIcon('clover'), '幸运英雄', lucky ? homeFunChampionName(lucky.id) : '样本不足', lucky ? `${lucky.games} 场 ${lucky.wins} 胜 · ${Math.round(lucky.wins / lucky.games * 100)}%` : '同一英雄至少使用 2 场后生成'],
+    [poroIcon('toolbox'), '钟爱装备', favoriteItem ? homeFunItemName(favoriteItem.id) : '样本不足', favoriteItem ? `${favoriteItem.games} 场携带 · ${Math.round(favoriteItem.wins / favoriteItem.games * 100)}% 胜率` : '成装数据加载后自动生成'],
+    [HOME_ROLE_ICONS[favoriteRole?.tag] || poroIcon('compass'), '擅长英雄分类', favoriteRole ? `${HOME_ROLE_LABELS[favoriteRole.tag]}型` : '样本不足', favoriteRole ? `${favoriteRole.games} 场 · ${favoriteRole.championCount} 位英雄 · ${Math.round(favoriteRole.wins / favoriteRole.games * 100)}%` : '同类英雄至少使用 2 场后生成'],
+    [poroIcon('palette'), '战斗风格', stats.combatStyle.label, stats.combatStyle.detail],
+    [poroIcon('cards'), '英雄池专一度', stats.heroPoolProfile.label, stats.heroPoolProfile.detail],
+    [poroIcon('puzzle'), '常用三件套', favoriteTriple ? favoriteTriple.ids.map(homeFunItemName).join(' + ') : '样本不足', favoriteTriple ? `${favoriteTriple.games} 场成型 · ${Math.round(favoriteTriple.wins / favoriteTriple.games * 100)}% 胜率` : '至少一局拥有三件最终成装后生成'],
+    [poroIcon('users'), '黄金搭档', goldenPartner ? `${goldenPartner.name}${goldenPartner.tagLine ? '#' + goldenPartner.tagLine : ''}` : '样本不足', goldenPartner ? `共同 ${goldenPartner.games} 场 · ${Math.round(goldenPartner.wins / goldenPartner.games * 100)}% 胜率` : '与同一队友完成至少 2 场后生成'],
+    [poroIcon('nemesis'), '宿敌英雄', nemesis ? homeFunChampionName(nemesis.id) : '样本不足', nemesis ? `对阵 ${nemesis.games} 场 · 负率 ${Math.round(nemesis.losses / nemesis.games * 100)}%` : '对阵同一英雄至少 2 场后生成'],
+    [bestPeriod?.icon || poroIcon('alarm'), '最佳上分时间', bestPeriod ? bestPeriod.label : '样本不足', bestPeriod ? `${bestPeriod.games} 场 ${bestPeriod.wins} 胜 · ${Math.round(bestPeriod.wins / bestPeriod.games * 100)}%` : '同一时间段至少 2 场后生成'],
+    [poroIcon('target'), '近期平均 KDA', performance.averageKda.toFixed(2), `场均 ${oneDecimal(performance.averageKills)} / ${oneDecimal(performance.averageDeaths)} / ${oneDecimal(performance.averageAssists)}`],
+    [poroIcon('exchange'), '伤害转化率', performance.damageConversion == null ? '--' : `${Math.round(performance.damageConversion)}%`, performance.damageConversion == null ? '战绩未提供金币数据' : '每 100 金币转化的英雄伤害'],
+    [poroIcon('zap'), '每分钟输出', performance.damagePerMinute == null ? '--' : fmtNumLocal(Math.round(performance.damagePerMinute)), '按有效对局时长折算'],
+    [poroIcon('users'), '平均参团率', performance.averageParticipation == null ? '--' : `${Math.round(performance.averageParticipation)}%`, performance.participationGames ? `${performance.participationGames} 场具备队伍击杀数据` : '战绩未提供队伍击杀数据'],
+    [poroIcon('burst'), '场均英雄伤害', performance.averageDamage == null ? '--' : fmtNumLocal(Math.round(performance.averageDamage)), '仅统计对英雄造成的伤害'],
+    [poroIcon('brick'), '场均承受伤害', performance.averageDamageTaken == null ? '--' : fmtNumLocal(Math.round(performance.averageDamageTaken)), '近期对局平均承伤']
   ];
   return `<section class="home-fun"><div class="home-fun-head"><span><b>玩家趣味档案</b><small>基于当前加载的近 ${stats.sampleSize} 场</small></span><em>仅代表近期</em></div>
     <div class="home-fun-grid">${cards.map(([icon, label, value, detail]) => {
@@ -811,7 +815,7 @@ function findProfileParticipant(game, summoner) {
 }
 // puuid→段位缓存 (战绩详情用)
 const rankCache = {};
-const TIER_ICON = { IRON: '🪨', BRONZE: '🥉', SILVER: '🥈', GOLD: '🥇', PLATINUM: '🟢', EMERALD: '🟩', DIAMOND: '🔷', MASTER: '🟪', GRANDMASTER: '🔴', CHALLENGER: '👑' };
+const TIER_ICON = { IRON: poroIcon('rock'), BRONZE: poroIcon('medal'), SILVER: poroIcon('medal'), GOLD: poroIcon('medal'), PLATINUM: poroIcon('shield'), EMERALD: poroIcon('shield'), DIAMOND: poroIcon('gem'), MASTER: poroIcon('gem'), GRANDMASTER: poroIcon('crown'), CHALLENGER: poroIcon('crown') };
 async function resolveRanks(puuids) {
   const missing = puuids.filter(p => p && !(p in rankCache));
   if (!missing.length) return;
@@ -1398,7 +1402,7 @@ function buildHomeTemplate(v) {
         <div class="stat-card"><div class="stat-card-val">${penta} / ${fb}</div><div class="stat-card-label">五杀 / 一血</div></div>
       </div>
       <a href="#" class="home-profile-entry" onclick="switchPage('profile');return false;">
-        <span class="hpe-icon">📊</span>
+        <span class="hpe-icon">${poroIcon('chart')}</span>
         <span class="hpe-text"><b>我的画像</b><small>擅长与提升 · 玩家趣味档案</small></span>
         <em>查看 →</em>
       </a>

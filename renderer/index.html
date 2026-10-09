@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026092804">
-<link rel="stylesheet" href="css/extras.css?v=2026092804">
-<link rel="stylesheet" href="css/dark.css?v=2026092804">
-<link rel="stylesheet" href="css/premium.css?v=2026092804">
+<link rel="stylesheet" href="css/style.css?v=2026100204">
+<link rel="stylesheet" href="css/extras.css?v=2026100204">
+<link rel="stylesheet" href="css/dark.css?v=2026100204">
+<link rel="stylesheet" href="css/premium.css?v=2026100204">
 </head>
 <body>
 
@@ -69,7 +69,7 @@
       <span class="status-dot" id="lcuDot"></span><span id="lcuStatusText">LCU 检测中...</span>
     </div>
     <div class="sidebar-extras">
-      <div class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换深色/浅色主题">🌙</div>
+      <div class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换深色/浅色主题"><svg class="pi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg></div>
       <!-- 版本号由 app.js 从主进程读取后填入, 不要在这里写死版本 -->
       <div class="version" id="versionText">v--</div>
     </div>
@@ -180,6 +180,7 @@
       <h2>工具箱</h2>
     </div>
     <div class="tools-grid">
+      <div class="tools-section">自动化</div>
       <div class="tool-card">
         <h3>自动接受对局</h3>
         <p>检测到匹配弹窗时自动接受。设置会保存, 重启后自动恢复。</p>
@@ -189,11 +190,72 @@
         </div>
       </div>
       <div class="tool-card">
+        <h3>自动 BP (禁/选)</h3>
+        <p>自动禁用/选择英雄，按优先级列表执行。支持排位和匹配模式。</p>
+        <div class="tool-row">
+          <span id="autoBPStatus" class="tool-state">未开启</span>
+          <label class="switch"><input type="checkbox" id="autoBPToggle" onchange="toggleAutoBP(this.checked)"><span class="slider"></span></label>
+          <button class="btn-secondary" onclick="showAutoBPConfig()" style="font-size:11px;">配置英雄</button>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>自动符文</h3>
+        <p>锁定英雄后自动配置推荐符文页 (按英雄轮换符文树, 非数据推荐; OP.GG 数据源接入中)。</p>
+        <div class="tool-row">
+          <span id="autoRuneStatus" class="tool-state">未开启</span>
+          <label class="switch"><input type="checkbox" id="autoRuneToggle" onchange="toggleAutoRune(this.checked)"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>对局结束自动化</h3>
+        <p>结算后自动创建同模式房间（开黑车队需重新邀请），可选立即自动排队。人机/训练模式同样生效。</p>
+        <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+          <label class="switch-row"><input type="checkbox" id="autoReturnLobbyToggle" onchange="toggleAutoReturnLobby(this.checked)"> 结束后自动返回房间</label>
+          <label class="switch-row" id="autoReturnQueueRow" style="padding-left:22px;display:none;"><input type="checkbox" id="autoReturnQueueToggle" onchange="toggleAutoReturnQueue(this.checked)"> 返回后自动开始排队</label>
+        </div>
+      </div>
+      <div class="tools-section">选人与对局辅助</div>
+      <div class="tool-card">
+        <h3>备战区助手（大乱斗 / 海斗）</h3>
+        <p>列出<b>当前能换到的英雄</b>，点一下就发起，<b>不做本地等待</b>：<b>备选</b>（抽卡池）里的英雄开局就固定、从来没有冷却，点了就是瞬换；<b>备战席</b>里的英雄绝大多数也能立即换到 —— 只有<b>刚被骰子重随进备战席</b>的那一个带 3 秒保护期（官方 14.13 起，防队友抢板凳）。助手一律先出手问服务器，被拒了才把它当作保护期、精确等到结束自动再换。<b>你不需要盯着倒计时，也不需要反复点。</b>开启开关后还会弹出倒计时提醒。</p>
+        <p class="tool-warn">⚠ 那 3 秒保护期由服务器判定，本助手无法也不尝试缩短它，只是把"等"和"重试"从你身上挪走；按钮只列出服务器当前允许你选择的英雄。使用第三方辅助工具仍可能违反游戏规则，请自行评估账号风险。</p>
+        <div class="tool-row">
+          <span id="benchAlertState" class="tool-state">已关闭</span>
+          <label class="switch"><input type="checkbox" id="benchAlertToggle" onchange="toggleBenchAlert(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <span class="tool-state">选人浮窗（浮在客户端旁边，免切窗口换英雄）</span>
+          <label class="switch"><input type="checkbox" id="benchOverlayToggle" onchange="toggleBenchOverlay(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div id="benchSwapBtns" class="bench-swap-btns"></div>
+        <div id="benchSwapState" class="tool-state bench-swap-state"></div>
+        <div id="benchDiag" class="tool-state bench-diag"></div>
+      </div>
+      <div class="tool-card">
         <h3>组队提示</h3>
         <p>汇总本局玩家近 30 场同队记录；共同出现至少 3 次时标记为疑似开黑，并在选人聊天中提示。</p>
         <div class="tool-row">
           <span id="premadeNotifyState" class="tool-state">已开启</span>
           <label class="switch"><input type="checkbox" id="premadeNotifyToggle" checked onchange="togglePremadeNotify(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <label class="switch-row"><input type="checkbox" id="sideAnnounceToggle" onchange="toggleSideAnnounce(this.checked)"> 选人时向队伍聊天发送红蓝方提示</label>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>KDA简报</h3>
+        <p>对局中按 F7 / F8（或点击按钮）获取己方/敌方近期 KDA，并自动发送到所有人频道。</p>
+        <div class="tool-row">
+          <button class="btn-secondary" onclick="sendKDABriefing(true)" style="font-size:11px;">发送己方</button>
+          <button class="btn-secondary" onclick="sendKDABriefing(false)" style="font-size:11px;">发送敌方</button>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>回放观看</h3>
+        <p>输入 Game ID（对局详情卡上方可复制）请求下载回放，完成后在客户端「生涯-回放」观看。</p>
+        <div class="tool-row">
+          <input type="text" id="replayGameId" placeholder="Game ID (纯数字)" class="tool-input" style="flex:1">
+          <button class="btn-primary" onclick="watchReplay()">观看回放</button>
         </div>
       </div>
       <div class="tool-card">
@@ -204,11 +266,39 @@
           <button class="btn-primary" onclick="startSpectate()">观战</button>
         </div>
       </div>
+      <div class="tools-section">账号与外观</div>
       <div class="tool-card">
-        <h3>修复 LCU 窗口</h3>
-        <p>客户端窗口异常 (过大/过小/移出屏幕) 时，一键恢复为 1280x720 居中。</p>
+        <h3>领取奖励</h3>
+        <p>一键领取活动通行证与任务奖励；想挑着领时展开下方列表逐项勾选。</p>
         <div class="tool-row">
-          <button class="btn-primary" onclick="fixWindow()">立即修复</button>
+          <button class="btn-primary" onclick="claimAllRewards()">一键全部领取</button>
+          <button class="btn-secondary" onclick="toggleRewardPicker(this)" style="font-size:11px;">选择性领取 ▾</button>
+        </div>
+        <div id="selectableRewardWrap" hidden>
+          <div id="selectableRewardList" class="sel-reward-list"></div>
+          <div class="tool-row">
+            <button class="btn-secondary" onclick="loadSelectableRewards()" style="font-size:11px;">扫描</button>
+            <button class="btn-primary" onclick="claimSelectedRewards()" style="font-size:11px;">领取勾选项</button>
+          </div>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>生涯背景设置</h3>
+        <p>选择英雄和皮肤，修改个人生涯页面背景。</p>
+        <div class="tool-row">
+          <input type="text" id="bgChamp" placeholder="搜索英雄 (支持中文/英文/拼音)..." class="tool-input" style="flex:2; width:100%" oninput="filterBgChampions()" onfocus="filterBgChampions()" onblur="setTimeout(()=>bgChampHide(),200)">
+        </div>
+        <div id="bgChampDropdown" class="bg-champ-list"></div>
+        <div class="tool-row" style="margin-top:6px;">
+          <select id="bgSkin" class="tool-select" style="flex:1;"><option>先选择英雄</option></select>
+          <button class="btn-primary" onclick="setProfileBg()">应用背景</button>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>一键卸下勋章</h3>
+        <p>单镐下旗帜上的勋章头像框和挑战代币 (恢复为默认无框样式)。</p>
+        <div class="tool-row">
+          <button class="btn-secondary" onclick="removeAllRegalia()">一键卸下</button>
         </div>
       </div>
       <div class="tool-card">
@@ -236,64 +326,13 @@
           <button class="btn-primary" onclick="fakeRank()">修改</button>
         </div>
       </div>
+      <div class="tools-section">客户端维护</div>
       <div class="tool-card">
-        <h3>生涯背景设置</h3>
-        <p>选择英雄和皮肤，修改个人生涯页面背景。</p>
+        <h3>修复 LCU 窗口</h3>
+        <p>客户端窗口异常 (过大/过小/移出屏幕) 时，一键恢复为 1280x720 居中。</p>
         <div class="tool-row">
-          <input type="text" id="bgChamp" placeholder="搜索英雄 (支持中文/英文/拼音)..." class="tool-input" style="flex:2; width:100%" oninput="filterBgChampions()" onfocus="filterBgChampions()" onblur="setTimeout(()=>bgChampHide(),200)">
+          <button class="btn-primary" onclick="fixWindow()">立即修复</button>
         </div>
-        <div id="bgChampDropdown" class="bg-champ-list"></div>
-        <div class="tool-row" style="margin-top:6px;">
-          <select id="bgSkin" class="tool-select" style="flex:1;"><option>先选择英雄</option></select>
-          <button class="btn-primary" onclick="setProfileBg()">应用背景</button>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>一键卸下勋章</h3>
-        <p>单镐下旗帜上的勋章头像框和挑战代币 (恢复为默认无框样式)。</p>
-        <div class="tool-row">
-          <button class="btn-secondary" onclick="removeAllRegalia()">一键卸下</button>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>一键领取活动奖励</h3>
-        <p>自动领取客户端活动奖励。</p>
-        <div class="tool-row">
-          <button class="btn-primary" onclick="claimAllRewards()">领取</button>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>自动 BP (禁/选)</h3>
-        <p>自动禁用/选择英雄，按优先级列表执行。支持排位和匹配模式。</p>
-        <div class="tool-row">
-          <span id="autoBPStatus" class="tool-state">未开启</span>
-          <label class="switch"><input type="checkbox" id="autoBPToggle" onchange="toggleAutoBP(this.checked)"><span class="slider"></span></label>
-          <button class="btn-secondary" onclick="showAutoBPConfig()" style="font-size:11px;">配置英雄</button>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>自动符文</h3>
-        <p>锁定英雄后自动配置推荐符文页 (按英雄轮换符文树, 非数据推荐; OP.GG 数据源接入中)。</p>
-        <div class="tool-row">
-          <span id="autoRuneStatus" class="tool-state">未开启</span>
-          <label class="switch"><input type="checkbox" id="autoRuneToggle" onchange="toggleAutoRune(this.checked)"><span class="slider"></span></label>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>备战区助手（大乱斗 / 海斗）</h3>
-        <p>列出<b>当前能换到的英雄</b>，点一下就发起，<b>不做本地等待</b>：<b>备选</b>（抽卡池）里的英雄开局就固定、从来没有冷却，点了就是瞬换；<b>备战席</b>里的英雄绝大多数也能立即换到 —— 只有<b>刚被骰子重随进备战席</b>的那一个带 3 秒保护期（官方 14.13 起，防队友抢板凳）。助手一律先出手问服务器，被拒了才把它当作保护期、精确等到结束自动再换。<b>你不需要盯着倒计时，也不需要反复点。</b>开启开关后还会弹出倒计时提醒。</p>
-        <p class="tool-warn">⚠ 那 3 秒保护期由服务器判定，本助手无法也不尝试缩短它，只是把"等"和"重试"从你身上挪走；按钮只列出服务器当前允许你选择的英雄。使用第三方辅助工具仍可能违反游戏规则，请自行评估账号风险。</p>
-        <div class="tool-row">
-          <span id="benchAlertState" class="tool-state">已关闭</span>
-          <label class="switch"><input type="checkbox" id="benchAlertToggle" onchange="toggleBenchAlert(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
-          <span class="tool-state">选人浮窗（浮在客户端旁边，免切窗口换英雄）</span>
-          <label class="switch"><input type="checkbox" id="benchOverlayToggle" onchange="toggleBenchOverlay(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div id="benchSwapBtns" class="bench-swap-btns"></div>
-        <div id="benchSwapState" class="tool-state bench-swap-state"></div>
-        <div id="benchDiag" class="tool-state bench-diag"></div>
       </div>
       <div class="tool-card">
         <h3>锁定游戏设置</h3>
@@ -310,14 +349,7 @@
           </select>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>KDA简报</h3>
-        <p>对局中按 F7 / F8（或点击按钮）获取己方/敌方近期 KDA，并自动发送到所有人频道。</p>
-        <div class="tool-row">
-          <button class="btn-secondary" onclick="sendKDABriefing(true)" style="font-size:11px;">发送己方</button>
-          <button class="btn-secondary" onclick="sendKDABriefing(false)" style="font-size:11px;">发送敌方</button>
-        </div>
-      </div>
+      <div class="tools-section">设置与数据</div>
       <div class="tool-card">
         <h3>合规模式（默认关闭）</h3>
         <p>开启后进入<b>只读模式</b>：自动化与对客户端的写入操作全部停用。Poro 不注入游戏进程、不读取游戏内存；关闭前请自行确认所在服务器规则。</p>
@@ -342,17 +374,11 @@
           </div>
         </div>
       </div>
-      <div class="tool-card span-all legal-card">
-        <h3>非官方产品与数据说明</h3>
-        <p>Poro 是独立开发的第三方工具，并非 Riot Games 或腾讯官方产品，也未获得其认可、赞助或背书。英雄联盟及相关素材归其权利人所有。</p>
-        <p>本地账号、战绩缓存与个人标记默认保存在本机；只有在你主动使用 AI 复盘时，所选对局内容才会发送到你配置的第三方 AI 接口。LCU 属于非官方支持的本地接口，客户端更新后部分功能可能暂时失效。</p>
-      </div>
       <div class="tool-card span-all">
         <h3>数据备份与恢复</h3>
         <p>导出设置、玩家档案、黑名单和识别偏好。备份不包含 AI API Key；导入前会验证文件格式。</p>
         <div class="tool-row">
-          <button class="btn-secondary" onclick="exportPoroBackup()">导出备份</button>
-          <button class="btn-secondary" onclick="importPoroBackup()">导入备份</button>
+          <button class="btn-secondary" onclick="exportPoroBackup()">导出备份</button>          <button class="btn-secondary" onclick="importPoroBackup()">导入备份</button>
         </div>
       </div>
       <div class="tool-card span-all">
@@ -365,6 +391,11 @@
           <button class="btn-secondary" onclick="exportDiagnostics()">导出诊断包</button>
         </div>
         <pre id="diagnosticsOutput" class="diagnostics-output">点击“刷新诊断”检查当前状态</pre>
+      </div>
+      <div class="tool-card span-all legal-card">
+        <h3>非官方产品与数据说明</h3>
+        <p>Poro 是独立开发的第三方工具，并非 Riot Games 或腾讯官方产品，也未获得其认可、赞助或背书。英雄联盟及相关素材归其权利人所有。</p>
+        <p>本地账号、战绩缓存与个人标记默认保存在本机；只有在你主动使用 AI 复盘时，所选对局内容才会发送到你配置的第三方 AI 接口。LCU 属于非官方支持的本地接口，客户端更新后部分功能可能暂时失效。</p>
       </div>
     </div>
     <div id="toolMsg" class="tool-msg"></div>
@@ -431,28 +462,31 @@
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
 <div id="benchAlert" class="bench-alert"></div>
-<script src="js/utils.js?v=2026092804"></script>
-<script src="js/data-model.js?v=2026092804"></script>
-<script src="js/session-state.js?v=2026092804"></script>
-<script src="js/performance.js?v=2026092804"></script>
-<script src="js/diagnostics.js?v=2026092804"></script>
-<script src="js/bench.js?v=2026092804"></script>
-<script src="js/champions.js?v=2026092804"></script>
-<script src="js/progress-report.js?v=2026092804"></script>
-<script src="js/home.js?v=2026092804"></script>
-<script src="js/review.js?v=2026092804"></script>
-<script src="js/theme.js?v=2026092804"></script>
-<script src="js/hex.js?v=2026093001"></script>
-<script src="js/history.js?v=2026092804"></script>
-<script src="js/live.js?v=2026092804"></script>
-<script src="js/compliance.js?v=2026092804"></script>
-<script src="js/blacklist.js?v=2026092804"></script>
-<script src="js/social.js?v=2026092804"></script>
-<script src="js/chat.js?v=2026092804"></script>
-<script src="js/autobp.js?v=2026092804"></script>
-<script src="js/lcu-events.js?v=2026092804"></script>
-<script src="js/settings.js?v=2026092804"></script>
-<script src="js/persist.js?v=2026092804"></script>
-<script src="js/app.js?v=2026092804"></script>
+<script src="js/utils.js?v=2026100204"></script>
+<script src="js/icons.js?v=2026100204"></script>
+<script src="js/data-model.js?v=2026100204"></script>
+<script src="js/session-state.js?v=2026100204"></script>
+<script src="js/performance.js?v=2026100204"></script>
+<script src="js/diagnostics.js?v=2026100204"></script>
+<script src="js/bench.js?v=2026100204"></script>
+<script src="js/champions.js?v=2026100204"></script>
+<script src="js/progress-report.js?v=2026100204"></script>
+<script src="js/home.js?v=2026100204"></script>
+<script src="js/review.js?v=2026100204"></script>
+<script src="js/theme.js?v=2026100204"></script>
+<script src="js/hex.js?v=2026100204"></script>
+<script src="js/history.js?v=2026100204"></script>
+<script src="js/live.js?v=2026100204"></script>
+<script src="js/compliance.js?v=2026100204"></script>
+<script src="js/blacklist.js?v=2026100204"></script>
+<script src="js/social.js?v=2026100204"></script>
+<script src="js/chat.js?v=2026100204"></script>
+<script src="js/autobp.js?v=2026100204"></script>
+<script src="js/lcu-events.js?v=2026100204"></script>
+<script src="js/settings.js?v=2026100204"></script>
+<script src="js/persist.js?v=2026100204"></script>
+<script src="js/autoreturn.js?v=2026100204"></script>
+<script src="js/sona-extra.js?v=2026100204"></script>
+<script src="js/app.js?v=2026100204"></script>
 </body>
 </html>

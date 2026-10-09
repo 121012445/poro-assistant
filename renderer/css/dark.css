@@ -1,58 +1,47 @@
-/* 深色主题: body.dark 下重定义变量, 大部分组件自动跟随 */
+/* 深色主题 —— 变量唯一定义处（浅色令牌见 premium.css 的 :root）。
+   基调刻意选**中性深灰**而不是蓝黑：蓝黑底 + 青蓝高亮会让整屏看起来像上世纪的
+   终端软件，中性灰 + 单一品牌色才是现代桌面应用的观感。
+   **表面中性灰、文字蓝调灰** —— 与浅色是同一策略：底色不偏色，文字保留原有蓝调，
+   大片深底上更耐看、不刺眼。
+   组件级深色微调统一放在 premium.css（本文件只管变量），避免两处打架。 */
 body.dark {
-  --bg-primary: #14161c;
-  --bg-secondary: #1a1d25;
-  --bg-card: #1e222c;
-  --bg-hover: #262b38;
-  --border: #2e3442;
+  /* 表面：靠亮度差区分层级，不靠边框和阴影 */
+  --bg-primary: #141416;
+  --bg-secondary: #19191c;
+  --bg-card: #1b1b1e;
+  --bg-hover: #232327;
+  --border: #29292e;
+
+  /* 三级灰阶：沿用原有蓝调灰（#e2e6ee / #aab3c5 / #838da6）。
+     对比度（卡底 #1b1b1e / 页面底 #141416）：13.7/14.7 · 8.2/8.7 · 5.2/5.5，全部过 AA */
   --text-primary: #e2e6ee;
   --text-secondary: #aab3c5;
-  --text-muted: #76809a;
-  --accent: #4aa3e8;
-  --accent-deep: #2c7fc4;
-  --accent2: #2a4a66;
-  --positive: #3ecf7a;
-  --negative: #ef6b5e;
-  --warning: #f0a84b;
-  --gradient-gold: linear-gradient(135deg, #2a3a4c 0%, #1e2836 50%, #2a3a4c 100%);
-  --shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
-  --shadow-soft: 0 5px 18px rgba(0, 0, 0, 0.24);
-  background: #14161c;
+  --text-muted: #838da6;
+
+  --accent: #4d8ef7;
+  --accent-deep: #82b1fb;
+  --accent2: #2a3a52;
+  /* 段位名等"荣誉性文字"的亮蓝，8.68:1（卡底 #1b1b1e） */
+  --accent-bright: #70c2f3;
+
+  --data-blue: #6aa9f0;
+  --data-teal: #4ecdc4;
+  --data-violet: #a5a1f5;
+  --data-gold: #e0b76a;
+  --data-rose: #ee93a8;
+
+  --heading-ink: #e2e6ee;
+  --positive: #4ade80;
+  --negative: #f87171;
+  --warning: #fbbf24;
+
+  /* 深色下不用玻璃拟态：半透明叠在深底上只会显脏 */
+  --surface-glass: #1b1b1e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .34), 0 1px 3px rgba(0, 0, 0, .26);
+  --shadow-soft: 0 1px 3px rgba(0, 0, 0, .28);
+  --gradient-gold: linear-gradient(135deg, #3b6fd4 0%, #2a55a8 100%);
+  --focus-ring: 0 0 0 3px rgba(77, 142, 247, .34);
+
+  background: #141416;
   color: #e2e6ee;
 }
-
-/* 深色下局部微调 (浅色模板里硬编码的白底/浅底组件) */
-body.dark .modal-content,
-body.dark .bg-champ-list,
-body.dark .bg-champ-option { background: #232834; color: #e2e6ee; }
-body.dark .bg-champ-option:hover { background: #2c3342; }
-body.dark .tool-input,
-body.dark .tool-select,
-body.dark input[type="text"],
-body.dark input[type="password"],
-body.dark select {
-  background: #141821; color: #e2e6ee; border-color: #2e3442;
-}
-body.dark .tool-input::placeholder { color: #5a6478; }
-body.dark .switch { background: #333b4c; }
-body.dark .placeholder-svg { background: #262b38; }
-body.dark img { opacity: 0.98; }
-/* 深色主题下把 JS 生成的浅色英雄占位图替换为深色底 (通过 filter 近似) */
-body.dark .champ-icon,
-body.dark .ako-champ,
-body.dark .ak-champ,
-body.dark .lp-champ { background: #232834; border-radius: 50%; }
-body.dark .lp-team { background: rgba(30, 34, 44, .72); }
-body.dark .lp-blue .lp-team-head { background: linear-gradient(100deg, #183a55, #202d3d); color: #74c9f5; }
-body.dark .lp-red .lp-team-head { background: linear-gradient(100deg, #4b292d, #35272b); color: #ef9a95; }
-body.dark .lp-row { background: var(--bg-card); border-color: #344657; color: var(--text-primary); }
-body.dark .lp-red .lp-row { border-color: #554044; }
-body.dark .lp-overview { background: var(--bg-hover); border-color: var(--border); }
-body.dark .lp-flash { background: #203d50; border-color: #345f78; color: #7acaf1; }
-body.dark .lp-flash.mixed { background: #4a3b21; border-color: #705a30; color: #ffd27a; }
-body.dark .ri-win { background: #20374d; border-color: #315773; border-left-color: #4aa3e8; }
-body.dark .ri-loss { background: #492d30; border-color: #684045; border-left-color: #ef6b5e; }
-body.dark .lp-self { background: linear-gradient(180deg, #33301f, var(--bg-card)) !important; }
-body.dark ::-webkit-scrollbar { width: 8px; height: 8px; }
-body.dark ::-webkit-scrollbar-thumb { background: #333b4c; border-radius: 4px; }
-body.dark ::-webkit-scrollbar-track { background: transparent; }

@@ -171,6 +171,14 @@ let _autoRuneAppliedFor = 0;
 async function doAutoRune(championId) {
   if (!autoRuneEnabled || !lcuConnected || !championId || complianceOn) return;
   if (_autoRuneAppliedFor === championId) return;
+  // 符文记忆: 玩家手动保存过的符文页优先 (按 英雄|模式 记忆), 无记忆再落原轮换逻辑
+  try {
+    if (typeof applyRememberedRune === 'function' && await applyRememberedRune(championId, null)) {
+      _autoRuneAppliedFor = championId;
+      showToast('已恢复记忆符文页: ' + (champNumMap[String(championId)]?.name || championId), 'positive');
+      return;
+    }
+  } catch (e) {}
   try {
     const pages = await lolAPI.lcuRequest('GET', '/lol-perks/v1/pages');
     if (!pages || pages.__error || !Array.isArray(pages)) { showToast('自动符文: 获取符文页失败', 'negative'); return; }

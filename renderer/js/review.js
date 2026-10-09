@@ -1,3 +1,6 @@
+// 图标兜底：Node 测试 require 本文件时 icons.js 不在作用域（同 home.js 的守卫）。
+if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="pi"></svg>'; }
+
 // 赛后复盘 + AI 复盘
 // 由 _debug_archive/split_renderer.py 从 app.js 抽出; 依赖 utils.js 与 app.js 里的全局函数,
 // 因此 index.html 中必须排在 app.js 之前加载。
@@ -193,9 +196,9 @@ function buildTimelineData(frames, pidTeam) {
   const baron200 = objectives.baron.filter(b => b.team === 200).length;
   const drag100 = objectives.dragon.filter(b => b.team === 100).length + objectives.elder.filter(b => b.team === 100).length;
   const drag200 = objectives.dragon.filter(b => b.team === 200).length + objectives.elder.filter(b => b.team === 200).length;
-  chips.push(`<span class="rv-chip">🏰 ${objectives.towers[100]} : ${objectives.towers[200]}</span>`);
-  chips.push(`<span class="rv-chip">🐉 ${drag100} : ${drag200}</span>`);
-  chips.push(`<span class="rv-chip">🦅 ${baron100} : ${baron200}</span>`);
+  chips.push(`<span class="rv-chip">${poroIcon('tower')} ${objectives.towers[100]} : ${objectives.towers[200]}</span>`);
+  chips.push(`<span class="rv-chip">${poroIcon('dragon')} ${drag100} : ${drag200}</span>`);
+  chips.push(`<span class="rv-chip">${poroIcon('eagle')} ${baron100} : ${baron200}</span>`);
   return { diffs, kills, chips, objectives, firstBloodTeam };
 }
 

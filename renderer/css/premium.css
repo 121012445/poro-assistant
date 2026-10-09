@@ -1,575 +1,668 @@
-/* Poro commercial visual system — loaded last so legacy screens share one finish. */
+/* Poro visual system v2 —— 克制的商业级界面。
+   ============================================================================
+   改样式前必读（这套规则是"看着高级"的全部来源）：
+
+   1. **不用渐变做背景或装饰**。原先满屏的 `linear-gradient(165deg, 白, 浅蓝)`
+      卡片底、`radial-gradient` 光晕、顶部渐变装饰线、导航项发光条，都是视觉噪音。
+      渐变只允许出现在"表达数值"的地方（进度条、占比条）。
+   2. **层级靠 1px 边框，不靠阴影**。阴影只给真正浮起的元素（弹窗、下拉）。
+      卡片 hover 只加深边框，**不做 translateY 位移** —— 整页卡片一起跳动最显廉价。
+   3. **字重上限 600**。原设计大量 730/760/780，是"用力过猛"的典型症状；
+      高级排版靠字号与颜色层级，不靠把字加粗。
+   4. **圆角三档**：卡片 12 / 控件 8 / 小元素 6。原先 16~20px 的大圆角显得"胖"。
+   5. **装饰性彩色一律禁止**。彩色只给有语义的值（胜负、涨跌、段位、状态）。
+      位置（`:nth-child`）永远不表达语义 —— 见 test_ui_tokens.js 的门禁。
+   6. **表面中性灰、文字蓝调灰**。原先整屏（底 + 边框 + 文字）一起偏冷蓝才显旧；
+      只把"表面"换成中性灰，文字沿用 #21384f / #4a6076 / #5f7389 的蓝调 ——
+      大片小字带一点蓝更耐看，也不像纯黑那样生硬。
+   ============================================================================ */
+
 :root {
-  --bg-primary: #f3f6fa;
-  --bg-secondary: #eaf0f6;
-  --bg-card: #ffffff;
-  --bg-hover: #edf4fb;
-  --border: #dbe4ed;
+  /* ---- 表面：中性灰阶，无蓝偏色 ---- */
+  --bg-primary: #fafafa;     /* 页面底 */
+  --bg-secondary: #f4f4f5;   /* 次级块底 */
+  --bg-card: #ffffff;        /* 卡片 */
+  --bg-hover: #f4f4f5;
+  --border: #e4e4e7;         /* 默认分隔 */
+  --border-strong: #d4d4d8;  /* 控件描边 */
+  --border-hover: #c0c0c8;
+
+  /* ---- 三级灰阶：保留原有的"蓝调灰"，只把明度拉到达标线上 ----
+     这套色相是从 v1.5.4 沿用下来的（#21384f / #4a6076 / #5f7389），整屏看着更"软"。
+     注意：**背景/表面用中性灰，文字用蓝调灰** —— 两者色相不同是有意的，
+     文字带一点蓝让大片小字不显得"死黑"。
+     对比度（白底 / 页面底 #fafafa）：12.05/11.54 · 6.51/6.24 · 4.88/4.68，全部过 AA。 */
   --text-primary: #21384f;
-  --text-secondary: #5b7289;
-  --text-muted: #8a9bad;
-  --accent: #1677d2;
-  --accent-deep: #0d5ca6;
-  --accent2: #64c7ec;
-  --data-blue: #247db7;
-  --data-teal: #178d86;
-  --data-violet: #6f70b7;
-  --data-gold: #b77a2d;
-  --data-rose: #b85f72;
+  --text-secondary: #4a6076;
+  --text-muted: #5f7389;
+
+  /* ---- 品牌与语义 ---- */
+  --accent: #2563eb;
+  --accent-deep: #1d4ed8;
+  --accent2: #93c5fd;
+  --accent-soft: #eff4ff;    /* 淡底，用于选中态背景 */
+  /* 荣誉性信息的亮蓝：段位名、"我的画像"里的名字、海克斯适配度。
+     比 --accent 更亮一档 —— 段位是"拿到的成就"，配得上比普通按钮更跳的颜色。
+     浅色 4.69:1（卡片白底）/ 深色 8.68:1，都过 AA。 */
+  --accent-bright: #1778c5;
+
+  --positive: #16a34a;
+  --negative: #dc2626;
+  --warning: #d97706;
+
+  /* 数据强调色：只在真正有语义的数值上用（段位、KDA 等） */
+  --data-blue: #2563eb;
+  --data-teal: #0d9488;
+  --data-violet: #7c3aed;
+  --data-gold: #b45309;
+  --data-rose: #be123c;
+
   --heading-ink: #274761;
-  --positive: #18a66a;
-  --negative: #dc5a58;
-  --warning: #d9902f;
-  --radius: 16px;
-  --radius-sm: 10px;
-  --surface-glass: rgba(255, 255, 255, .82);
-  --shadow: 0 18px 42px rgba(28, 55, 82, .10), 0 2px 8px rgba(28, 55, 82, .05);
-  --shadow-soft: 0 8px 24px rgba(28, 55, 82, .075), 0 1px 3px rgba(28, 55, 82, .04);
-  --gradient-gold: linear-gradient(135deg, #238adf 0%, #116bbd 100%);
+
+  /* ---- 圆角三档 ---- */
+  --radius: 12px;      /* 卡片、面板 */
+  --radius-sm: 8px;    /* 按钮、输入框 */
+  --radius-xs: 6px;    /* 徽章、标签 */
+
+  /* ---- 阴影：极轻。只在浮起元素上有存在感 ---- */
+  --shadow: 0 1px 2px rgba(24, 24, 27, .06), 0 4px 14px rgba(24, 24, 27, .08);
+  --shadow-soft: 0 1px 2px rgba(24, 24, 27, .045);
+  --surface-glass: #ffffff;  /* 旧令牌保留兼容；新设计不使用玻璃拟态 */
+  --gradient-gold: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+
+  /* ---- 排版档位：字号只允许取这几档 ---- */
+  --fs-xs: 11px;    /* 角标 / 极次要信息 */
+  --fs-sm: 12px;    /* 卡片标签、列表副文本 */
+  --fs-md: 13px;    /* 次要正文、按钮 */
+  --fs-base: 14px;  /* 正文基准 */
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;   /* 卡片主数值 */
+  --fs-3xl: 30px;
+
+  /* 焦点环：键盘可达性，全站统一一处 */
+  --focus-ring: 0 0 0 3px rgba(37, 99, 235, .28);
 }
 
+/* ============================ 全局 ============================ */
 body {
-  grid-template-columns: 216px minmax(0, 1fr);
+  grid-template-columns: 208px minmax(0, 1fr);
   grid-template-rows: 44px minmax(0, 1fr);
   font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  font-size: 14px;
-  letter-spacing: .01em;
-  background:
-    radial-gradient(900px 520px at 96% -8%, rgba(76, 187, 231, .13), transparent 58%),
-    radial-gradient(760px 440px at 18% 108%, rgba(34, 119, 210, .08), transparent 64%),
-    #f3f6fa;
+  font-size: var(--fs-base);
+  /* 纯色底。原设计叠了两层 radial-gradient 光晕 + 28px 网格纹理，
+     整屏像蒙了层脏玻璃 —— 去掉后内容才是视觉主体。 */
+  background: var(--bg-primary);
 }
+/* 显式干掉网格纹理层，防止旧规则回归 */
+body::before { content: none; }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 44px 0 0 216px;
-  pointer-events: none;
-  opacity: .32;
-  background-image: linear-gradient(rgba(36, 86, 128, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(36, 86, 128, .025) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: linear-gradient(to bottom right, black, transparent 74%);
-}
+/* 装饰条一律移除：这些渐变竖线/顶线不表达任何信息，只是噪音 */
+.page-header h2::before,
+.home-header::before,
+.rank-card::before,
+.stat-card::before,
+.tool-card::before,
+.nav-item.active::before { content: none; }
 
-::selection { background: rgba(22, 119, 210, .20); color: var(--text-primary); }
-::-webkit-scrollbar { width: 7px; height: 7px; }
+::selection { background: rgba(37, 99, 235, .16); color: var(--text-primary); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #c6d3df; border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: #9eb6ca; border: 1px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: #d4d4d8; border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #b0b0b8; border: 2px solid transparent; background-clip: padding-box; }
 
+/* ============================ 顶栏 ============================ */
 .window-bar {
   height: 44px;
-  padding: 0 9px 0 16px;
-  background: rgba(249, 251, 253, .91);
-  border-bottom: 1px solid rgba(187, 205, 220, .62);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .9), 0 7px 22px rgba(29, 58, 84, .045);
-  backdrop-filter: blur(18px) saturate(135%);
+  padding: 0 8px 0 14px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: none;
 }
-.window-title { color: #182b40; font-size: 14px; font-weight: 760; letter-spacing: -.1px; }
-.window-title::before { width: 24px; height: 24px; filter: drop-shadow(0 4px 7px rgba(34, 119, 210, .20)); }
-.window-title::after {
-  content: "GAME INTELLIGENCE";
-  margin-left: 2px;
-  padding: 2px 7px;
-  border: 1px solid rgba(22, 119, 210, .16);
-  border-radius: 999px;
-  background: rgba(22, 119, 210, .06);
-  color: #66829b;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: .12em;
-}
-.window-controls { gap: 2px; padding: 2px; }
-.win-btn { width: 34px; height: 30px; border-radius: 8px; color: #7890a5; }
-.win-btn:hover { background: rgba(22, 119, 210, .09); color: #245a83; }
-.win-close:hover { background: #e65f61; color: white; }
+.window-title { color: var(--text-primary); font-size: var(--fs-md); font-weight: 600; letter-spacing: 0; }
+.window-title::before { width: 22px; height: 22px; filter: none; }
+/* 原 "GAME INTELLIGENCE" 全大写大字距胶囊是 2018 年 SaaS 风，去掉更干净 */
+.window-title::after { content: none; }
 
+.window-controls { gap: 2px; padding: 0; }
+.win-btn { width: 34px; height: 32px; border-radius: var(--radius-xs); color: var(--text-muted); }
+.win-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.win-close:hover { background: var(--negative); color: #fff; }
+
+/* ============================ 侧边栏 ============================ */
 .sidebar {
-  width: 216px;
+  width: 208px;
   height: calc(100vh - 44px);
-  padding: 17px 11px 12px;
-  background: linear-gradient(180deg, rgba(248, 251, 253, .93), rgba(234, 241, 247, .92));
-  border-right: 1px solid rgba(190, 208, 222, .64);
-  box-shadow: 8px 0 32px rgba(37, 70, 98, .035);
-  backdrop-filter: blur(18px) saturate(120%);
+  padding: 12px 10px 10px;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: none;
 }
-.sidebar-nav { gap: 6px; }
+.sidebar-nav { gap: 2px; }
 .nav-item {
   position: relative;
-  min-height: 46px;
+  min-height: 40px;
   margin: 0;
-  padding: 0 14px;
-  gap: 12px;
+  padding: 0 12px;
+  gap: 11px;
   border: 1px solid transparent;
-  border-radius: 12px;
-  color: #61778d;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: .01em;
-  transition: background .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background .14s ease, color .14s ease;
 }
-.nav-item svg { width: 19px; height: 19px; stroke-width: 1.8; }
-.nav-item:hover { transform: translateX(2px); color: #234765; background: rgba(255, 255, 255, .63); border-color: rgba(194, 211, 224, .55); }
+.nav-item svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.nav-item:hover { transform: none; color: var(--text-primary); background: var(--bg-hover); border-color: transparent; }
 .nav-item.active {
-  padding-left: 14px;
-  color: #075fae;
-  background: linear-gradient(135deg, rgba(255, 255, 255, .98), rgba(224, 241, 253, .92));
-  border: 1px solid rgba(90, 169, 220, .30);
-  box-shadow: 0 10px 24px rgba(31, 112, 173, .11), inset 0 1px 0 rgba(255, 255, 255, .92);
+  padding-left: 12px;
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  box-shadow: none;
 }
-.nav-item.active::before { content: ""; position: absolute; left: -4px; top: 12px; bottom: 12px; width: 3px; border-radius: 999px; background: linear-gradient(#4dc6ef, #1677d2); box-shadow: 0 0 11px rgba(22, 119, 210, .42); }
-.nav-item.active svg { filter: drop-shadow(0 3px 5px rgba(22, 119, 210, .22)); }
-.sidebar-footer { margin-top: 10px; padding: 14px 7px 0; border-top: 1px solid rgba(190, 208, 222, .55); }
-.lcu-status { padding: 7px 8px; border-radius: 9px; background: rgba(255, 255, 255, .58); border: 1px solid rgba(194, 211, 224, .52); }
-.status-dot.on { box-shadow: 0 0 0 3px rgba(24, 166, 106, .12), 0 0 10px rgba(24, 166, 106, .38); }
-.sidebar-extras { margin-top: 7px; }
-.theme-toggle { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,.58); border: 1px solid rgba(194,211,224,.52); }
+.nav-item.active svg { filter: none; }
 
+.sidebar-footer { margin-top: 10px; padding: 12px 4px 0; border-top: 1px solid var(--border); }
+.lcu-status {
+  padding: 7px 9px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.status-dot.on { box-shadow: none; }
+.sidebar-extras { margin-top: 7px; }
+.theme-toggle {
+  display: grid; place-items: center;
+  width: 30px; height: 30px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.theme-toggle:hover { background: var(--bg-hover); }
+.sidebar-footer .version { color: var(--text-muted); font-size: var(--fs-xs); }
+
+/* ============================ 主内容 ============================ */
 .main-content {
   height: calc(100vh - 44px);
-  padding: 26px 30px 34px;
+  padding: 24px 28px 32px;
   /* 首页档案会异步整页替换。平滑滚动与 Chromium 滚动锚定叠加时会把新玩家
      自动带到旧页面相同高度（通常是模式统计区域）。程序性定位必须即时且确定。 */
   scroll-behavior: auto;
   overflow-anchor: none;
 }
-.page { position: relative; animation: premiumEnter .28s cubic-bezier(.2,.7,.2,1); }
-@keyframes premiumEnter { from { opacity: 0; transform: translateY(6px) scale(.998); } to { opacity: 1; transform: none; } }
-.page-header { gap: 18px; margin-bottom: 21px; }
-.page-header h2 { position: relative; padding-left: 14px; color: var(--heading-ink); font-size: 22px; font-weight: 760; letter-spacing: -.03em; }
-.page-header h2::before { content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 4px; border-radius: 999px; background: linear-gradient(#62c8ed, #1677d2); box-shadow: 0 2px 8px rgba(22,119,210,.24); }
+.page { position: relative; animation: premiumEnter .22s cubic-bezier(.2, .7, .2, 1); }
+@keyframes premiumEnter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-/* Unified transparent Poro action buttons. Window controls and in-game overlay cards keep
-   their purpose-built interaction model. */
+.page-header { gap: 16px; margin-bottom: 20px; }
+.page-header h2 {
+  padding-left: 0;
+  color: var(--heading-ink);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.page-header p, .page-desc, .hex-page-desc { color: var(--text-muted); font-size: var(--fs-sm); }
+
+/* ============================ 按钮 ============================ */
+/* 两级层次：主操作实心强调色（一屏最多一个），其余一律中性描边。
+   原先所有按钮都是"透明底 + 蓝描边"，看起来又空又软，没有主次。 */
 button:not(.win-btn):not(.item),
-.btn-primary,
 .btn-secondary,
-.back-to-me,
-.role-btn,
-.bl-item-remove {
+.role-btn {
   appearance: none;
-  min-height: 42px;
-  padding: 0 20px;
-  border-radius: 12px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 720;
+  font-size: var(--fs-md);
+  font-weight: 500;
   line-height: 1.15;
-  letter-spacing: .01em;
-  color: #126db5;
-  background: transparent;
-  border: 1px solid rgba(39,139,211,.58);
-  box-shadow: 0 4px 12px rgba(31,82,120,.06);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  box-shadow: none;
   cursor: pointer;
   user-select: none;
-  transition: transform .16s ease, color .16s ease, background .16s ease,
-    border-color .16s ease, box-shadow .16s ease, filter .16s ease;
+  transition: background .14s ease, border-color .14s ease, color .14s ease, box-shadow .14s ease;
 }
+button:not(.win-btn):not(.item):hover,
+.btn-secondary:hover,
+.role-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  transform: none;
+  filter: none;
+}
+button:not(.win-btn):not(.item):active,
+.btn-secondary:active,
+.role-btn:active { background: #ebebee; transform: none; }
+
 .btn-primary, .home-search button, .back-to-me {
-  color: #126db5;
-  background: transparent;
-  border: 1px solid rgba(22,119,210,.68);
-  box-shadow: 0 5px 14px rgba(20,104,175,.08);
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, .22);
 }
 .btn-primary:hover, .home-search button:hover, .back-to-me:hover {
-  color: #075b9f;
-  background: transparent;
-  border-color: rgba(8,92,160,.90);
-  transform: translateY(-1px);
+  color: #fff;
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  transform: none;
   filter: none;
-  box-shadow: 0 8px 18px rgba(20,104,175,.15), 0 0 0 2px rgba(45,152,231,.07);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, .26);
 }
 .btn-primary:active, .home-search button:active, .back-to-me:active {
-  background: transparent;
-  transform: translateY(0) scale(.985);
-  box-shadow: 0 2px 6px rgba(20,104,175,.12), inset 0 0 0 1px rgba(22,119,210,.16);
+  background: #1a44c2;
+  box-shadow: none;
+  transform: none;
 }
-.btn-secondary, .role-btn {
-  color: #126db5;
-  background: transparent;
-  border: 1px solid rgba(39,139,211,.54);
-  box-shadow: 0 4px 12px rgba(31,82,120,.06);
-}
-.btn-secondary:hover, .role-btn:hover {
-  color: #0b5c9f;
-  background: transparent;
-  border-color: rgba(18,112,187,.72);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 17px rgba(31,100,153,.13), 0 0 0 2px rgba(45,152,231,.06);
-}
-.btn-secondary:active, .role-btn:active {
-  transform: translateY(0) scale(.985);
-  background: transparent;
-  box-shadow: 0 2px 6px rgba(31,100,153,.10);
-}
-.role-btn { min-height: 36px; padding: 0 15px; border-radius: 10px; }
-.role-btn.active {
-  color: #075b9f;
-  background: transparent;
-  border-color: rgba(8,92,160,.90);
-  box-shadow: 0 0 0 2px rgba(45,152,231,.10), 0 6px 14px rgba(20,104,175,.10);
-}
+
+.role-btn { min-height: 32px; padding: 0 13px; }
+.role-btn.active,
 .btn-secondary.is-selected {
-  color: #075b9f;
-  background: transparent;
-  border-color: rgba(8,92,160,.90);
-  box-shadow: 0 0 0 2px rgba(45,152,231,.10), 0 6px 14px rgba(20,104,175,.10);
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: none;
 }
-.back-to-me { min-height: 34px; padding: 0 14px; border-radius: 10px; }
-.bl-item-remove {
-  min-height: 34px;
-  padding: 0 14px;
-  color: #c44749;
-  background: transparent;
-  border: 1px solid rgba(196,71,73,.62);
-  box-shadow: 0 5px 12px rgba(185,59,62,.08);
-}
-.bl-item-remove:hover { color:#a92f33; background:transparent; border-color:rgba(169,47,51,.88); transform:translateY(-1px); filter:none; box-shadow:0 8px 17px rgba(185,59,62,.14); }
+.back-to-me { min-height: 32px; padding: 0 13px; }
+
+.bl-item-remove { color: var(--negative); border-color: #f2c9c9; background: var(--bg-card); }
+.bl-item-remove:hover { color: #b91c1c; background: #fef2f2; border-color: #f0a0a0; transform: none; }
+
 button:not(.win-btn):not(.item):focus-visible,
 .btn-primary:focus-visible, .btn-secondary:focus-visible, .back-to-me:focus-visible,
 .role-btn:focus-visible, .bl-item-remove:focus-visible {
-  outline: 3px solid rgba(55,164,237,.25);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 button:not(.win-btn):not(.item):disabled,
 .btn-primary:disabled, .btn-secondary:disabled, .back-to-me:disabled,
 .role-btn:disabled, .bl-item-remove:disabled {
   cursor: not-allowed;
-  opacity: .52;
+  opacity: .45;
   transform: none;
-  filter: grayscale(.18);
+  filter: none;
   box-shadow: none;
 }
 
+/* ============================ 表单 ============================ */
 input, select, textarea, .search-box, .search-input, .tool-input, .tool-select, .home-search input {
-  border-color: #d6e1eb;
-  border-radius: 10px;
-  background: rgba(255,255,255,.88);
-  box-shadow: inset 0 1px 2px rgba(29,58,84,.025), 0 2px 9px rgba(29,58,84,.025);
-  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: none;
+  transition: border-color .14s ease, box-shadow .14s ease;
 }
-input:focus, select:focus, textarea:focus, .search-box:focus-within, .search-input:focus, .tool-input:focus, .tool-select:focus, .home-search input:focus {
-  background: #fff;
-  border-color: rgba(22,119,210,.58);
-  box-shadow: 0 0 0 3px rgba(22,119,210,.10), 0 6px 18px rgba(29,86,130,.07);
+input::placeholder, textarea::placeholder, .tool-input::placeholder, .home-search input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
 }
-.home-search { margin-bottom: 18px; }
-.home-search input { min-height: 50px; padding: 0 17px; font-size: 14px; }
-.home-search button { min-width: 104px; min-height: 50px; font-size: 14px; }
+input:focus, select:focus, textarea:focus, .search-box:focus-within,
+.search-input:focus, .tool-input:focus, .tool-select:focus, .home-search input:focus {
+  outline: none;
+  background: var(--bg-card);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.home-search { margin-bottom: 16px; }
+.home-search input { min-height: 46px; padding: 0 16px; font-size: var(--fs-base); }
+.home-search button { min-width: 96px; min-height: 46px; font-size: var(--fs-base); }
 
+/* ============================ 卡片基类 ============================ */
+/* 纯色底 + 1px 边框 + 几乎看不见的阴影。层级来自边框，不来自发光。 */
 .home-header, .rank-card, .stat-card, .home-champs, .home-friends, .home-mode-stats,
 .tool-card, .counter-simple-layout, .counter-result, .client-pick-banner, .rk-summary-bar,
 .hex-context, .hex-guide-card, .hex-stats-bar, .lv-team, .lp-team, .ak-team, .og-summary {
-  background: var(--surface-glass);
-  border: 1px solid rgba(190, 207, 221, .72);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(12px) saturate(112%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: none;
 }
+
+/* ---- 首页档案头 ---- */
 .home-header {
-  min-height: 132px;
-  padding: 24px 26px;
-  border-radius: 18px;
-  background:
-    radial-gradient(400px 180px at 98% 0, rgba(78, 194, 235, .16), transparent 65%),
-    linear-gradient(135deg, rgba(255,255,255,.97), rgba(242,248,252,.91));
-  box-shadow: var(--shadow);
+  min-height: 120px;
+  padding: 22px 24px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: none;
 }
-.home-header::before { content: ""; position: absolute; left: 0; top: 23px; bottom: 23px; width: 3px; border-radius: 0 4px 4px 0; background: linear-gradient(#5bc8ef,#1677d2); }
-.home-avatar img { width: 88px; height: 88px; border: 2px solid #fff; box-shadow: 0 0 0 4px rgba(22,119,210,.15), 0 12px 26px rgba(27,75,111,.17); }
-.home-name { color: var(--heading-ink); font-size: 24px; font-weight: 760; letter-spacing: -.025em; }
-.home-server { margin-top: 4px; color: #71869a; }
-.mmr-chip { padding: 4px 10px; color: #3c5c77; background: rgba(237,246,252,.88); border-color: rgba(103,164,207,.24); border-radius: 8px; }
-.home-winrate-val { color: #12975e; font-size: 40px; font-weight: 780; letter-spacing: -.04em; }
+.home-avatar img {
+  width: 82px; height: 82px;
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.home-name { color: var(--heading-ink); font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.015em; }
+.home-server { margin-top: 4px; color: var(--text-secondary); font-size: var(--fs-sm); }
+.mmr-chip {
+  padding: 3px 9px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-xs);
+}
+.home-winrate-val { color: var(--positive); font-size: 34px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.home-winrate-label { color: var(--text-muted); font-size: var(--fs-sm); }
 
-.home-ranks { gap: 14px; }
-.rank-card { min-height: 132px; padding: 20px; border-radius: 16px; background: linear-gradient(155deg, rgba(255,255,255,.97), rgba(241,247,251,.86)); }
-.rank-card::before { left: 22%; right: 22%; height: 2px; background: linear-gradient(90deg, transparent, #45bde8, #1b7bc8, transparent); }
-.rank-card-label { color: #8294a6; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-.rank-card-tier { color: #1778c5; font-size: 22px; font-weight: 760; }
-.home-stats { gap: 12px; }
-.stat-card { min-height: 118px; padding: 21px 12px; border-radius: 15px; background: linear-gradient(165deg, rgba(255,255,255,.95), rgba(244,248,251,.88)); }
-.stat-card::before { height: 2px; opacity: .55; background: linear-gradient(90deg, transparent, #4fc4ed, #1677d2, transparent); }
-.stat-card-val { color: var(--data-blue); font-size: 22px; font-weight: 730; letter-spacing: -.025em; }
-.stat-card-label { color: #8597a9; }
-.stat-card:hover, .rank-card:hover { transform: translateY(-2px); border-color: rgba(70,155,214,.34); box-shadow: 0 14px 30px rgba(31,73,105,.11); }
+/* ---- 段位卡 ---- */
+.home-ranks { gap: 12px; }
+.rank-card { min-height: 120px; padding: 18px 20px; border-radius: var(--radius); background: var(--bg-card); }
+.rank-card-label {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+.rank-card-tier { color: var(--accent-bright); font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.015em; }
+.rank-card-record { color: var(--text-secondary); font-size: var(--fs-sm); }
 
-/* Data should feel informative, not like a wall of black text. Keep labels calm and
-   give high-value numbers a restrained semantic palette shared by every screen. */
+/* ---- 统计卡 ---- */
+.home-stats { gap: 10px; }
+.stat-card {
+  min-height: 104px;
+  padding: 18px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+/* 数值：6 色轮换 —— **原装设计，用户明确要求恢复**。
+   原注释写得很直白："Data should feel informative, not like a wall of black text"
+   （数据要有信息感，不要黑压压一片）。v1.5.4/v1.5.5 曾以"位置不表达语义"为由
+   收敛成单色，用户反馈"这一块还是没变"（即仍是一片黑）→ 恢复原装。
+   重新评估：这 6 张卡是并列的不同指标，相邻不同色确实划出了卡片边界、
+   降低了扫读成本，属有意的视觉分组而非纯装饰。以用户偏好为准。
+   逃生口：ui-tokens-ok(.stat-card): 用户明确要求保留原装统计卡六色轮换 */
+.stat-card-val {
+  color: var(--data-blue);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+}
 .home-stats .stat-card:nth-child(6n + 1) .stat-card-val { color: var(--data-teal); }
 .home-stats .stat-card:nth-child(6n + 2) .stat-card-val { color: var(--data-blue); }
 .home-stats .stat-card:nth-child(6n + 3) .stat-card-val { color: var(--data-violet); }
 .home-stats .stat-card:nth-child(6n + 4) .stat-card-val { color: var(--data-gold); }
 .home-stats .stat-card:nth-child(6n + 5) .stat-card-val { color: var(--data-rose); }
 .home-stats .stat-card:nth-child(6n + 6) .stat-card-val { color: #2b8ca1; }
+.stat-card-label { color: var(--text-muted); font-size: var(--fs-sm); }
+
+/* hover 只加深边框，不位移、不加阴影 —— 整页卡片一起跳最显廉价 */
+.stat-card:hover, .rank-card:hover { transform: none; border-color: var(--border-hover); box-shadow: none; }
+
 .pp-stat .v, .match-summary .ms-val, .champ-stat .value, .og-stat-val,
-.ako-big, .rk-kda-text, .lp-kda, .ri-kda, .gd-kda, .pr-val {
-  color: var(--data-blue);
-}
+.ako-big, .rk-kda-text, .lp-kda, .ri-kda, .gd-kda, .pr-val { color: var(--data-blue); }
 .counter-result h3, .og-sum-name, .mmr-name, .home-champs h4,
-.home-friends h4, .home-mode-stats h4, .tool-card h3 {
-  color: var(--heading-ink);
-}
+.home-friends h4, .home-mode-stats h4, .tool-card h3 { color: var(--heading-ink); }
 .rank-card-record, .pp-stat .k, .match-summary .ms-label,
-.og-stat-label, .ako-label, .rk-kda-ratio {
-  color: var(--text-secondary);
-}
+.og-stat-label, .ako-label, .rk-kda-ratio { color: var(--text-secondary); }
 
-.home-bottom { gap: 16px; }
-.home-champs, .home-friends, .home-mode-stats { padding: 19px; border-radius: 16px; }
-.home-champs h4, .home-friends h4, .home-mode-stats h4 { color: var(--heading-ink); font-size: 15px; }
+/* ---- 首页下半区 ---- */
+.home-bottom { gap: 12px; }
+.home-champs, .home-friends, .home-mode-stats { padding: 18px; border-radius: var(--radius); border-color: var(--border); }
+.home-champs h4, .home-friends h4, .home-mode-stats h4 { color: var(--heading-ink); font-size: var(--fs-md); font-weight: 600; }
 .home-champ-row, .friend-row, .pp-champ, .pp-friend {
-  background: rgba(242,247,251,.88);
-  border: 1px solid rgba(202,215,226,.65);
-  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
 }
-.home-champ-row:hover, .friend-row:hover, .pp-champ:hover { background: white; border-color: rgba(22,119,210,.30); box-shadow: 0 5px 12px rgba(31,78,113,.07); }
+.home-champ-row:hover, .friend-row:hover, .pp-champ:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
 
-.tool-card { position: relative; overflow: hidden; min-height: 154px; padding: 20px; border-radius: 16px; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
-.tool-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; opacity: .0; background: linear-gradient(#58c5ec,#1677d2); transition: opacity .18s ease; }
-.tool-card:hover { transform: translateY(-2px); border-color: rgba(65,150,210,.30); box-shadow: 0 15px 30px rgba(31,73,105,.10); }
-.tool-card:hover::before { opacity: 1; }
-.tool-card h3 { color: var(--heading-ink); font-size: 15px; font-weight: 720; }
-.tool-card p { color: #7a8da0; }
-.switch { width: 48px; height: 26px; }
-.switch .slider { background: #ccd8e2; box-shadow: inset 0 1px 3px rgba(31,61,86,.14); }
-.switch .slider::before { width: 20px; height: 20px; box-shadow: 0 2px 5px rgba(31,61,86,.22); }
-.switch input:checked + .slider { background: linear-gradient(135deg, #28ba79, #139861); }
+/* ---- 工具卡 ---- */
+.tool-card {
+  position: relative;
+  min-height: 148px;
+  padding: 18px;
+  border-radius: var(--radius);
+  transition: border-color .14s ease;
+}
+.tool-card:hover { transform: none; border-color: var(--border-hover); box-shadow: none; }
+.tool-card::before { content: none; }
+.tool-card h3 { color: var(--heading-ink); font-size: var(--fs-md); font-weight: 600; }
+.tool-card p { color: var(--text-muted); font-size: var(--fs-sm); }
 
-.mode-table, .champ-table, .hex-list { overflow: hidden; border-radius: 12px; }
-.mode-table th, .champ-table-header { color: #74889b; background: linear-gradient(180deg, #f1f5f9, #eaf1f6); border-bottom-color: #d2dee8; font-weight: 650; letter-spacing: .025em; }
-.mode-table td, .champ-row { border-bottom-color: rgba(205,218,228,.72); }
-.mode-table tr:hover, .champ-row:hover { background: rgba(231,243,251,.65); }
-.champ-table-wrap { border: 1px solid rgba(190,207,221,.7); border-radius: 15px; background: rgba(255,255,255,.72); box-shadow: var(--shadow-soft); }
-.champ-table-header { border-radius: 14px 14px 0 0; }
+/* ---- 开关：开启态用品牌色，不用荧光绿（绿只在语义位置出现） ---- */
+.switch { width: 42px; height: 24px; }
+.switch .slider { background: #cfcfd6; box-shadow: none; border-radius: 999px; }
+.switch .slider::before { width: 18px; height: 18px; box-shadow: 0 1px 2px rgba(24, 24, 27, .2); }
+.switch input:checked + .slider { background: var(--accent); }
 
+/* ============================ 图标 ============================ */
+/* icons.js 产出的单色线描图标。尺寸跟随容器 font-size（1em），
+   颜色继承 currentColor —— 深浅主题/激活态/语义色全部自动跟随。 */
+.pi { width: 1em; height: 1em; display: block; flex-shrink: 0; }
+.theme-toggle .pi { width: 16px; height: 16px; }
+.hex-context-mark .pi { width: 22px; height: 22px; }
+/* .home-profile-entry 是个 <a>，浏览器默认链接色是蓝的 —— 显式压掉，
+   否则里面的单色图标会继承成链接蓝。 */
+.home-profile-entry { color: var(--text-primary); }
+.home-profile-entry .hpe-icon { color: var(--text-secondary); }
+.home-profile-entry .hpe-icon .pi { width: 18px; height: 18px; }
+
+/* ============================ 表格 ============================ */
+/* 位置图标改由 icons.js 提供：CSS `content` 塞不进 SVG，也不吃主题色，
+   原先 `content:"⚔ "` 在这列里是 5 个彩色 emoji。 */
+.pos-top::before, .pos-jungle::before, .pos-mid::before, .pos-adc::before, .pos-sup::before { content: none; }
+.champ-pos { display: inline-flex; align-items: center; gap: 5px; }
+.champ-pos .pi { width: 12px; height: 12px; }
+
+.mode-table, .champ-table, .hex-list { overflow: hidden; border-radius: var(--radius-sm); }
+.mode-table th, .champ-table-header {
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  letter-spacing: 0;
+}
+.mode-table td, .champ-row { border-bottom-color: var(--border); }
+.mode-table tr:hover, .champ-row:hover { background: var(--bg-hover); }
+.champ-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: none;
+}
+.champ-table-header { border-radius: 0; }
+
+/* ============================ 战绩卡片 ============================ */
 .ako-card, .rk-game {
-  border-radius: 11px;
-  border-color: rgba(193,208,220,.72);
-  box-shadow: 0 3px 12px rgba(31,69,99,.045);
-  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  transition: border-color .14s ease, background .14s ease;
 }
-.ako-card:hover, .rk-game:hover { transform: translateY(-1px); border-color: rgba(22,119,210,.30); box-shadow: 0 9px 20px rgba(31,69,99,.09); }
-.ako-card.ako-win, .rk-game.rk-win { border-left-color: #248bd3; }
-.ako-card.ako-loss, .rk-game.rk-lose { border-left-color: #df6864; }
-.ako-champ, .rk-champ { border-radius: 10px; }
-.ako-expand { background: rgba(238,244,249,.65); }
+.ako-card:hover, .rk-game:hover { transform: none; border-color: var(--border-hover); box-shadow: none; }
+.ako-card.ako-win, .rk-game.rk-win { border-left: 2px solid var(--data-blue); }
+.ako-card.ako-loss, .rk-game.rk-lose { border-left: 2px solid var(--negative); }
+.ako-champ, .rk-champ { border-radius: var(--radius-xs); }
+.ako-expand { background: var(--bg-secondary); }
 
+/* ============================ 对局页 ============================ */
 .lp-wrap { gap: 10px; }
-.lp-team { padding: 8px; border-radius: 16px; background: rgba(255,255,255,.68); }
-.lp-team-head { min-height: 38px; padding: 7px 12px; border-radius: 10px; }
-.lp-blue .lp-team-head { color: #1267aa; background: linear-gradient(105deg, #dff3fd, rgba(244,250,253,.94)); }
-.lp-red .lp-team-head { color: #b64f52; background: linear-gradient(105deg, #fde8e8, rgba(255,249,249,.94)); }
-.lp-team-grid { gap: 7px; padding-top: 7px; }
-.lp-row { padding: 9px; border-radius: 11px; box-shadow: 0 6px 15px rgba(31,69,99,.065); }
-.lp-row:hover { border-color: rgba(22,119,210,.34); box-shadow: 0 10px 20px rgba(31,69,99,.10); }
-.lp-champ { width: 40px; height: 40px; }
-.lp-overview { padding: 5px 7px; background: #f1f6fa; border-color: #deebf3; }
-.lp-self { background: linear-gradient(180deg, #fffdf2, rgba(255,255,255,.96)) !important; box-shadow: 0 0 0 2px rgba(227,177,48,.14), 0 8px 18px rgba(31,69,99,.07); }
+.lp-team { padding: 8px; border-radius: var(--radius); background: var(--bg-card); }
+.lp-team-head { min-height: 36px; padding: 7px 12px; border-radius: var(--radius-xs); font-weight: 500; }
+.lp-blue .lp-team-head { color: var(--data-blue); background: var(--accent-soft); }
+.lp-red .lp-team-head { color: var(--negative); background: #fef2f2; }
+.lp-team-grid { gap: 6px; padding-top: 6px; }
+.lp-row { padding: 9px; border-radius: var(--radius-sm); box-shadow: none; border: 1px solid var(--border); }
+.lp-row:hover { border-color: var(--border-hover); box-shadow: none; }
+.lp-champ { width: 38px; height: 38px; }
+.lp-overview { padding: 5px 7px; background: var(--bg-secondary); border-color: var(--border); }
+.lp-self { background: #fffbeb !important; border-color: #f5d78a !important; box-shadow: none !important; }
 
-.hex-context { border-radius: 15px; }
-.hex-stats-bar { border-radius: 10px; background: rgba(235,244,250,.82); }
-.hex-guide-card { border-radius: 13px; transition: transform .16s ease, box-shadow .16s ease; }
-.hex-guide-card:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(31,73,105,.09); }
-.hex-row { min-height: 58px; padding: 9px 12px; border-bottom-color: rgba(204,217,227,.65); }
-.hex-row:hover { background: rgba(232,243,251,.67); }
-.hex-icon { border-radius: 9px; box-shadow: 0 3px 8px rgba(30,67,96,.12); }
+/* ============================ 强化资料页 ============================ */
+.hex-context { border-radius: var(--radius); }
+.hex-stats-bar { border-radius: var(--radius-sm); background: var(--bg-secondary); }
+.hex-guide-card { border-radius: var(--radius); transition: border-color .14s ease; }
+.hex-guide-card:hover { transform: none; border-color: var(--border-hover); box-shadow: none; }
+.hex-row { min-height: 56px; padding: 9px 12px; border-bottom-color: var(--border); }
+.hex-row:hover { background: var(--bg-hover); }
+.hex-icon { border-radius: var(--radius-xs); box-shadow: none; }
 
-.modal-overlay { background: rgba(10, 27, 43, .32); backdrop-filter: blur(7px) saturate(85%); }
-.modal-content { border: 1px solid rgba(211,224,233,.86); border-radius: 20px; box-shadow: 0 28px 74px rgba(8,31,50,.26); }
-.modal-close { top: 15px; right: 17px; display:grid; place-items:center; width:30px; height:30px; border-radius:9px; background:#f0f4f7; color:#7890a4; font-size:0; }
-.modal-close::before { content: "×"; font-size: 21px; line-height: 1; }
-.modal-close:hover { color:#b33c42; background:#fdeced; }
-.modal-body { padding: 28px; }
-
-.global-toast { border-radius: 12px; box-shadow: 0 18px 44px rgba(14,44,68,.20); backdrop-filter: blur(14px); }
-.client-pick-banner { border-style: solid; border-radius: 12px; }
-.counter-simple-layout { padding: 22px; border-radius: 16px; }
-
-body.dark {
-  --bg-primary: #0f1722;
-  --bg-secondary: #151f2b;
-  --bg-card: #192534;
-  --bg-hover: #213248;
-  --border: #293b4e;
-  --text-primary: #eaf2f8;
-  --text-secondary: #b4c5d4;
-  --text-muted: #8da2b5;
-  --accent: #48aaf0;
-  --accent-deep: #79c4f5;
-  --accent2: #43c7e8;
-  --data-blue: #72c4f2;
-  --data-teal: #66d2c4;
-  --data-violet: #b3aff4;
-  --data-gold: #e5bc72;
-  --data-rose: #f09aae;
-  --heading-ink: #dcecf7;
-  --positive: #38d28c;
-  --negative: #ff7773;
-  --surface-glass: rgba(24, 37, 52, .88);
-  --shadow: 0 18px 46px rgba(0,0,0,.34), 0 2px 8px rgba(0,0,0,.20);
-  --shadow-soft: 0 8px 25px rgba(0,0,0,.23);
-  background: radial-gradient(900px 500px at 96% -8%, rgba(40,130,190,.17), transparent 58%), #0f1722;
+/* ============================ 弹窗 / 提示 ============================ */
+.modal-overlay { background: rgba(24, 24, 27, .40); backdrop-filter: blur(2px); }
+.modal-content {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(24, 24, 27, .16);
+  background: var(--bg-card);
 }
-body.dark::before { opacity: .2; }
-body.dark .window-bar { background: rgba(17,27,39,.93); border-bottom-color: rgba(57,79,99,.66); }
-body.dark .window-title, body.dark .page-header h2, body.dark .home-name { color: #edf5fa; }
-body.dark .window-title::after { color:#7ea4c0; border-color:rgba(72,170,240,.20); background:rgba(72,170,240,.07); }
-body.dark .sidebar { background: linear-gradient(180deg, rgba(21,32,45,.96), rgba(15,24,34,.96)); border-right-color:rgba(56,76,94,.68); }
-body.dark .nav-item { color:#91a7bb; }
-body.dark .nav-item:hover { color:#d9e8f2; background:rgba(39,57,74,.64); border-color:rgba(73,96,117,.48); }
-body.dark .nav-item.active { color:#89cff9; background:linear-gradient(135deg,rgba(37,65,88,.96),rgba(25,49,68,.96)); border-color:rgba(72,170,240,.25); box-shadow:0 10px 26px rgba(0,0,0,.22); }
-body.dark .lcu-status, body.dark .theme-toggle { background:rgba(31,47,62,.7); border-color:rgba(69,91,110,.48); }
-body.dark input, body.dark select, body.dark textarea, body.dark .search-box, body.dark .tool-input, body.dark .tool-select, body.dark .home-search input { background:rgba(16,26,38,.86); border-color:#304456; color:#e7f0f6; }
-body.dark input:focus, body.dark select:focus, body.dark textarea:focus { background:#111c29; border-color:rgba(72,170,240,.58); }
-body.dark button:not(.win-btn):not(.item), body.dark .btn-primary, body.dark .btn-secondary,
-body.dark .back-to-me, body.dark .role-btn {
-  color:#8fd2fa;
-  background:transparent;
-  border-color:rgba(89,181,242,.52);
-  box-shadow:0 4px 12px rgba(0,0,0,.12);
+.modal-close {
+  top: 14px; right: 14px;
+  display: grid; place-items: center;
+  width: 30px; height: 30px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 0;
 }
-body.dark .btn-primary:hover, body.dark .home-search button:hover, body.dark .back-to-me:hover,
+.modal-close::before { content: "×"; font-size: 20px; line-height: 1; }
+.modal-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+.modal-body { padding: 26px; }
+
+.global-toast {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 24px rgba(24, 24, 27, .16);
+  backdrop-filter: none;
+  border: 1px solid var(--border);
+}
+.client-pick-banner { border-style: solid; border-radius: var(--radius-sm); }
+.counter-simple-layout { padding: 20px; border-radius: var(--radius); }
+
+/* ============================ 深色微调 ============================ */
+/* 变量见 dark.css（唯一定义处）；这里只补组件级的显式覆盖。 */
+body.dark .window-bar { background: var(--bg-card); border-bottom-color: var(--border); }
+body.dark .sidebar { background: var(--bg-card); border-right-color: var(--border); }
+body.dark .nav-item:hover { background: var(--bg-hover); }
+body.dark .nav-item.active { color: var(--accent-deep); background: rgba(77, 142, 247, .14); }
+body.dark .theme-toggle { background: var(--bg-secondary); border-color: var(--border); }
+body.dark .lcu-status { background: var(--bg-secondary); border-color: var(--border); }
+
+body.dark input, body.dark select, body.dark textarea, body.dark .search-box,
+body.dark .tool-input, body.dark .tool-select, body.dark .home-search input {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+body.dark input:focus, body.dark select:focus, body.dark textarea:focus {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+}
+
+body.dark button:not(.win-btn):not(.item),
+body.dark .btn-secondary, body.dark .role-btn {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+body.dark button:not(.win-btn):not(.item):hover,
 body.dark .btn-secondary:hover, body.dark .role-btn:hover {
-  color:#c4e9ff;
-  background:transparent;
-  border-color:rgba(110,198,251,.82);
-  box-shadow:0 8px 17px rgba(0,0,0,.18),0 0 0 2px rgba(89,181,242,.08);
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+body.dark .btn-primary, body.dark .home-search button, body.dark .back-to-me {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+body.dark .btn-primary:hover, body.dark .home-search button:hover, body.dark .back-to-me:hover {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  color: #fff;
 }
 body.dark .role-btn.active, body.dark .btn-secondary.is-selected {
-  color:#c4e9ff;
-  background:transparent;
-  border-color:rgba(110,198,251,.88);
-  box-shadow:0 0 0 2px rgba(89,181,242,.13),0 6px 14px rgba(0,0,0,.16);
+  color: var(--accent-deep);
+  background: rgba(77, 142, 247, .14);
+  border-color: var(--accent);
 }
-body.dark .bl-item-remove { color:#ff9c99; background:transparent; border-color:rgba(255,119,115,.62); }
-body.dark .bl-item-remove:hover { color:#ffc0bd; background:transparent; border-color:rgba(255,145,141,.86); }
-body.dark .home-header { background:radial-gradient(400px 180px at 98% 0,rgba(65,184,226,.12),transparent 65%),linear-gradient(135deg,rgba(27,41,56,.98),rgba(19,31,44,.94)); }
-body.dark .rank-card, body.dark .stat-card { background:linear-gradient(155deg,rgba(28,42,57,.98),rgba(21,33,46,.92)); }
-body.dark .mmr-chip { color:#a9c6d9; background:rgba(26,48,66,.88); border-color:rgba(72,170,240,.17); }
-body.dark .home-champ-row, body.dark .friend-row, body.dark .pp-champ, body.dark .pp-friend { background:rgba(20,32,44,.82); border-color:rgba(60,81,99,.58); }
-body.dark .lp-team, body.dark .hex-stats-bar { background:rgba(21,34,47,.82); }
-body.dark .lp-overview { background:#172738; border-color:#284054; }
-body.dark .lp-self { background:linear-gradient(180deg,#312f22,#192534) !important; }
-body.dark .modal-overlay { background:rgba(0,8,15,.58); }
-body.dark .modal-content { border-color:#31475a; }
-body.dark .modal-close { background:#223344; color:#93aabc; }
+body.dark .bl-item-remove { color: #f87171; border-color: rgba(248, 113, 113, .42); background: var(--bg-secondary); }
+body.dark .bl-item-remove:hover { color: #fca5a5; background: rgba(248, 113, 113, .12); border-color: rgba(248, 113, 113, .6); }
 
-/* Dark-mode contrast audit: premium.css is loaded last, so every light-only
-   foreground that it introduces needs an explicit dark counterpart here. */
-body.dark .stat-card-val,
-body.dark .home-champs h4,
-body.dark .home-friends h4,
-body.dark .home-mode-stats h4,
-body.dark .tool-card h3,
-body.dark .hex-guide-card h4,
-body.dark .champ-name,
-body.dark .ako-big,
-body.dark .rk-kda-text {
-  color: var(--text-primary);
+body.dark .home-champ-row, body.dark .friend-row, body.dark .pp-champ, body.dark .pp-friend {
+  background: var(--bg-secondary);
+  border-color: transparent;
 }
-body.dark .home-server,
-body.dark .home-winrate-label,
-body.dark .rank-card-label,
-body.dark .rank-card-record,
-body.dark .stat-card-label,
-body.dark .home-champ-row-count,
-body.dark .tool-card p,
-body.dark .tool-state,
-body.dark .hex-page-desc,
-body.dark .hex-filter-bar,
-body.dark .hex-sample,
-body.dark .hex-wr small {
-  color: var(--text-secondary);
+body.dark .home-champ-row:hover, body.dark .friend-row:hover, body.dark .pp-champ:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  box-shadow: none;
 }
-body.dark .rank-card-tier,
-body.dark .pp-id h2,
-body.dark .hex-fit {
-  color: #70c2f3;
+body.dark .mmr-chip { color: var(--text-secondary); background: var(--bg-secondary); border-color: var(--border); }
+body.dark .mode-table th, body.dark .champ-table-header {
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom-color: var(--border);
 }
-body.dark input::placeholder,
-body.dark textarea::placeholder,
-body.dark .tool-input::placeholder,
-body.dark .home-search input::placeholder {
-  color: #8da2b5;
-  opacity: 1;
-}
-body.dark .mode-table th,
-body.dark .champ-table-header {
-  color: #afc1d0;
-  background: linear-gradient(180deg, #1e2c3b, #192635);
-  border-bottom-color: #31475a;
-}
-body.dark .mode-table td,
-body.dark .champ-row {
-  color: var(--text-primary);
-  border-bottom-color: rgba(65,88,108,.72);
-}
-body.dark .mode-table tr:hover,
-body.dark .champ-row:hover,
-body.dark .hex-row:hover {
-  background: rgba(44,66,84,.62);
-}
-body.dark .champ-table-wrap {
-  background: rgba(20,32,44,.82);
-  border-color: rgba(60,81,99,.72);
-}
-body.dark .home-champ-row:hover,
-body.dark .friend-row:hover,
-body.dark .pp-champ:hover {
-  color: var(--text-primary);
-  background: #213246;
-  border-color: rgba(72,170,240,.35);
-  box-shadow: 0 6px 14px rgba(0,0,0,.18);
-}
-body.dark .lp-blue .lp-team-head {
-  color: #84cff7;
-  background: linear-gradient(105deg, #1b3b52, rgba(24,40,54,.96));
-}
-body.dark .lp-red .lp-team-head {
-  color: #ff9b98;
-  background: linear-gradient(105deg, #4a2d36, rgba(34,38,49,.96));
-}
-body.dark .lp-row {
-  color: var(--text-primary);
-  background: #192635;
-  border-color: #30485c;
-  box-shadow: 0 6px 15px rgba(0,0,0,.18);
-}
-body.dark .lp-red .lp-row { border-color: #563c47; }
-body.dark .ako-expand { background: rgba(38,55,70,.74); }
-body.dark .ako-win .ako-result,
-body.dark .ak-win .ak-result { color: #77c8f5; }
-body.dark .ako-loss .ako-result,
-body.dark .ak-loss .ak-result { color: #ff918d; }
-body.dark .ako-insight-healing { color:#7ce2d2; background:#173d3a; border-color:#285b55; }
-body.dark .ako-insight-low { color:#e1c08e; background:#3b3023; border-color:#5b4932; }
-body.dark .ako-insight-efficiency { color:#7de0a3; background:#193b2a; border-color:#2d5b40; }
-body.dark .pp-stat .v,
-body.dark .match-summary .ms-val,
-body.dark .champ-stat .value,
-body.dark .og-stat-val,
-body.dark .ako-big,
-body.dark .rk-kda-text,
-body.dark .lp-kda,
-body.dark .ri-kda,
-body.dark .gd-kda,
-body.dark .pr-val { color: var(--data-blue); }
-body.dark .home-champs h4,
-body.dark .home-friends h4,
-body.dark .home-mode-stats h4,
-body.dark .tool-card h3,
-body.dark .counter-result h3,
-body.dark .og-sum-name,
-body.dark .mmr-name { color: var(--heading-ink); }
+body.dark .mode-table td, body.dark .champ-row { color: var(--text-primary); border-bottom-color: var(--border); }
+body.dark .mode-table tr:hover, body.dark .champ-row:hover, body.dark .hex-row:hover { background: var(--bg-hover); }
+body.dark .champ-table-wrap { background: var(--bg-card); border-color: var(--border); }
+body.dark .lp-blue .lp-team-head { color: var(--data-blue); background: rgba(77, 142, 247, .14); }
+body.dark .lp-red .lp-team-head { color: #f87171; background: rgba(248, 113, 113, .13); }
+body.dark .lp-row { background: var(--bg-card); border-color: var(--border); box-shadow: none; }
+body.dark .lp-red .lp-row { border-color: var(--border); }
+body.dark .lp-overview { background: var(--bg-secondary); border-color: var(--border); }
+body.dark .lp-self { background: rgba(224, 183, 106, .12) !important; border-color: rgba(224, 183, 106, .38) !important; }
+body.dark .ako-expand { background: var(--bg-secondary); }
+body.dark .ako-win .ako-result, body.dark .ak-win .ak-result { color: var(--data-blue); }
+body.dark .ako-loss .ako-result, body.dark .ak-loss .ak-result { color: #f87171; }
+body.dark .ako-insight-healing { color: #4ecdc4; background: rgba(78, 205, 196, .12); border-color: rgba(78, 205, 196, .3); }
+body.dark .ako-insight-low { color: #e0b76a; background: rgba(224, 183, 106, .12); border-color: rgba(224, 183, 106, .3); }
+body.dark .ako-insight-efficiency { color: #4ade80; background: rgba(74, 222, 128, .12); border-color: rgba(74, 222, 128, .3); }
+body.dark .modal-overlay { background: rgba(0, 0, 0, .58); }
+body.dark .modal-content { border-color: var(--border); }
+body.dark .modal-close { background: var(--bg-secondary); color: var(--text-muted); }
+body.dark .modal-close:hover { color: var(--text-primary); background: var(--bg-hover); }
 
+/* 深色下延续过来的浅底组件（原先散在 dark.css，统一收在这里） */
+body.dark .bg-champ-list, body.dark .bg-champ-option { background: var(--bg-secondary); color: var(--text-primary); border-color: var(--border); }
+body.dark .bg-champ-option:hover { background: var(--bg-hover); }
+body.dark .placeholder-svg { background: var(--bg-hover); }
+body.dark .champ-icon, body.dark .ako-champ, body.dark .ak-champ, body.dark .lp-champ { background: var(--bg-secondary); }
+body.dark .lp-flash { background: rgba(77, 142, 247, .14); border-color: rgba(77, 142, 247, .34); color: var(--data-blue); }
+body.dark .lp-flash.mixed { background: rgba(224, 183, 106, .14); border-color: rgba(224, 183, 106, .34); color: #e0b76a; }
+body.dark .ri-win { background: var(--bg-card); border-color: var(--border); border-left-color: var(--data-blue); }
+body.dark .ri-loss { background: var(--bg-card); border-color: var(--border); border-left-color: var(--negative); }
+body.dark img { opacity: .97; }
+
+/* 深色对比度审计：premium.css 最后加载，凡是这里定死的浅色前景都要有深色对应 */
+body.dark .stat-card-val, body.dark .home-champs h4, body.dark .home-friends h4,
+body.dark .home-mode-stats h4, body.dark .tool-card h3, body.dark .hex-guide-card h4,
+body.dark .champ-name, body.dark .ako-big, body.dark .rk-kda-text { color: var(--text-primary); }
+body.dark .home-server, body.dark .home-winrate-label, body.dark .rank-card-label,
+body.dark .rank-card-record, body.dark .stat-card-label, body.dark .home-champ-row-count,
+body.dark .tool-card p, body.dark .tool-state, body.dark .hex-page-desc,
+body.dark .hex-filter-bar, body.dark .hex-sample, body.dark .hex-wr small { color: var(--text-secondary); }
+body.dark .rank-card-tier, body.dark .pp-id h2, body.dark .hex-fit { color: var(--accent-bright); }
+body.dark .home-winrate-val { color: var(--positive); }
+body.dark .counter-result h3, body.dark .og-sum-name, body.dark .mmr-name { color: var(--heading-ink); }
+body.dark .pp-stat .v, body.dark .match-summary .ms-val, body.dark .champ-stat .value,
+body.dark .og-stat-val, body.dark .ako-big, body.dark .rk-kda-text,
+body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { color: var(--data-blue); }
+
+/* ============================ 响应式 / 动效 ============================ */
 @media (max-width: 1180px) {
-  body { grid-template-columns: 196px minmax(0,1fr); }
-  body::before { left: 196px; }
-  .sidebar { width:196px; }
-  .main-content { padding:22px 22px 30px; }
-  .window-title::after { display:none; }
+  body { grid-template-columns: 188px minmax(0, 1fr); }
+  .sidebar { width: 188px; }
+  .main-content { padding: 20px 20px 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }

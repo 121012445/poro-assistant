@@ -1,3 +1,6 @@
+// 图标兜底：Node 测试 require 本文件时 icons.js 不在作用域（同 home.js 的守卫）。
+if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="pi"></svg>'; }
+
 // 实时对局
 // 由 _debug_archive/split_renderer.py 从 app.js 抽出; 依赖 utils.js 与 app.js 里的全局函数,
 // 因此 index.html 中必须排在 app.js 之前加载。
@@ -570,11 +573,14 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const isSelf = selfPuuid && p.puuid === selfPuuid;
     const tag = isSelf ? ' <span style="color:#ffd700;font-size:10px">★ 自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
-    const premadeTag = premadeGroupId ? `<span class="lp-premade" title="开黑组 ${premadeGroupId}">👥组${premadeGroupId}</span>` : '';
-    const marksHtml = !isSelf && p.puuid ? `<span style="cursor:pointer;font-size:9px;color:#888;margin-left:4px;" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})">📌</span>${getPlayerMarksHtml(p.puuid)}` : '';
+    const premadeTag = premadeGroupId ? `<span class="lp-premade" title="开黑组 ${premadeGroupId}">${poroIcon('users')}组${premadeGroupId}</span>` : '';
+    const marksHtml = !isSelf && p.puuid ? `<span style="cursor:pointer;font-size:9px;color:#888;margin-left:4px;" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
+    // 注: 这里原有"大乱斗平衡性提示"的 balTip/balHtml 分支, 依赖从未实现的
+    // balanceTipFor()。虽带 typeof 守卫不会抛错, 但 .lp-balance 永远渲染不出来,
+    // 属静默死功能。1.5.2 摘除, 要恢复请连同函数体一起补。
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">

@@ -1,3 +1,6 @@
+// 图标兜底：Node 测试 require 本文件时 icons.js 不在作用域（同 home.js 的守卫）。
+if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="pi"></svg>'; }
+
 // 英雄数据 / 强度 / 网格 / 详情
 // 由 _debug_archive/split_renderer.py 从 app.js 抽出; 依赖 utils.js 与 app.js 里的全局函数,
 // 因此 index.html 中必须排在 app.js 之前加载。
@@ -68,6 +71,8 @@ function renderChampionGrid(filter = "", role = "all") {
   if (!grid) return;
   ensureChampMap();
   const POS_ICON = { '上单': 'top', '打野': 'jungle', '中单': 'mid', '下路': 'adc', '辅助': 'sup' };
+  // 位置图标改用 icons.js 的单色线描（原先靠 CSS ::before 塞 emoji，塞不进 SVG 也不吃主题色）
+  const POS_GLYPH = { top: 'sword', jungle: 'leaf', mid: 'orb', adc: 'target', sup: 'shield' };
   // 从扁平化位置列表筛选
   const filtered = opggPosList.filter(entry => {
     const c = champNumMap[String(entry.championId)];
@@ -93,7 +98,7 @@ function renderChampionGrid(filter = "", role = "all") {
       <img class="champ-icon" src="${champImg(c.id)}" onerror="this.src='${placeholder(c.name)}'">
       <div class="champ-name">${escapeHtml(c.name)}</div>
       <div class="champ-tier t-${tier}">${tier}</div>
-      <div class="champ-pos pos-${posIcon}">${entry.position}</div>
+      <div class="champ-pos pos-${posIcon}">${poroIcon(POS_GLYPH[posIcon] || 'sword')}${entry.position}</div>
       <div class="champ-wr ${parseFloat(wr) >= 50 ? 'pos' : 'neg'}">${wr}%</div>
       <div class="champ-pr">${pr}%</div>
       <div class="champ-br">${br}%</div>

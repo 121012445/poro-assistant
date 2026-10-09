@@ -1,3 +1,6 @@
+// 图标兜底：Node 测试 require 本文件时 icons.js 不在作用域（同 home.js 的守卫）。
+if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="pi"></svg>'; }
+
 // 海克斯大乱斗强化 + 克制关系
 // 由 _debug_archive/split_renderer.py 从 app.js 抽出; 依赖 utils.js 与 app.js 里的全局函数,
 // 因此 index.html 中必须排在 app.js 之前加载。
@@ -935,13 +938,13 @@ function renderHexList(filter = "") {
   if (context) {
     if (!isHex) {
       context.className = 'hex-context waiting';
-      context.innerHTML = '<div class="hex-context-mark">⌛</div><div><b>等待海克斯大乱斗选人</b><span>进入模式后会自动识别当前所选英雄，并按英雄适配数据排序。</span></div>';
+      context.innerHTML = '<div class="hex-context-mark">' + poroIcon('hourglass') + '</div><div><b>等待海克斯大乱斗选人</b><span>进入模式后会自动识别当前所选英雄，并按英雄适配数据排序。</span></div>';
     } else if (!championId) {
       context.className = 'hex-context active';
-      context.innerHTML = '<div class="hex-context-mark">✦</div><div><b>已识别海克斯大乱斗</b><span>选择或悬停英雄后，这里会立即切换为英雄专属推荐。</span></div>';
+      context.innerHTML = '<div class="hex-context-mark">' + poroIcon('sparkle') + '</div><div><b>已识别海克斯大乱斗</b><span>选择或悬停英雄后，这里会立即切换为英雄专属推荐。</span></div>';
     } else {
       const name = champion?.name || ('英雄 #' + championId);
-      const image = champion ? '<img src="' + escapeHtml(champImg(champion.id)) + '" onerror="this.style.display=\'none\'">' : '<div class="hex-context-mark">✦</div>';
+      const image = champion ? '<img src="' + escapeHtml(champImg(champion.id)) + '" onerror="this.style.display=\'none\'">' : '<div class="hex-context-mark">' + poroIcon('sparkle') + '</div>';
       const sampleText = champStats?.g ? `你的个人历史 ${champStats.g} 场` : '尚无该英雄的个人强化记录';
       context.className = 'hex-context active';
       let sourceText = '真实对局胜率加载中…';
@@ -1073,8 +1076,8 @@ function renderOpggGameDetail(norm, container) {
           ${p.puuid !== myPuuid ? (() => {
             const bl = isBlacklisted(getName(p));
             return bl
-              ? `<span class="ak-bl-btn ak-bl-active" title="已在黑名单中" onclick="event.stopPropagation();removeBlacklistByName(${inlineArg(getName(p))})">🚫</span>`
-              : `<span class="ak-bl-btn" title="加入黑名单" onclick="event.stopPropagation();addToBlacklist(${inlineArg(p.puuid)},${inlineArg(getName(p))})">🚫</span>`;
+              ? `<span class="ak-bl-btn ak-bl-active" title="已在黑名单中" onclick="event.stopPropagation();removeBlacklistByName(${inlineArg(getName(p))})">${poroIcon('ban')}</span>`
+              : `<span class="ak-bl-btn" title="加入黑名单" onclick="event.stopPropagation();addToBlacklist(${inlineArg(p.puuid)},${inlineArg(getName(p))})">${poroIcon('ban')}</span>`;
           })() : ''}
         </div>
         ${rankLineOf(p) || (posText ? `<div class="ak-pos">${posText}</div>` : '')}
@@ -1106,7 +1109,7 @@ function renderOpggGameDetail(norm, container) {
     const tk = list.reduce((s, p) => s + p.k, 0), td = list.reduce((s, p) => s + p.d, 0), ta = list.reduce((s, p) => s + p.a, 0);
     const tg = list.reduce((s, p) => s + p.gold, 0);
     const obj = (norm.teamsObj || {})[tid] || {};
-    const objIcons = [['🏰', obj.tower], ['💎', obj.inhibitor], ['🐉', obj.dragon], ['🦅', obj.baron], ['🐛', obj.horde], ['🌊', obj.herald]]
+    const objIcons = [[poroIcon('tower'), obj.tower], [poroIcon('gem'), obj.inhibitor], [poroIcon('dragon'), obj.dragon], [poroIcon('eagle'), obj.baron], [poroIcon('bug'), obj.horde], [poroIcon('wave'), obj.herald]]
       .map(([ic, n]) => `<span>${ic} ${n || 0}</span>`).join('');
     return `<div class="ak-team ${won ? 'ak-win' : 'ak-loss'}">
       <div class="ak-thead">
@@ -1149,7 +1152,7 @@ function applyMatchPremadeBadges(container, info, loading = false) {
     const inferred = source === 'inferred';
     slot.innerHTML = `<span class="ak-party ${inferred ? 'ak-party-inferred' : 'ak-party-official'}" title="${inferred
       ? `推测组队：近 30 场至少 ${result.threshold || 3} 次同队，不代表官方确认`
-      : '本局数据提供的组队关系'}">👥${inferred ? '推测' : '组队'}${groupId}</span>`;
+      : '本局数据提供的组队关系'}">${poroIcon('users')}${inferred ? '推测' : '组队'}${groupId}</span>`;
   }
   const summary = container.querySelector('[data-party-summary]');
   if (!summary) return;

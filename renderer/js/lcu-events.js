@@ -70,6 +70,12 @@ function handleGameflowPhase(phase) {
   window._gameflowPhase = phase;
   lolAPI.reportPhase && lolAPI.reportPhase(phase);
   syncAugmentRecognitionForPhase(phase);
+  // 对局结束自动化挂接 (EndOfGame 触发, None 重置); None 时同步重置战力分析标记
+  if (typeof autoReturnMaybeTrigger === 'function') autoReturnMaybeTrigger(phase);
+  if (phase === 'None') {
+    _autoReturnSeenEnd = false;
+    // 红蓝方提示的重置由 chat.js 的 resetChampSelectSideAnnouncement 负责
+  }
   // 阶段到达 ReadyCheck (匹配确认弹窗出现) 即刻接受: 最可靠触发通道, 不依赖 GET ready-check 的具体字段
   if (phase === 'ReadyCheck' && autoAcceptOn && !complianceOn) {
     console.log('[auto-accept] phase=ReadyCheck → 立即接受');
@@ -86,6 +92,7 @@ function handleGameflowPhase(phase) {
     _currentGameKey = '';
     const liveBody = document.getElementById('liveGameArea');
     if (liveBody) liveBody.innerHTML = '<div class="meta-loading">正在读取本局选人阵容...</div>';
+    // 红蓝方提示由 bench.js handleChampSelectEvent → maybeAnnounceChampSelectSide 负责 (开关在 chat.js 内检查)
   }
   // 进入对局流程 (选人/加载/进行中) 自动跳一次"实时对局"页并刷新:
   // 选人阶段即可看队友近期战绩 (gameflow session 带完整 puuid), 加载页用 session 数据, 对局中由 Live Client Data 提供完整双方 (含海斗)

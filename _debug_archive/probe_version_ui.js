@@ -4,8 +4,13 @@
  * 不改动任何应用代码, 直接问渲染层"你到底显示了什么"。
  *
  * 用法:
- *   node _debug_archive/probe_version_ui.js                              # 跑源码目录
- *   node _debug_archive/probe_version_ui.js ".\Poro\Poro.exe"   # 跑本地已安装的正式包
+ *   node _debug_archive/probe_version_ui.js                                   # 跑源码目录
+ *   node _debug_archive/probe_version_ui.js ".\Poro\Poro.exe"               # 跑本地已安装的正式包
+ *   node _debug_archive/probe_version_ui.js ".\Poro\resources\app.asar"     # 用 electron 直接加载已安装的 asar
+ *
+ * 第三种模式是为什么存在: Poro 正在运行时, 部分环境下 spawn Poro.exe 会直接
+ * 报 EACCES (应用自己占着镜像)。此时改用 electron.exe 加载**同一份已安装 asar**,
+ * 跑到的就是线上 JS 包, 能验证的东西和跑 exe 完全一致。
  */
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
@@ -23,17 +28,27 @@ delete env.ELECTRON_RUN_AS_NODE;   // 本环境该变量被继承为 1, 会让 e
 env.PORO_TEST = '1';               // 不显示窗口
 delete env.PORO_SMOKE;             // 不要自动退出, 我们要读 DOM
 
-const packagedExe = process.argv[2] || null;
-const electron = packagedExe || path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
+const electronExe = path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
+const arg = process.argv[2] || null;
+// 三种模式: 给 .exe -> 直接跑它; 给 .asar/目录 -> 用 electron 加载它; 不给 -> 跑源码目录
+const packagedExe = arg && /\.exe$/i.test(arg) ? arg : null;
+const appPath = arg && !packagedExe ? arg : null;
+const electron = packagedExe || electronExe;
+const modeText = packagedExe ? '已安装正式包' : (appPath ? 'electron 加载 ' + appPath : '源码目录');
 if (!fs.existsSync(electron)) { P('找不到可执行文件:', electron); finish(1); }
+if (appPath && !fs.existsSync(appPath)) { P('找不到要加载的包:', appPath); finish(1); }
 
 // 关键: 正在运行的 Poro 会和本探针抢同一个单实例锁 (同名 app -> 同 userData),
 // 导致探针进程刚启动就被重定向退出。给独立 userData 目录即可并存。
 const PROBE_USERDATA = path.join(__dirname, '_probe_userdata');
 
-const spawnArgs = packagedExe
-  ? ['--no-sandbox', '--disable-gpu-sandbox', '--in-process-gpu', '--remote-debugging-port=' + PORT, '--user-data-dir=' + PROBE_USERDATA]
-  : ['.', '--no-sandbox', '--disable-gpu-sandbox', '--in-process-gpu', '--remote-debugging-port=' + PORT, '--user-data-dir=' + PROBE_USERDATA];
+// 旧日志必须先清掉: crash.log 是追加写, 不清会把上一轮的报错算到这一轮头上。
+for (const f of ['crash.log', 'crash.log.old']) {
+  try { fs.rmSync(path.join(PROBE_USERDATA, f), { force: true }); } catch (e) {}
+}
+
+const COMMON_ARGS = ['--no-sandbox', '--disable-gpu-sandbox', '--in-process-gpu', '--remote-debugging-port=' + PORT, '--user-data-dir=' + PROBE_USERDATA];
+const spawnArgs = packagedExe ? COMMON_ARGS : [(appPath || '.'), ...COMMON_ARGS];
 
 const child = spawn(electron, spawnArgs, { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -112,7 +127,7 @@ function cdpEval(wsUrl, expression) {
 
 (async () => {
   P('=== 端到端读取界面版本号 (CDP 远程调试) ===');
-  P('可执行文件:', electron + (packagedExe ? '  [已安装正式包]' : '  [源码目录]'));
+  P('可执行文件:', electron + '  [' + modeText + ']');
   P('启动中, 等待渲染层就绪...');
 
   const page = await getPageTarget();
@@ -141,15 +156,42 @@ function cdpEval(wsUrl, expression) {
     }
   }
 
+  // ---- 启动健康: init() 有没有在中途被掐断 ----
+  // 主进程把渲染层 error 级 console 写进 userData/crash.log
+  // (main/index.js: console-message -> logErr('[CONSOLE ERR] ...'))。
+  // 这是最实在的端到端证据: 1.5.0/1.5.1 的 loadAramBalance 就栽在这里 ——
+  // 它在 init() 的 try/catch 之外抛 ReferenceError, 界面照画、DOM 一切正常、
+  // 版本号也显示对了, 只有 crash.log 里留了一行, 首页却永远不加载。
+  await sleep(1200);
+  const crashLog = path.join(PROBE_USERDATA, 'crash.log');
+  let logText = '';
+  try { logText = fs.readFileSync(crashLog, 'utf8'); } catch (e) { logText = ''; }
+  const errLines = logText.split('\n').filter(l => l.includes('[CONSOLE ERR]'));
+  const fatalLines = errLines.filter(l => /ReferenceError|is not defined|TypeError|SyntaxError|not a function/.test(l));
+  P('');
+  P('--- 启动健康 (crash.log) ---');
+  P('日志文件: ' + crashLog + (logText ? '  (' + logText.length + ' 字节)' : '  (不存在)'));
+  if (!errLines.length) P('  [OK]   无 [CONSOLE ERR]');
+  else {
+    errLines.slice(0, 10).forEach(l => P('  [ERR]  ' + l.trim().slice(0, 180)));
+    if (errLines.length > 10) P('  ... 另有 ' + (errLines.length - 10) + ' 条');
+  }
+  const initHealthy = fatalLines.length === 0;
+  P(initHealthy
+    ? '  [OK]   未见 ReferenceError / 类型错误 — init() 没有被中途掐断'
+    : '  [FAIL] 初始化期间有致命错误, 后面的初始化步骤很可能没执行');
+
   P('');
   P('=== 判定 ===');
   const txt = await cdpEval(page.webSocketDebuggerUrl, "document.getElementById('versionText') ? document.getElementById('versionText').textContent : ''").catch(() => '');
   let pkgVer;
-  if (packagedExe) {
+  const asarTarget = packagedExe
+    ? path.join(path.dirname(packagedExe), 'resources', 'app.asar')
+    : (appPath && /\.asar$/i.test(appPath) ? appPath : null);
+  if (asarTarget) {
     const asarMod = require('D:/lol-assistant/node_modules/@electron/asar');
-    const depAsar = path.join(path.dirname(packagedExe), 'resources', 'app.asar');
-    P('受检 asar =', depAsar);
-    pkgVer = JSON.parse(asarMod.extractFile(depAsar, 'package.json').toString('utf8')).version;
+    P('受检 asar =', asarTarget);
+    pkgVer = JSON.parse(asarMod.extractFile(asarTarget, 'package.json').toString('utf8')).version;
     P('期望版本来源 = 已安装 asar 内 package.json');
   } else {
     pkgVer = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
@@ -157,7 +199,8 @@ function cdpEval(wsUrl, expression) {
   }
   P('期望版本 =', pkgVer);
   P('界面实际显示     =', txt);
-  const ok = typeof txt === 'string' && txt.indexOf('v' + pkgVer) === 0;
-  P(ok ? '通过: 界面版本号与包内 package.json 一致' : '不通过: 界面未显示包内 package.json 的版本号');
-  finish(ok ? 0 : 1);
+  const verOk = typeof txt === 'string' && txt.indexOf('v' + pkgVer) === 0;
+  P(verOk ? '通过: 界面版本号与包内 package.json 一致' : '不通过: 界面未显示包内 package.json 的版本号');
+  P(initHealthy ? '通过: 初始化无致命错误' : '不通过: 初始化期间有致命错误 (见上方 crash.log)');
+  finish(verOk && initHealthy ? 0 : 1);
 })();

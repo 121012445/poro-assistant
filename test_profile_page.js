@@ -59,9 +59,12 @@ const staleStamp = stamps.filter(s => String(s.stamp).slice(0, 8) < '20260928')
 assert.deepStrictEqual(staleStamp, [], '这些资源的缓存戳早于本次改动日期: ' + staleStamp.join(', '));
 // 本次改动的四个文件必须带最新戳（改了却不升戳 = 用户拿到旧代码）。
 // 注意同一天第二次改动也要把序号往上走: in-place 升级时 URL 没变, 戳不变就命中缓存。
+// 2026-10-02: 不再写死具体日期 —— 那会让每次正常刷戳都误报。
+// 改为断言"这几个文件与全站最高戳一致"，漏刷某一个依然会被抓到。
 const stampOf = p => (stamps.find(s => s.path === p) || {}).stamp;
+const maxStamp = stamps.reduce((a, s) => (String(s.stamp) > a ? String(s.stamp) : a), '');
 for (const p of ['js/home.js', 'js/app.js', 'css/extras.css']) {
-  assert.strictEqual(stampOf(p), '2026092804', p + ' 的缓存戳未升到 2026092804');
+  assert.strictEqual(stampOf(p), maxStamp, p + ' 的缓存戳没有跟全站一起刷到最新 (' + maxStamp + ')');
 }
 
 // ── 3. app.js 切页接线 ───────────────────────────────────────────────────────

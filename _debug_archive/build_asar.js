@@ -9,12 +9,63 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const ROOT = path.resolve(__dirname, '..');
 const STAGE = 'D:\\_asar_stage';
 const OUT = 'D:\\_asar_out\\app.asar';
 
 function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) {} }
+
+function fileHash(p) {
+  return crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex');
+}
+
+/**
+ * 逐文件同步解包目录 (app.asar.unpacked), 返回是否全部成功。
+ *
+ * 为什么不用 fs.cpSync 一把梭: 应用正在运行时会 dlopen 里面的原生模块 (.node),
+ * Windows 上写不进去 -> cpSync 整体抛错 -> **排在它后面的文件一个都没同步到**,
+ * 而且报错只说"另一个进程正在使用", 看不出是哪个文件、也不知道漏了哪些。
+ * (2026-10-02 真实踩到: asar 已替换成功, 解包目录同步却失败, 是混合状态。)
+ *
+ * 策略: 内容一致的直接跳过 (被占用也无所谓), 真的需要更新却写不进去才报错。
+ * 保留 cpSync 原有的"合并"语义 —— 不删目标里已经有的文件 (例如 PoroInput.exe)。
+ */
+function syncUnpacked(src, dst) {
+  let copied = 0, skipped = 0;
+  const locked = [];
+  const walk = (rel) => {
+    const dir = rel ? path.join(src, rel) : src;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const r = rel ? path.join(rel, ent.name) : ent.name;
+      const s = path.join(src, r);
+      const d = path.join(dst, r);
+      if (ent.isDirectory()) { fs.mkdirSync(d, { recursive: true }); walk(r); continue; }
+      let same = false;
+      try {
+        same = fs.existsSync(d) && fs.statSync(d).size === fs.statSync(s).size && fileHash(s) === fileHash(d);
+      } catch (e) { same = false; }
+      if (same) { skipped++; continue; }
+      try {
+        fs.mkdirSync(path.dirname(d), { recursive: true });
+        fs.copyFileSync(s, d);
+        copied++;
+      } catch (e) {
+        locked.push(r + '   (' + (e.code || e.message) + ')');
+      }
+    }
+  };
+  walk('');
+  console.log('已同步解包目录 -> ' + dst + '  (更新 ' + copied + ' 个, 内容未变跳过 ' + skipped + ' 个)');
+  if (locked.length) {
+    console.log('!! ' + locked.length + ' 个文件需要更新但被占用 (应用正在运行):');
+    locked.forEach(f => console.log('     ' + f));
+    console.log('   请先从托盘退出 Poro, 再重新部署。');
+    return false;
+  }
+  return true;
+}
 
 function main() {
   const target = process.argv[2] || null;
@@ -99,6 +150,21 @@ function main() {
     if (!allOk) { console.log('关键改动未进包, 中止。'); process.exit(1); }
 
     if (target) {
+      // 顺序很重要: **先**同步解包目录, **后**替换 asar。
+      // 解包目录里是原生模块 (.node), 应用运行时会被 dlopen 占用而写不进去;
+      // 若先换了 asar 再失败, 就留下"JS 是新的 / 原生模块是旧的"混合状态 ——
+      // 这种状态界面看不出异常, 只有功能静默失效, 最难排查。
+      const unpackedSrc = OUT + '.unpacked';
+      const unpackedDst = target + '.unpacked';
+      if (fs.existsSync(unpackedSrc)) {
+        if (!syncUnpacked(unpackedSrc, unpackedDst)) {
+          console.log('解包目录未能同步完成, 已中止 (asar 未替换, 安装目录保持原样)。');
+          process.exit(1);
+        }
+      } else {
+        console.log('!! 没有解包目录, 原生模块可能加载不了');
+      }
+
       if (fs.existsSync(target)) {
         // 用本地日期, 别用 toISOString() (那是 UTC, 晚上会标成前一天)
         const d = new Date();
@@ -115,16 +181,6 @@ function main() {
       }
       fs.copyFileSync(OUT, target);
       console.log('已热替换 -> ' + target);
-      // 解包目录必须一起同步: asar 里只是引用, 真正被 dlopen 的是 app.asar.unpacked 里那份。
-      // cpSync 是"合并"语义, 不会删掉目标里已有的文件 (例如原先就有的 PoroInput.exe)。
-      const unpackedSrc = OUT + '.unpacked';
-      const unpackedDst = target + '.unpacked';
-      if (fs.existsSync(unpackedSrc)) {
-        fs.cpSync(unpackedSrc, unpackedDst, { recursive: true });
-        console.log('已同步解包目录 -> ' + unpackedDst);
-      } else {
-        console.log('!! 没有解包目录, 原生模块可能加载不了');
-      }
     }
   }).catch(e => { console.log('打包失败: ' + e.message); process.exit(1); });
 }
