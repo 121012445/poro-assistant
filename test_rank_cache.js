@@ -4,8 +4,8 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 
-const source = fs.readFileSync('renderer/js/home.js', 'utf8');
-const utils = fs.readFileSync('renderer/js/utils.js', 'utf8');
+const source = fs.readFileSync('renderer/js/home.js', 'utf8').replace(/\r\n/g, '\n');
+const utils = fs.readFileSync('renderer/js/utils.js', 'utf8').replace(/\r\n/g, '\n');
 const start = source.indexOf('// puuid→段位缓存');
 const end = source.indexOf('function hasRankedQueueData');
 assert.ok(start > 0 && end > start, '应能在 home.js 中定位 rankCache 代码段');

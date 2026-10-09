@@ -4,10 +4,10 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 
-const champSrc = fs.readFileSync('renderer/js/champions.js', 'utf8');
-const homeSrc = fs.readFileSync('renderer/js/home.js', 'utf8');
-const liveSrc = fs.readFileSync('renderer/js/live.js', 'utf8');
-const utilsSrc = fs.readFileSync('renderer/js/utils.js', 'utf8');
+const champSrc = fs.readFileSync('renderer/js/champions.js', 'utf8').replace(/\r\n/g, '\n');
+const homeSrc = fs.readFileSync('renderer/js/home.js', 'utf8').replace(/\r\n/g, '\n');
+const liveSrc = fs.readFileSync('renderer/js/live.js', 'utf8').replace(/\r\n/g, '\n');
+const utilsSrc = fs.readFileSync('renderer/js/utils.js', 'utf8').replace(/\r\n/g, '\n');
 
 const sliceBetween = (src, from, to) => {
   const a = src.indexOf(from), b = src.indexOf(to, a);
