@@ -4,7 +4,7 @@ if (process.env.PORO_E2E_WRITE !== 'I_UNDERSTAND') {
   console.error('已拒绝：该测试会真实发送游戏聊天。仅在明确知情时设置 PORO_E2E_WRITE=I_UNDERSTAND。');
   process.exit(2);
 }
-process.chdir('D:/lol-assistant');
+process.chdir(__dirname);
 const lcu = require('./main/lcu.js');
 
 (async () => {

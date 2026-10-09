@@ -1,5 +1,5 @@
 // 临时探测: 2999 端口游戏客户端 API 的聊天发送端点
-process.chdir('D:/lol-assistant');
+process.chdir(__dirname);
 const https = require('https');
 const lcu = require('./main/lcu.js');
 

@@ -1,6 +1,7 @@
 // 代码库静态体检: 重复定义 / 死代码 / 残留 / 一致性
 const fs = require('fs');
-const path = 'D:/lol-assistant/';
+// 项目根目录取自本文件所在位置, 不依赖作者本机的盘符路径 (否则换机器/CI 上直接 ENOENT)。
+const path = require('path').join(__dirname, '/');
 const html = fs.readFileSync(path + 'renderer/index.html', 'utf8');
 // 渲染层是多文件: 按 index.html 的加载顺序全部拼接后再体检。
 // 必须跨文件, 否则"重复定义"会漏掉跨文件的同名冲突, "死代码"会把拆出去、

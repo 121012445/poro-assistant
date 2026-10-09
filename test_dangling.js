@@ -1,10 +1,12 @@
 // 悬空引用核查
 const fs = require('fs');
-const html = fs.readFileSync('D:/lol-assistant/renderer/index.html', 'utf8');
+const nodePath = require('path');
+const ROOT = __dirname;   // 不写死作者本机路径
+const html = fs.readFileSync(nodePath.join(ROOT, 'renderer/index.html'), 'utf8');
 // 渲染层是多文件: 必须按 index.html 的加载顺序拼接后再查, 否则拆出去的函数会被误判成"未定义"
 const scriptSrcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1].split('?')[0]);
-const app = scriptSrcs.map(s => fs.readFileSync('D:/lol-assistant/renderer/' + s, 'utf8')).join('\n');
-const pre = fs.readFileSync('D:/lol-assistant/main/preload.js', 'utf8');
+const app = scriptSrcs.map(s => fs.readFileSync(nodePath.join(ROOT, 'renderer', s), 'utf8')).join('\n');
+const pre = fs.readFileSync(nodePath.join(ROOT, 'main/preload.js'), 'utf8');
 
 console.log('== HTML 调用但 app.js 未定义的函数 ==');
 const defined = new Set();
