@@ -495,6 +495,28 @@ function recentLimit() {
   return 10;
 }
 
+// 战绩摘要文案: "近10场 6胜4负"。原先"近 N 场"单独占一行，并进来后玩家卡少一行，战绩区更高。
+function liveRecordText(total, wins, emptyText) {
+  return total ? `近${total}场 ${wins}胜${total - wins}负` : emptyText;
+}
+
+// 「展开全部战绩」: 默认两队挤在一屏内、战绩在卡片里滚动；展开后每人完整显示最近 10 场，页面整体滚动。
+// 只切换 #page-live 上的样式类，不重绘，所以和实时刷新互不影响。
+let liveRecentExpanded = false;
+function syncLiveExpandButton(show) {
+  const btn = document.getElementById('liveExpandBtn');
+  if (!btn) return;
+  if (typeof show === 'boolean') btn.hidden = !show;
+  btn.textContent = liveRecentExpanded ? '收起战绩' : '展开全部战绩';
+  btn.classList.toggle('is-selected', liveRecentExpanded);
+  btn.setAttribute('aria-pressed', String(liveRecentExpanded));
+}
+function toggleLiveRecentExpanded(force) {
+  liveRecentExpanded = typeof force === 'boolean' ? force : !liveRecentExpanded;
+  document.getElementById('page-live')?.classList.toggle('live-expanded', liveRecentExpanded);
+  syncLiveExpandButton();
+}
+
 function recentIcon(r) {
   const rc = champOfLive(r.champId);
   const isWin = r.win === true || r.win === 'Win';
@@ -532,20 +554,18 @@ function updateLivePlayerRow(p, idx) {
   const totK = p.recent.reduce((s, r) => s + r.k, 0), totD = p.recent.reduce((s, r) => s + r.d, 0), totA = p.recent.reduce((s, r) => s + r.a, 0);
   const kda = p.recent.length ? ((totK + totA) / Math.max(1, totD)).toFixed(1) : '--';
   const recentEl = row.querySelector('.lp-recent');
-  const statsEl = row.querySelector('.lp-stats');
   const flashEl = row.querySelector('.lp-flash-slot');
   const winRateEl = row.querySelector('.lp-winrate');
   const recordEl = row.querySelector('.lp-record');
   const kdaEl = row.querySelector('.lp-kda');
   if (recentEl) recentEl.innerHTML = recentHtml;
-  if (statsEl) statsEl.textContent = p.recent.length ? `近 ${p.recent.length} 场` : '';
   if (flashEl) flashEl.innerHTML = flashPreferenceHtml(p.flashPreference);
   if (winRateEl) {
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     winRateEl.textContent = winRate == null ? '--' : `${winRate}%`;
     winRateEl.classList.toggle('positive', winRate != null && winRate >= 50);
   }
-  if (recordEl) recordEl.textContent = p.recent.length ? `${wins}胜${p.recent.length - wins}负` : '暂无近期战绩';
+  if (recordEl) recordEl.textContent = liveRecordText(p.recent.length, wins, '暂无近期战绩');
   if (kdaEl) kdaEl.textContent = `KDA ${kda}`;
 }
 
@@ -591,12 +611,11 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       </div>
       <div class="lp-overview">
         <span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span>
-        <span class="lp-record">${p.recent.length ? `${wins}胜${p.recent.length - wins}负` : '近期战绩加载中'}</span>
+        <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
         <span class="lp-kda">KDA ${kda}</span>
       </div>
       <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}</div>
       <div class="lp-recent">${recentHtml}</div>
-      <div class="lp-stats">${p.recent.length ? `近 ${p.recent.length} 场` : ''}</div>
     </div>`;
   };
   const isBlue = p => p.team === 100 || p.team === "100";
@@ -615,9 +634,9 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     </section>`;
   };
   body.innerHTML = `
-    <div class="live-time">⏱ 对局玩家信息</div>
     ${buildLiveDecisionPanel(data, selfPuuid)}
-    <div class="lp-wrap" style="margin-top:6px">${teamPanel(blue, '蓝方', 'lp-blue')}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue')}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+  syncLiveExpandButton(true);
 }
 async function updateLivePage(phase) {
   const startedAt = performance.now();
@@ -632,12 +651,15 @@ async function updateLivePage(phase) {
     livePlayersCache.premadeGroups = null;
     liveRenderToken++;
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
+    syncLiveExpandButton(false);
     return;
   }
   // 所有阶段都显示玩家战绩; 加载界面数据未就绪时给出等待提示 (轮询会持续重试)
   try {
     await renderLiveFromGameflow(body, phase === "GameStart" ? "对局加载中, 玩家数据拉取中..." : null, phase);
   } finally {
+    // 没有阵容 (加载中/出错/训练模式提示) 时不显示「展开全部战绩」，避免一个不起作用的按钮
+    syncLiveExpandButton(!!body.querySelector('.lp-wrap'));
     window.poroPerf?.record('live.render', performance.now() - startedAt, { phase: phase || '' });
   }
 }

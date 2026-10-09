@@ -470,8 +470,6 @@ body {
 .rank-tier { font-size: 12px; color: var(--text-muted); }
 .rank-rank { font-size: 20px; font-weight: 800; color: var(--accent); margin: 4px 0; }
 .rank-wr { font-size: 12px; color: var(--text-secondary); }
-.live-time { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; font-size: 14px; color: var(--text-secondary); }
-.live-time strong { color: var(--accent-deep); font-size: 18px; }
 .timer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .timer-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
 .timer-card.urgent { border-color: var(--negative); animation: pulse 1s infinite; }
@@ -1025,13 +1023,11 @@ body {
 .ri-empty, .ri-loading { display: grid; place-items: center; min-height: 80px; color: var(--text-muted); font-size: 11px; }
 .ri-loading { animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-.lp-stats { margin-top: 4px; color: var(--text-muted); font-size: 9px; text-align: right; }
 .lp-self { background: linear-gradient(180deg, #fffdf4, var(--bg-card)) !important; border-top-color: #f3c84b !important; }
 /* 实时对局页充满视口 (高度自适应 + 响应式宽度) */
 #page-live.active { display: flex; flex-direction: column; height: 100%; }
 #page-live .page-header { flex-shrink: 0; }
 #liveGameArea { flex: 1; display: flex; flex-direction: column; width: 100%; min-height: 0; overflow: auto; padding-right: 3px; }
-#liveGameArea > .live-time,
 #liveGameArea > .live-custom-hint,
 #liveGameArea > .meta-loading,
 #liveGameArea > .msg-error { flex-shrink: 0; width: 100%; }

@@ -666,3 +666,31 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* ============================ 实时对局：紧凑布局 ============================
+   问题: 红蓝两队被压在一屏内，页头 + 标题条 + 作战计划 + 队伍标题栏 + 每张卡里的头像/概览/画像
+   占掉大部分高度，1200x800 下每人的战绩区只剩约 60px (10 场只露出 2 场)，小窗口下直接为 0。
+   做法: 去掉独占一行的标题条；卡内"近 N 场"并进概览行；各处间距收紧。
+   这里只收紧尺寸/间距，不改颜色 (深色主题规则照常生效)。 */
+.live-decision { margin: 0 0 6px; }
+.live-decision summary { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
+.lp-wrap { gap: 8px; padding: 2px 0 4px; }
+.lp-team { padding: 6px; }
+.lp-team-head { min-height: 30px; padding: 4px 12px; }
+.lp-team-grid { padding-top: 4px; }
+.lp-row { padding: 8px; }
+.lp-champ { width: 36px; height: 36px; }
+.lp-overview { margin: 4px 0 3px; padding: 3px 6px; line-height: 1.2; }
+.lp-winrate { font-size: 13px; }
+.lp-profile-line { margin-bottom: 3px; }
+
+/* 页头右侧的「展开全部战绩」: 全局按钮最小高度是 38px，会把页头撑高、整页下移，这里限定高度 */
+#liveExpandBtn { margin-left: auto; min-height: 0; height: 28px; padding: 0 12px; font-size: var(--fs-sm); }
+#liveExpandBtn[hidden] { display: none; }
+
+/* 展开全部战绩: 不再把两队压进一屏，每张卡完整显示最近 10 场，由 #liveGameArea 整体滚动 */
+#page-live.live-expanded .lp-wrap { flex: 0 0 auto; overflow: visible; }
+#page-live.live-expanded .lp-team { flex: 0 0 auto; }
+#page-live.live-expanded .lp-team-grid { flex: 0 0 auto; }
+#page-live.live-expanded .lp-row { height: auto; }
+#page-live.live-expanded .lp-recent { flex: 0 0 auto; overflow: visible; }
