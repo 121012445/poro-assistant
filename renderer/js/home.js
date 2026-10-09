@@ -813,17 +813,45 @@ function findProfileParticipant(game, summoner) {
     return nameMatches && tagMatches;
   }) || null;
 }
-// puuid→段位缓存 (战绩详情用)
+// puuid→段位缓存 (战绩详情/实时页用)
+// 调用方直接按 rankCache[puuid] 读取, 所以仍保持"puuid → queueMap"的原结构, 过期时间另记在 rankCacheAt。
+// 原先写入后永不过期: 一次会话里队友的段位一直是旧的; 查询失败还会写成 {} 永久缓存, 之后不再重试。
 const rankCache = {};
+const rankCacheAt = {};                         // puuid → { t: 写入时间, ok: 是否成功拿到数据 }
+const RANK_CACHE_TTL = 5 * 60 * 1000;           // 成功结果: 段位在一局内基本不变, 5 分钟足够
+const RANK_CACHE_FAIL_TTL = 30 * 1000;          // 失败结果: 很快重试, 不要把一次网络抖动固化
+const RANK_CACHE_MAX = 300;                     // 上限, 防止长时间运行后无限增长
+function rankCacheFresh(puuid, now = Date.now()) {
+  const meta = rankCacheAt[puuid];
+  if (!meta || !(puuid in rankCache)) return false;
+  return now - meta.t < (meta.ok ? RANK_CACHE_TTL : RANK_CACHE_FAIL_TTL);
+}
+function rankCacheStore(puuid, queueMap, ok, now = Date.now()) {
+  rankCache[puuid] = queueMap;
+  rankCacheAt[puuid] = { t: now, ok };
+  const keys = Object.keys(rankCacheAt);
+  if (keys.length > RANK_CACHE_MAX) {
+    keys.sort((a, b) => rankCacheAt[a].t - rankCacheAt[b].t)
+      .slice(0, keys.length - RANK_CACHE_MAX)
+      .forEach(k => { delete rankCache[k]; delete rankCacheAt[k]; });
+  }
+}
 const TIER_ICON = { IRON: poroIcon('rock'), BRONZE: poroIcon('medal'), SILVER: poroIcon('medal'), GOLD: poroIcon('medal'), PLATINUM: poroIcon('shield'), EMERALD: poroIcon('shield'), DIAMOND: poroIcon('gem'), MASTER: poroIcon('gem'), GRANDMASTER: poroIcon('crown'), CHALLENGER: poroIcon('crown') };
 async function resolveRanks(puuids) {
-  const missing = puuids.filter(p => p && !(p in rankCache));
+  const now = Date.now();
+  const missing = [...new Set(puuids)].filter(p => p && !rankCacheFresh(p, now));
   if (!missing.length) return;
   await mapWithConcurrency(missing.slice(0, 10), 4, async puuid => {
+    // 刷新期间旧值照常可读 (rankCache[puuid] 不先清空), 失败时也保留旧值而不是退化成空段位。
+    const previous = rankCache[puuid];
     try {
       const r = await lolAPI.lcuRequest("GET", `/lol-ranked/v1/ranked-stats/${encodeURIComponent(puuid)}`);
-      rankCache[puuid] = r?.queueMap || {};
-    } catch (e) { rankCache[puuid] = {}; }
+      // LCU 对 4xx/5xx 不抛异常而是返回带 __error 的对象, 不能把它当成"这个人没有段位"。
+      if (!r || r.__error || typeof r !== 'object') throw new Error(r?.__error || '段位数据为空');
+      rankCacheStore(puuid, r.queueMap || {}, true);
+    } catch (e) {
+      rankCacheStore(puuid, previous || {}, false);
+    }
   });
 }
 function hasRankedQueueData(value) {
