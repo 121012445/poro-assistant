@@ -22,8 +22,9 @@ assert.strictEqual(limitMapSize(null, 3), 0, '非 Map 不抛异常');
 assert.strictEqual(limitMapSize(new Map([[1, 1]]), -1), 0, '非法上限不删除');
 
 // 重新写入要放到末尾, 否则常用的条目会被当成"最早"删掉
-const live = fs.readFileSync('renderer/js/live.js', 'utf8');
-const hex = fs.readFileSync('renderer/js/hex.js', 'utf8');
+// 读取后统一换行: Windows 检出 (autocrlf) 下是 CRLF
+const live = fs.readFileSync('renderer/js/live.js', 'utf8').replace(/\r\n/g, '\n');
+const hex = fs.readFileSync('renderer/js/hex.js', 'utf8').replace(/\r\n/g, '\n');
 assert.strictEqual((live.match(/sgpRecentCache\.delete\(key\);[^\n]*\n\s*sgpRecentCache\.set\(key, profile\);\n\s*limitMapSize\(sgpRecentCache, SGP_RECENT_CACHE_MAX\);/g) || []).length, 2,
   'live.js 两处 sgpRecentCache 写入都应先删后写再限量');
 assert.ok(/const SGP_RECENT_CACHE_MAX = 300;/.test(live));
