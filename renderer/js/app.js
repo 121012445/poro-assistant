@@ -212,6 +212,7 @@ async function init() {
   loadAramBalance().catch(() => {});
   initAutoReturnToggles();
   autoflowLoad();
+  chatStatusLoad();
   initUpdate();
   restoreSideAnnounceToggle();
   wireLcuEvents();

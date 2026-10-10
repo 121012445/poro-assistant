@@ -73,6 +73,8 @@ function handleGameflowPhase(phase) {
   // 对局结束自动化挂接 (EndOfGame 触发, None 重置); None 时同步重置战力分析标记
   if (typeof autoReturnMaybeTrigger === 'function') autoReturnMaybeTrigger(phase);
   if (typeof autoflowOnPhase === 'function') autoflowOnPhase(phase);
+  // 客户端进入/离开对局时会把在线状态改回去: 阶段变化后稍等一下再检查锁定的状态
+  if (typeof chatLockEnforce === 'function' && phase !== previousPhase) setTimeout(() => chatLockEnforce(), 2500);
   if (phase === 'None') {
     _autoReturnSeenEnd = false;
     // 红蓝方提示的重置由 chat.js 的 resetChampSelectSideAnnouncement 负责

@@ -324,6 +324,18 @@
         </div>
       </div>
       <div class="tool-card">
+        <h3>在线状态与个性签名</h3>
+        <p>改变好友列表里别人看到的你：在线、手机在线、离开、勿扰或隐身。客户端进入或离开对局时会把状态改回去，勾选「锁定」后会自动改回你选的状态。</p>
+        <div class="tool-row">
+          <select id="chatAvailability" class="tool-input" onchange="onChatAvailabilityChange(this)"></select>
+          <label class="opgg-loadout-options"><input type="checkbox" id="chatLockToggle" onchange="toggleChatLock(this.checked)"> 锁定</label>
+        </div>
+        <div class="tool-row">
+          <input type="text" id="chatStatusMessage" class="tool-input" placeholder="个性签名（留空即清空）" style="flex:1">
+          <button class="btn-secondary" onclick="applyChatStatusMessage()">设置签名</button>
+        </div>
+      </div>
+      <div class="tool-card">
         <h3>伪造排位段位</h3>
         <p>修改好友列表中自己卡片显示的段位 (仅展示效果)。</p>
         <div class="tool-row">
@@ -516,6 +528,7 @@
 <script src="js/opgg-loadout.js?v=2026100204"></script>
 <script src="js/update.js?v=2026100204"></script>
 <script src="js/autoflow.js?v=2026100204"></script>
+<script src="js/chat-status.js?v=2026100204"></script>
 <script src="js/settings.js?v=2026100204"></script>
 <script src="js/persist.js?v=2026100204"></script>
 <script src="js/autoreturn.js?v=2026100204"></script>
