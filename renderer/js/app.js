@@ -211,6 +211,7 @@ async function init() {
   // test_undef_globals.js 会拦住"调用了但没定义"的情况。
   loadAramBalance().catch(() => {});
   initAutoReturnToggles();
+  initUpdate();
   restoreSideAnnounceToggle();
   wireLcuEvents();
   applyTheme();

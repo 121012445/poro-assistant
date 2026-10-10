@@ -47,6 +47,11 @@ contextBridge.exposeInMainWorld('lolAPI', {
   importBackup: () => ipcRenderer.invoke('backup:import'),
   getUserData: () => ipcRenderer.invoke('app:userData'),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  openUpdatePage: () => ipcRenderer.invoke('update:openPage'),
+  onUpdateProgress: (cb) => { ipcRenderer.on('update:progress', (e, p) => cb(p)); },
   getElevation: () => ipcRenderer.invoke('app:elevation'),
   // 全局快捷键 (游戏内 F7/F8 发送 KDA 简报)
   onShortcut: (cb) => { ipcRenderer.on('shortcut:kda', (e, ally) => cb(ally)); },

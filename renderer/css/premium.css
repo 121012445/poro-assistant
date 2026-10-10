@@ -702,3 +702,11 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 .lp-balance-mixed { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .opgg-loadout-options { flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--text-secondary); }
 .opgg-loadout-options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+
+/* 软件更新卡片 (update.js) */
+.update-badge { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 600; color: #fff; background: var(--accent); vertical-align: middle; }
+.update-body { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.update-line span { color: var(--text-muted); font-size: var(--fs-sm); }
+.update-notes { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: var(--fs-sm); max-height: 120px; overflow: auto; }
+.update-progress { width: 100%; max-width: 360px; height: 6px; border-radius: 3px; background: var(--bg-secondary); overflow: hidden; }
+.update-progress > div { height: 100%; background: var(--accent); transition: width .2s; }

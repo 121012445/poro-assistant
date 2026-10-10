@@ -119,6 +119,7 @@ const hotkeyPollerFactory = require('./hotkey-poller');
 const { createOcrWorker } = require('./ocr-worker');
 const { createSgpCache } = require('./sgp-cache');
 const { createOpggClient } = require('./opgg');
+const { createUpdater } = require('./updater');
 const { createChangeLog } = require('./log-change');
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
@@ -1372,6 +1373,47 @@ ipcMain.handle('app:userData', async () => USER_DATA);
 
 // 应用版本: 优先读包内 package.json (asar 内的才是真正部署的版本),
 // 拿不到再退回 app.getVersion()。渲染层绝不要再硬编码版本号。
+// ---------- 软件更新 (见 main/updater.js) ----------
+// 检查 GitHub Releases → 用户点击下载 → 校验 sha256 → 用户点击安装。渲染层不能传入下载地址。
+const appUpdater = createUpdater({
+  getJson: httpGet,
+  httpsGet: (url, headers) => new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.get({ hostname: u.hostname, port: 443, path: u.pathname + u.search, headers }, resolve);
+    req.on('error', reject);
+    req.setTimeout(30000, () => req.destroy(new Error('下载超时')));
+  }),
+  currentVersion: () => { try { return JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).version; } catch (e) { return app.getVersion(); } },
+  // 当前是否以管理员运行: 是 → 正式版, 否 → 受限版 (与已安装的版本保持一致)
+  edition: () => { try { return require('./elevation').isElevated() ? 'full' : 'limited'; } catch (e) { return 'full'; } },
+  tmpDir: () => path.join(app.getPath('temp'), 'poro-update'),
+  spawnInstaller: file => { spawn(file, [], { detached: true, stdio: 'ignore' }).unref(); },
+  quit: () => { app.isQuitting = true; setTimeout(() => app.quit(), 300); }
+});
+function fromMainWindow(e) { return mainWindow && !mainWindow.isDestroyed() && e.sender.id === mainWindow.webContents.id; }
+ipcMain.handle('update:check', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  try { return await appUpdater.check(); } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('update:download', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  try {
+    let lastSent = 0;
+    await appUpdater.download(p => { const t = Date.now(); if (t - lastSent > 250) { lastSent = t; sendToWindow('update:progress', p); } });
+    return { ok: true, info: appUpdater.status() };
+  } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('update:install', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  try { appUpdater.install(); return { ok: true }; } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('update:openPage', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  const info = appUpdater.status();
+  if (!info || !/^https:\/\/github\.com\/121012445\/poro-assistant\/releases\//.test(info.pageUrl)) return { __error: '没有可打开的发布页' };
+  try { await require('electron').shell.openExternal(info.pageUrl); return { ok: true }; } catch (err) { return { __error: err.message }; }
+});
+
 ipcMain.handle('app:version', async () => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));

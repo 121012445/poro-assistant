@@ -356,6 +356,12 @@
         </div>
       </div>
       <div class="tools-section">设置与数据</div>
+      <div class="tool-card span-all">
+        <h3>软件更新 <span id="updateBadge" class="update-badge" hidden>有新版本</span></h3>
+        <p>从本项目的 GitHub 发布页检查新版本。只在你点击后下载，下载完成会校验 sha256 与文件大小，再由你点击安装；不会自动安装。</p>
+        <div class="tool-row"><button id="updateCheckBtn" class="btn-secondary" onclick="checkForUpdate(false)">检查更新</button></div>
+        <div id="updateBody" class="update-body"></div>
+      </div>
       <div class="tool-card">
         <h3>合规模式（默认关闭）</h3>
         <p>开启后进入<b>只读模式</b>：自动化与对客户端的写入操作全部停用。Poro 不注入游戏进程、不读取游戏内存；关闭前请自行确认所在服务器规则。</p>
@@ -492,6 +498,7 @@
 <script src="js/autobp.js?v=2026100204"></script>
 <script src="js/lcu-events.js?v=2026100204"></script>
 <script src="js/opgg-loadout.js?v=2026100204"></script>
+<script src="js/update.js?v=2026100204"></script>
 <script src="js/settings.js?v=2026100204"></script>
 <script src="js/persist.js?v=2026100204"></script>
 <script src="js/autoreturn.js?v=2026100204"></script>
