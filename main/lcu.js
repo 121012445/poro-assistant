@@ -164,6 +164,56 @@ const KNOWN_CLIENT_DIRS = [
   'D:\\英雄联盟\\LeagueClient'
 ];
 
+// 快速扫描原先只看 C/D 盘上的常见路径。国服客户端以管理员身份运行时, 受限版 Poro 读不到它的进程
+// 命令行, 若注册表里也没有安装路径, 装在 E/F 等盘上的客户端就永远连不上。这里把同样的相对路径
+// 扩展到其他本地固定磁盘。只取"固定磁盘" (GetDriveTypeW = DRIVE_FIXED): 网络盘、光驱、可移动盘
+// 不扫 —— 断开的网络盘上 fs 调用可能挂起几十秒。盘符列表缓存 10 分钟。
+const EXTRA_CLIENT_DIR_SUFFIXES = [
+  'Riot Games\\League of Legends',
+  'Riot Games\\League of Legends\\LeagueClient',
+  'WeGameApps\\英雄联盟\\LeagueClient',
+  'WeGame\\rail_files\\英雄联盟\\LeagueClient',
+  '英雄联盟\\LeagueClient'
+];
+const DRIVE_LIST_TTL = 10 * 60 * 1000;
+let _driveCache = null;     // { t, drives }
+let _listFixedDrives = defaultListFixedDrives;
+
+function defaultListFixedDrives() {
+  if (process.platform !== 'win32') return [];
+  const koffi = require('koffi');
+  const kernel32 = koffi.load('kernel32.dll');
+  const GetLogicalDrives = kernel32.func('uint32 GetLogicalDrives()');
+  const GetDriveTypeW = kernel32.func('uint32 GetDriveTypeW(str16 lpRootPathName)');
+  const DRIVE_FIXED = 3;
+  const mask = GetLogicalDrives();
+  const drives = [];
+  for (let i = 2; i < 26; i++) {               // 从 C 开始; A/B 是软驱
+    if (!(mask & (1 << i))) continue;
+    const letter = String.fromCharCode(65 + i);
+    if (GetDriveTypeW(letter + ':\\') === DRIVE_FIXED) drives.push(letter);
+  }
+  return drives;
+}
+
+function fixedDrives() {
+  if (_driveCache && Date.now() - _driveCache.t < DRIVE_LIST_TTL) return _driveCache.drives;
+  let drives = [];
+  try { drives = (_listFixedDrives() || []).map(d => String(d).toUpperCase()).filter(d => /^[C-Z]$/.test(d)); } catch (e) { drives = []; }
+  _driveCache = { t: Date.now(), drives };
+  return drives;
+}
+
+// 原有清单原样在前 (顺序 = 优先级不变), 其他盘的候选追加在后
+function knownClientDirs(drives) {
+  const extra = [];
+  for (const d of drives || []) {
+    if (d === 'C' || d === 'D') continue;
+    for (const suffix of EXTRA_CLIENT_DIR_SUFFIXES) extra.push(d + ':\\' + suffix);
+  }
+  return KNOWN_CLIENT_DIRS.concat(extra);
+}
+
 async function collectCandidates(dirs, initial) {
   const candidates = initial ? initial.slice() : [];
   const seen = new Set();
@@ -185,7 +235,7 @@ async function collectCandidates(dirs, initial) {
 
 async function probe() {
   // 国服通常以管理员权限运行，进程命令行不可读；先直接扫常见目录的最新日志，避免每次启动等待 PowerShell/注册表。
-  const fast = await collectCandidates(KNOWN_CLIENT_DIRS);
+  const fast = await collectCandidates(knownClientDirs(fixedDrives()));
   if (fast.length) return fast;
 
   const { conn, exeDir } = await fromProcess();
@@ -205,7 +255,7 @@ async function getLCU() {
   return probing;
 }
 
-function reset() { cached = null; lastProbe = 0; _regPathsCache = null; _connFileCache.clear(); }
+function reset() { cached = null; lastProbe = 0; _regPathsCache = null; _connFileCache.clear(); _driveCache = null; }
 
 // 供 WebSocket 模块读取当前凭证 (未连接时返回 null)
 function getCached() { return cached; }
@@ -348,5 +398,9 @@ async function fixLCUWindow() {
 module.exports = {
   getLCU, lcuRequest, liveRequest, fixLCUWindow, reset, getCached, getGameConfigDir,
   // 仅供测试
-  _internals: { parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK }
+  _internals: {
+    parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK,
+    knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS,
+    setDriveLister: fn => { _listFixedDrives = fn || defaultListFixedDrives; _driveCache = null; }
+  }
 };

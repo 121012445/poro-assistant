@@ -168,6 +168,30 @@ const logLines = bytes => LOG_LINE.repeat(Math.ceil(bytes / LOG_LINE.length));
   await regInstallPaths();
   assert.strictEqual(execCalls, 3, '空结果也要缓存');
 
+  // ---------- 8) 其他固定磁盘上的客户端 ----------
+  const { knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS, setDriveLister } = lcu._internals;
+  const dirs = knownClientDirs(['C', 'D', 'E', 'F']);
+  assert.deepStrictEqual(dirs.slice(0, KNOWN_CLIENT_DIRS.length), KNOWN_CLIENT_DIRS, '原有清单必须原样排在最前 (优先级不变)');
+  const extra = dirs.slice(KNOWN_CLIENT_DIRS.length);
+  assert.ok(extra.every(d => /^[EF]:\\/.test(d)), 'C/D 已在原清单中, 不应重复追加');
+  assert.ok(extra.includes('E:\\WeGameApps\\英雄联盟\\LeagueClient') && extra.includes('F:\\Riot Games\\League of Legends'), '应覆盖国服与外服的常见安装路径');
+  assert.strictEqual(new Set(dirs).size, dirs.length, '不应有重复目录');
+  assert.deepStrictEqual(knownClientDirs([]), KNOWN_CLIENT_DIRS, '拿不到盘符时与原行为一致');
+  let listCalls = 0;
+  setDriveLister(() => { listCalls++; return ['c', 'E', 'Z', 'A', '1', 'EE', 'G']; });
+  assert.deepStrictEqual(fixedDrives(), ['C', 'E', 'Z', 'G'], '只接受 C-Z 单个盘符');
+  fixedDrives(); fixedDrives();
+  assert.strictEqual(listCalls, 1, '盘符列表应缓存 (未连接时每 5 秒探测一次)');
+  lcu.reset();
+  fixedDrives();
+  assert.strictEqual(listCalls, 2, 'reset() 后重新获取盘符');
+  setDriveLister(() => { throw new Error('koffi 不可用'); });
+  assert.deepStrictEqual(fixedDrives(), [], '获取盘符失败时退回原有清单, 不抛异常');
+  setDriveLister(null);
+  const lcuSrc = fs.readFileSync('main/lcu.js', 'utf8');
+  assert.ok(lcuSrc.includes('await collectCandidates(knownClientDirs(fixedDrives()))'), '快速扫描应包含其他固定磁盘');
+  assert.ok(/GetDriveTypeW\(letter \+ ':\\\\'\) === DRIVE_FIXED/.test(lcuSrc), '只扫描本地固定磁盘 (断开的网络盘会让 fs 调用挂起)');
+
   fs.promises.open = realOpen;
   console.log('LCU 连接探测 (异步分块读取 / 缓存 / 顺序) 测试通过');
 })().catch(error => { console.error(error); process.exitCode = 1; });
