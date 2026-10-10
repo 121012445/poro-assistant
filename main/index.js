@@ -117,6 +117,7 @@ const augmentVision = require('./augment-vision');
 const augmentOcrMatch = require('./augment-ocr-match');
 const hotkeyPollerFactory = require('./hotkey-poller');
 const { createOcrWorker } = require('./ocr-worker');
+const { createSgpCache } = require('./sgp-cache');
 const { createChangeLog } = require('./log-change');
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
@@ -1214,38 +1215,17 @@ ipcMain.handle('diag:recentLogs', async () => {
 });
 
 // ---------- SGP 服务器网关 (完整战绩) ----------
-// 战绩分页缓存: 同一 puuid 的分页结果短时复用, 避免"点别人→返回→再点"重复走网络
-const _sgpCache = new Map();
-const SGP_CACHE_TTL = 5 * 60 * 1000;   // 战绩是历史数据, 5 分钟内重拉毫无意义; 原先 60s 是"回到我的"点击变慢的主因
-const SGP_CACHE_MAX = 240;
-function _sgpInvalidateMatchHistory(puuid) {
-  const target = String(puuid || '').trim();
-  let removed = 0;
-  for (const key of _sgpCache.keys()) {
-    const parts = key.split('|');
-    if (!target || parts[1] === target) {
-      _sgpCache.delete(key);
-      removed++;
-    }
-  }
-  return removed;
-}
-function _sgpPrune() {
-  const now = Date.now();
-  for (const [k, v] of _sgpCache) if (now - v.t >= SGP_CACHE_TTL) _sgpCache.delete(k);
-  if (_sgpCache.size > SGP_CACHE_MAX) {
-    let cut = _sgpCache.size - SGP_CACHE_MAX;
-    for (const k of _sgpCache.keys()) { if (cut-- <= 0) break; _sgpCache.delete(k); }
-  }
-}
+// 战绩分页缓存: 同一 puuid 的分页结果短时复用 (5 分钟), 避免"点别人→返回→再点"重复走网络;
+// 按原始响应字节数限额 (原先只限 240 条, 每条是一整页原始战绩), 见 main/sgp-cache.js
+const sgpHistoryCache = createSgpCache({ ttlMs: 5 * 60 * 1000, maxEntries: 240, maxBytes: 32 * 1024 * 1024 });
 ipcMain.handle('sgp:matchHistory', async (e, platformId, puuid, startIndex, count, tag) => {
   if (!sgp.SGP_HOSTS[platformId]) return { __error: '不支持的大区: ' + platformId };
   const key = `${platformId}|${puuid}|${startIndex}|${count}|${tag || ''}`;
-  const hit = _sgpCache.get(key);
-  if (hit && Date.now() - hit.t < SGP_CACHE_TTL) return hit.data;
+  const hit = sgpHistoryCache.get(key);
+  if (hit !== undefined) return hit;
   try {
     const data = await sgp.matchHistory(platformId, puuid, startIndex, count, tag);
-    if (!data.__error) { _sgpCache.set(key, { t: Date.now(), data }); _sgpPrune(); }
+    if (!data.__error) sgpHistoryCache.set(key, data, sgp.responseBytes(data));
     return data;
   } catch (err) { return { __error: err.message }; }
 });
@@ -1254,7 +1234,7 @@ ipcMain.handle('sgp:matchHistory', async (e, platformId, puuid, startIndex, coun
 // 必须主动清掉该玩家的分页缓存，否则即使服务器已经入库仍会继续看到最多 5 分钟旧数据。
 ipcMain.handle('sgp:invalidateMatchHistory', (e, puuid) => ({
   ok: true,
-  removed: _sgpInvalidateMatchHistory(puuid)
+  removed: sgpHistoryCache.invalidatePuuid(puuid)
 }));
 
 ipcMain.handle('sgp:summonerByPuuid', async (e, platformId, puuid) => {
