@@ -2,8 +2,11 @@ const assert=require('assert');
 const fs=require('fs');
 const vm=require('vm');
 const src=fs.readFileSync('renderer/js/home.js','utf8');
-let now=100000,calls=0;
-const context=vm.createContext({Date:{now:()=>now},profileOverride:{puuid:'other'},homeStatsLoading:false,document:{hidden:false},loadHomeStats:async(force,opts)=>{calls++;assert(opts.profileRefresh&&opts.skipCache);}});
+let now=100000,calls=0,backoffUntil=0;
+const context=vm.createContext({Date:{now:()=>now},profileOverride:{puuid:'other'},homeStatsLoading:false,document:{hidden:false},loadHomeStats:async(force,opts)=>{calls++;assert(opts.profileRefresh&&opts.skipCache);},
+  // home.js 里的 sgpBackoffActive() 依赖主流程状态；这里注入可控实现，
+  // 好把"战绩服务故障退避期间不得轮询"也一起钉住。
+  sgpBackoffActive:()=>now<backoffUntil});
 vm.runInContext(src.slice(src.indexOf('let profileRefreshAfter'),src.indexOf('async function loadHomeStats')),context);
 (async()=>{
   await context.refreshViewedProfile();
@@ -19,6 +22,15 @@ vm.runInContext(src.slice(src.indexOf('let profileRefreshAfter'),src.indexOf('as
   now+=60001;context.profileOverride=null;
   await context.refreshViewedProfile();
   assert.equal(calls,2,'do not refresh self through profile flow');
+  // 国服战绩网关连续 5xx 时的退避窗口: 节流时间已过也不能再打请求
+  context.profileOverride={puuid:'other'};
+  now+=60001;calls=0;backoffUntil=now+30000;
+  await context.refreshViewedProfile();
+  assert.equal(calls,0,'退避期间必须跳过轮询');
+  assert.equal(src.includes('if(sgpBackoffActive()) return;'),true,'refreshViewedProfile 必须尊重退避');
+  backoffUntil=0;
+  await context.refreshViewedProfile();
+  assert.equal(calls,1,'退避结束后必须立刻恢复轮询');
   assert(src.includes('cacheUsable && !skipCache && (!profileOverride || cacheFresh)'));
   assert(src.includes('ts:historyFetchedAt,rankedTs:Date.now()'));
   assert(src.includes('sgpInvalidateMatchHistory?.(profileOverride.puuid)'));

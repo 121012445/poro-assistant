@@ -99,6 +99,34 @@ let profileOverride = null;
 const HOME_SEARCH_HISTORY_LIMIT = 10;
 let homeSearchHistory = [];
 let homeSearchDraft = '';
+
+// ---------- 战绩服务故障退避 ----------
+// 国服 SGP 战绩网关 (HN1 等) 在深夜偶发持续 5xx（实测 2026-10-09/10 的 23:00~00:3x 连续
+// 25 分钟返回 500/503）。原先的轮询每 12 秒无脑重试一次，整个故障窗口会打出上千次请求，
+// 既没有意义（服务端已经挂了）又会加重网关负载、拖慢恢复。
+// 这里改成指数退避：连续失败就拉长间隔，一旦成功立刻复位。
+const SGP_BACKOFF_STEPS_MS = [30000, 60000, 120000, 300000];
+let sgpFailureStreak = 0;
+let sgpBackoffUntil = 0;
+// 判定"服务端暂时不可用"（可退避重试），与"这个玩家就是没数据"区分开。
+function isTransientSgpError(message) {
+  const text = String(message || '');
+  return /SGP HTTP 5\d\d|SGP 请求超时|SGP 连接失败|SGP 凭证过期|所有大区召唤师服务暂不可用|ECONNRESET|ETIMEDOUT|socket hang up/i.test(text);
+}
+function noteSgpFailure() {
+  const step = Math.min(sgpFailureStreak, SGP_BACKOFF_STEPS_MS.length - 1);
+  sgpFailureStreak++;
+  sgpBackoffUntil = Date.now() + SGP_BACKOFF_STEPS_MS[step];
+  try { lolAPI.debugLog(`[HOME] SGP 退避 ${SGP_BACKOFF_STEPS_MS[step] / 1000}s (连续失败 ${sgpFailureStreak} 次)`); } catch (e) {}
+}
+function noteSgpSuccess() {
+  if (sgpFailureStreak) {
+    try { lolAPI.debugLog(`[HOME] SGP 恢复 (此前连续失败 ${sgpFailureStreak} 次)`); } catch (e) {}
+  }
+  sgpFailureStreak = 0;
+  sgpBackoffUntil = 0;
+}
+function sgpBackoffActive() { return Date.now() < sgpBackoffUntil; }
 let homeScrollSnapshot = null;
 // 自动补刷可以和用户打开详情并发。详情展开期间不替换首页 DOM；否则异步请求
 // 返回时会把 .ako-card 整批重建，表现为“详情自己合上”。关闭详情后再从新缓存补绘。
@@ -613,24 +641,44 @@ function backToMe() {
   if (panel) panel.innerHTML = '<div class="meta-loading">正在加载我的战绩...</div>';
   loadHomeStats(true);
 }
+// 平台标识归一化: 把客户端各处返回的写法统一成 Poro 内部使用的 platformId。
+// 国服 /riotclient/region-locale 返回 {region:"TENCENT", webRegion:"staging.na"} ——
+// 既不等于 "CN", 也不在任何平台列表里。此前没映射, 归一化结果为空, 于是
+// isTencentPlatform('') 判成 false, 国服玩家被当成"Riot 外服"去查 LCU 战绩接口,
+// 而国服 LCU 的 /lol-match-history 返回 HTTP 500 "Error getting match list for
+// summoner" → 点击他人 ID 查看战绩必然失败（自己首页有持久缓存兜底, 所以看不出）。
+const PLATFORM_ALIASES = {
+  NA: 'NA1', EUW: 'EUW1', EUNE: 'EUN1', EUN: 'EUN1', BR: 'BR1', LAN: 'LA1', LAS: 'LA2',
+  JP: 'JP1', OCE: 'OC1', OC: 'OC1', TR: 'TR1', PH: 'PH2', SG: 'SG2', TH: 'TH2', TW: 'TW2', VN: 'VN2',
+  TENCENT: 'HN1', CN: 'HN1'
+};
+function normalizePlatformId(raw) {
+  const key = String(raw || '').toUpperCase();
+  if (!key) return '';
+  if (PLATFORM_ALIASES[key]) return PLATFORM_ALIASES[key];
+  return (RIOT_PLATFORM_IDS.includes(key) || SGP_PLATFORM_IDS.includes(key)) ? key : '';
+}
 async function getPlatformId() {
   if (cachedPlatformId) return cachedPlatformId;
   const st = await lolAPI.lcuStatus();
-  const direct = String(st?.summoner?.platformId || st?.summoner?.currentPlatformId || '').toUpperCase();
+  // 只接受能归一化成已知平台的值。未知值（如国服的 "TENCENT"）不能直接当平台用,
+  // 否则会被 isTencentPlatform 判成外服, 把国服玩家路由到不可用的 LCU 战绩接口。
+  const direct = normalizePlatformId(st?.summoner?.platformId || st?.summoner?.currentPlatformId);
   if (direct) { cachedPlatformId = direct; return cachedPlatformId; }
   // 只取 1 场拿 platformId；国服与 Riot 外服的历史对象都带该字段。
   const hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${st.summoner.puuid}/matches?begIndex=0&endIndex=1`);
-  const fromHistory = String(hist?.games?.games?.[0]?.platformId || '').toUpperCase();
+  const fromHistory = normalizePlatformId(hist?.games?.games?.[0]?.platformId);
   if (fromHistory) { cachedPlatformId = fromHistory; return cachedPlatformId; }
   // 新账号没有历史时，从 Riot 客户端区域配置识别。不同版本返回 platformId/region/webRegion 之一。
   const platformCfg = await lolAPI.lcuRequest('GET', '/lol-platform-config/v1/namespaces/PlayerPlatformEdgeService').catch(() => null);
   const regionCfg = await lolAPI.lcuRequest('GET', '/riotclient/region-locale').catch(() => null);
-  const raw = String(platformCfg?.platformId || platformCfg?.region || regionCfg?.region || regionCfg?.webRegion || '').toUpperCase();
-  const aliases = {
-    NA: 'NA1', EUW: 'EUW1', EUNE: 'EUN1', EUN: 'EUN1', BR: 'BR1', LAN: 'LA1', LAS: 'LA2',
-    JP: 'JP1', OCE: 'OC1', OC: 'OC1', TR: 'TR1', PH: 'PH2', SG: 'SG2', TH: 'TH2', TW: 'TW2', VN: 'VN2'
-  };
-  cachedPlatformId = aliases[raw] || (RIOT_PLATFORM_IDS.includes(raw) || SGP_PLATFORM_IDS.includes(raw) ? raw : (raw === 'CN' ? 'HN1' : ''));
+  const raw = platformCfg?.platformId || platformCfg?.region || regionCfg?.region || regionCfg?.webRegion;
+  // 三条路径都失败时按国服处理（本产品主要面向国服; 外服的 region 一定能被上面的
+  // 映射表命中, 走到这里说明客户端状态异常, 默认国服比默认"外服"安全得多）。
+  cachedPlatformId = normalizePlatformId(raw) || 'HN1';
+  if (!normalizePlatformId(raw)) {
+    try { lolAPI.debugLog(`[HOME] 平台识别失败, 按国服处理 raw=${String(raw || '')}`); } catch (e) {}
+  }
   return cachedPlatformId;
 }
 function getRememberedPlayerPlatform(puuid) {
@@ -660,7 +708,15 @@ async function findSgpPlatform(puuid, preferredPlatformId, count = 50, onProgres
     const hit = results.find(result => result.summoner?.puuid === puuid);
     if (hit) {
       const response = await lolAPI.sgpMatchHistory(hit.platformId, puuid, 0, count);
-      if (response?.__error) throw new Error(response.__error);
+      if (response?.__error) {
+        // 大区已经确定了（召唤师档案查得到），只是战绩接口挂了。把这份信息挂在错误上
+        // 传给调用方，否则调用方只能显示"大区: 待识别"，把"服务暂时不可用"误报成
+        // "这个人查不到"，用户会以为功能坏了。
+        const err = new Error(response.__error);
+        err.platformId = hit.platformId;
+        err.summoner = hit.summoner;
+        throw err;
+      }
       rememberPlayerPlatform(puuid, hit.platformId);
       const summoner = {
         ...hit.summoner,
@@ -1294,7 +1350,17 @@ function filterHomeGames(mode) {
   renderHomeGameList();
 }
 
-function renderEmptyPlayerHome(panel, s, isSelf, server, ranked, message) {
+// 用户在"服务暂时不可用"页面上手动重试：清掉退避与轮询计时，立刻重新拉一次。
+// 自动轮询要退避（避免打挂掉的网关），但用户的主动操作必须立刻生效。
+function retryHomeStatsNow() {
+  sgpFailureStreak = 0;
+  sgpBackoffUntil = 0;
+  profileRefreshAfter = 0;
+  window._homeCacheNeedRefresh = false;
+  homeStatsLoaded = false;
+  loadHomeStats(true, { skipCache: true });
+}
+function renderEmptyPlayerHome(panel, s, isSelf, server, ranked, message, canRetry) {
   const displayName = (s.gameName || s.displayName || s.name || '未知玩家') + (s.tagLine ? '#' + s.tagLine : '');
   const icon = s.profileIconId >= 0 ? profileIcon(s.profileIconId) : placeholder((s.gameName || '?')[0]);
   const rankHtml = renderRankCards(ranked?.queueMap || {});
@@ -1313,6 +1379,7 @@ function renderEmptyPlayerHome(panel, s, isSelf, server, ranked, message) {
       <div class="home-games">
         <div class="rk-summary-bar"><span>玩家档案</span><span>暂无可统计对局</span></div>
         <div class="meta-loading">${escapeHtml(message || '该账号暂无公开的近期对局，基础档案已显示。')}</div>
+        ${canRetry ? '<button class="back-to-me" onclick="retryHomeStatsNow()">立即重试</button>' : ''}
       </div>
     </div>`;
   restoreHomeScroll(s?.puuid);
@@ -1345,6 +1412,8 @@ async function writeHomeSelfCache(includePractice, payload) {
 let profileRefreshAfter = 0;
 async function refreshViewedProfile() {
   if(!profileOverride || homeStatsLoading || Date.now()<profileRefreshAfter || document.hidden) return;
+  // 战绩服务故障期间不轮询：等退避窗口过去再试，避免对着已经挂掉的网关持续打请求。
+  if(sgpBackoffActive()) return;
   profileRefreshAfter=Date.now()+60000;
   await loadHomeStats(true,{skipCache:true,profileRefresh:true});
 }
@@ -1586,7 +1655,11 @@ async function loadHomeStats(force, opts) {
           targetPlatformFound = true;
           dataSource = 'LCU';
           rankedPromise = loadRankedStats(s.puuid, true, isSelf, stale);
-          const hist = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/products/lol/${encodeURIComponent(s.puuid)}/matches?begIndex=0&endIndex=${MAX_FETCH}`);
+          // LCU 单次最多返回 100 场: endIndex 超过 100 会被服务端直接拒绝
+          // （HTTP 500 "Error getting match list for summoner, begin 0, end: N"）。
+          // 原先这里把 MAX_FETCH（自己 500 / 他人 150）当 endIndex 传，外服查询必然
+          // 失败；而本分支最终也只准备前 100 场（见下方 foreignTarget）。
+          const hist = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/products/lol/${encodeURIComponent(s.puuid)}/matches?begIndex=0&endIndex=100`);
           if (stale()) return;
           if (!hist || hist.__error) throw new Error(hist?.__error || '外服客户端未返回战绩');
           const raw = hist?.games?.games || [];
@@ -1648,17 +1721,54 @@ async function loadHomeStats(force, opts) {
           const eligibleGames = includePractice ? rawNorm : rawNorm.filter(g => !isExcludedGame(g));
           games = eligibleGames.slice(0, TARGET);
           if (isProfileQuery) profileOverflow = eligibleGames.slice(TARGET);
+          // 服务端这次真的答了（哪怕是空历史）→ 清掉退避计数，轮询立刻回到正常节奏。
+          noteSgpSuccess();
         }
       } catch (e) {
         console.error("SGP 失败, 回退 LCU:", e.message);
         if(isSelf) rankedPromise=loadRankedStats(s.puuid,true,true,stale);
         dataError = e.message || '';
         dataSource = "LCU";
-        const hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${s.puuid}/matches?begIndex=0&endIndex=100`);
-        if (stale()) return;
-        const rawNorm = (hist?.games?.games || []).map(g => normalizeGame(g, false));
-        rawGameCount = rawNorm.length;
-        games = includePractice ? rawNorm : rawNorm.filter(g => !isExcludedGame(g));
+        // 服务端暂时不可用 → 记入退避，别让 12 秒轮询一直砸同一个挂掉的网关。
+        if (isTransientSgpError(e.message)) noteSgpFailure();
+        // findSgpPlatform 已经确认过目标大区（召唤师档案查得到）时，即使战绩接口失败
+        // 也要把大区显示出来，不能退化成"大区: 待识别"。
+        if (e.platformId) {
+          targetPlatformId = e.platformId;
+          targetPlatformFound = true;
+          if (e.summoner) s = mergeSummonerProfile(s, e.summoner);
+        }
+
+        // 国服 SGP 失败时，LCU 只能可靠返回当前账号的战绩，无法直接查询陌生玩家。
+        // 但与当前账号同局的玩家会出现在当前账号的本地历史中；先从这份历史筛选
+        // 目标玩家的共同对局，避免“自己能查、同局队友全失败”的假空结果。
+        if (!isSelf) {
+          const ownHist = await lolAPI.lcuRequest(
+            "GET",
+            `/lol-match-history/v1/products/lol/${selfPuuidSaved}/matches?begIndex=0&endIndex=100`
+          );
+          if (stale()) return;
+          if (!ownHist?.__error) {
+            const ownGames = (ownHist?.games?.games || []).map(g => normalizeGame(g, false));
+            const sharedGames = ownGames.filter(g => !!findProfileParticipant(g, s));
+            if (sharedGames.length) {
+              rawGameCount = sharedGames.length;
+              games = includePractice ? sharedGames : sharedGames.filter(g => !isExcludedGame(g));
+              dataSource = "LCU-encounter";
+              targetPlatformFound = true;
+              try { lolAPI.debugLog(`[HOME] SGP failed; recovered ${games.length} shared games from self history puuid=${s.puuid}`); } catch (e) {}
+            }
+          }
+        }
+
+        // 目标不在本机历史中时，保留原有 LCU 兜底；它可能命中客户端已有的目标缓存。
+        if (!games) {
+          const hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${s.puuid}/matches?begIndex=0&endIndex=100`);
+          if (stale()) return;
+          const rawNorm = (hist?.games?.games || []).map(g => normalizeGame(g, false));
+          rawGameCount = rawNorm.length;
+          games = includePractice ? rawNorm : rawNorm.filter(g => !isExcludedGame(g));
+        }
       }
       // 排位数据不阻塞渲染: 与战绩并行, 超时兜底后先渲染, 段位卡后补
       // 段位不是首屏必需信息：短暂等待后先展示战绩，迟到的数据由下方回调局部补齐。
@@ -1728,7 +1838,14 @@ async function loadHomeStats(force, opts) {
         isSelf,
         isSelf || targetPlatformFound ? server : '',
         ranked,
-        dataError ? '战绩服务暂未返回数据，基础档案已显示；稍后可重新查询。' : '该账号暂无公开的近期对局，基础档案已显示。'
+        dataError
+          ? (isTransientSgpError(dataError)
+            // 服务端 5xx：这是"国服战绩服务挂了"，不是"这个人没战绩"。必须说清楚，
+            // 否则用户会以为 Poro 查不到别人，转而反复点击甚至怀疑功能坏了。
+            ? `国服战绩服务暂时不可用${server ? '（' + server + '）' : ''}，已自动重试；基础档案已显示，恢复后会自动补上战绩。`
+            : '战绩服务暂未返回数据，基础档案已显示；稍后可重新查询。')
+          : '该账号暂无公开的近期对局，基础档案已显示。',
+        !!(dataError && isTransientSgpError(dataError))
       );
       try { lolAPI.debugLog(`[PERF] home path=${loadPath} target=${profileOverride ? 'profile' : 'self'} games=0 render=${Math.round(performance.now() - loadStartedAt)}ms`); } catch (e) {}
       return;

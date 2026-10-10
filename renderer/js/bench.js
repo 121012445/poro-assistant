@@ -693,7 +693,11 @@ async function pollLoop() {
     if (lcuConnected && profileOverride && homeStatsLoaded && !homeStatsLoading) refreshViewedProfile();
     // 缓存补刷/账号校验: 页面显示的是本地缓存时, LCU 一旦就绪:
     // 1) 登录账号变了 → 切回新账号数据  2) 缓存过期 → 静默拉最新
-    if (lcuConnected && !profileOverride && !homeStatsLoading && st.summoner && window._homeCacheNeedRefresh && !document.querySelector('.ako-card.expanded')) {
+    if (lcuConnected && !profileOverride && !homeStatsLoading && st.summoner && window._homeCacheNeedRefresh
+      && !document.querySelector('.ako-card.expanded')
+      // 战绩服务连续 5xx 期间保持退避：_homeCacheNeedRefresh 会被重新置位，
+      // 若在这里照旧每 12 秒补刷一次，整段故障窗口会打出上千次请求。
+      && !(typeof sgpBackoffActive === 'function' && sgpBackoffActive())) {
       window._homeCacheNeedRefresh = false;
       if (window._myPuuid && st.summoner.puuid !== window._myPuuid) {
         profileOverride = null;   // 换账号登录: 丢弃上个账号的查看状态, 切到新账号
