@@ -958,6 +958,9 @@ const opggClient = createOpggClient({ httpGet });
 ipcMain.handle('opgg:aramBalance', async () => {
   try { return await opggClient.getAramBalance(); } catch (err) { return { __error: err.message }; }
 });
+ipcMain.handle('opgg:tiers', async (e, mode) => {
+  try { return await opggClient.getTiers(String(mode || '')); } catch (err) { return { __error: err.message }; }
+});
 ipcMain.handle('opgg:build', async (e, mode, championId, position) => {
   try { return await opggClient.getBuild(String(mode || ''), Number(championId), String(position || '')); }
   catch (err) { return { __error: err.message }; }

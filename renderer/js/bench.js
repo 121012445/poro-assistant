@@ -144,6 +144,7 @@ const BENCH_SWAP_AFTER_CD_MS = 100;  // 冷却刚结束就出手容易撞上竞�
 const BENCH_SWAP_MAX_WAIT_MS = 3500; // 本地记录的等待超过此值说明时间戳不可信, 改为盲试
 let _benchSwapTask = null;           // { championId, startedAt, until, tries, waitedLocally, scheduledFor }
 let _benchSwapTimer = null;
+const _benchTierSeen = {};          // mode → 已经据此重绘过的强度榜加载时间, 避免加载完成回调反复重绘
 let _benchSwapBtnsKey = '';          // 上一次渲染的按钮集合, 避免选人事件高频重绘
 let _benchLastSession = null;        // 最近一次选人会话, 供列表事件到来时重绘
 let _benchSubsetIds = [];            // 抽卡池 (ARAM 类模式的 subset), 这些英雄没有 3 秒冷却
@@ -418,6 +419,9 @@ function benchSwapComparison(session, championId) {
 function benchRenderSwapButtons(session) {
   const box = document.getElementById('benchSwapBtns');
   if (!box) return;
+  // 强度角标要用当前模式 (大乱斗/海斗) 的榜单; 模式从 gameflow 队列派生, 未知时不显示
+  const benchTierMode = tierModeFor(hexRecommendContext?.queueId, '');
+  if (benchTierMode) loadModeTiers(benchTierMode).then(t => { if (t && t.loadedAt !== (benchTierMode in _benchTierSeen ? _benchTierSeen[benchTierMode] : -1)) { _benchTierSeen[benchTierMode] = t.loadedAt; _benchSwapBtnsKey = ''; benchRenderSwapButtons(); } }).catch(() => {});
   if (session !== undefined) _benchLastSession = session;
   const s = _benchLastSession;
   const benchIds = ((s && Array.isArray(s.benchChampions)) ? s.benchChampions : [])
@@ -446,7 +450,7 @@ function benchRenderSwapButtons(session) {
   // 一眼就能看出是「可选列表」语义和备战席/抽卡池对不上, 而不是功能没生效。
   const blocked = items.length - usable.length;
   const gateN = Array.isArray(_benchPickableIds) ? _benchPickableIds.length : -1;
-  const key = usable.map(it => it.id + ':' + it.tag + ':' + benchSwapComparison(s, it.id) + ':' + _benchHexRateCache.get(it.id)?.winRate).join(',') + '|' + blocked + '|' + gateN + '|' + aramBalance.loadedAt;
+  const key = usable.map(it => it.id + ':' + it.tag + ':' + benchSwapComparison(s, it.id) + ':' + _benchHexRateCache.get(it.id)?.winRate).join(',') + '|' + blocked + '|' + gateN + '|' + aramBalance.loadedAt + '|' + (benchTierMode ? (modeTiers[benchTierMode]?.loadedAt || 0) : 0);
   if (key === _benchSwapBtnsKey) return;
   _benchSwapBtnsKey = key;
   try {
@@ -465,7 +469,7 @@ function benchRenderSwapButtons(session) {
     const rate = hexRecommendContext?.isHex ? _benchHexRateCache.get(it.id) : null;
     const rateText = Number.isFinite(rate?.winRate) ? ' · ' + (rate.winRate * 100).toFixed(1) + '%' : '';
     return '<button class="btn-secondary" onclick="benchSwapNow(' + it.id + ')">换到 ' + name +
-      ' <span class="bench-tag">' + it.tag + rateText + '</span>' + balanceBadgeHtml(it.id) + '<small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
+      ' <span class="bench-tag">' + it.tag + rateText + '</span>' + balanceBadgeHtml(it.id) + (benchTierMode ? modeTierBadgeHtml(benchTierMode, it.id) : '') + '<small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
   }).join('') + (blocked
     ? '<span class="tool-state">另有 ' + blocked + ' 个备选池英雄暂不可选' +
       (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'

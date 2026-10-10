@@ -720,3 +720,9 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
    放不下的部分被裁掉, 完整内容看每个标签的 title */
 .lp-profile-line { flex-wrap: nowrap; overflow: hidden; }
 .lp-profile-line > * { flex-shrink: 0; }
+
+/* 英雄强度角标 (balance.js): OP.GG 当前模式强度榜, 1 阶最强 */
+.lp-tier { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; }
+.lp-tier-top { color: #fff; background: var(--accent); }
+.lp-tier-mid { color: var(--text-secondary); background: var(--bg-secondary); }
+.lp-tier-low { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }

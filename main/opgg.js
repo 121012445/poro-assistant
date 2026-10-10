@@ -9,6 +9,7 @@
 
 const HOST = 'lol-api-champion.op.gg';
 const BALANCE_TTL_MS = 30 * 60 * 1000;
+const TIERS_TTL_MS = 60 * 60 * 1000;
 const BUILD_TTL_MS = 30 * 60 * 1000;
 const BUILD_CACHE_MAX = 60;
 const MODES = ['ranked', 'aram', 'aram_mayhem', 'urf'];
@@ -58,6 +59,42 @@ function normalizeBalance(raw) {
     if (n && n.changes.length) champions[n.championId] = n.changes;
   }
   return { champions, count: Object.keys(champions).length };
+}
+
+// 各模式的英雄强度榜 → { 英雄ID: { tier, rank } }。tier 数值越小越强 (0 = OP, 1..5), 与英雄库页的口径一致。
+// 范围外的值 (负数、>5、非整数) 不收, 宁可没有角标也不显示一个解读不了的数。
+const MAX_TIER = 5;
+// 0 是合法的等级 (OP), 所以绝不能用 Number() 的宽松转换: Number(null) / Number('') / Number([]) / Number(false) 都是 0,
+// 会把「没有等级数据」的英雄显示成最强的 OP。只接受数字, 或者能完整解析成数字的非空字符串。
+function strictNumber(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim() !== '') return Number(v);
+  return NaN;
+}
+function normalizeTierRow(championId, tier, rank) {
+  const id = Number(championId), t = strictNumber(tier);
+  if (!isPosInt(id) || id > 10000 || !Number.isInteger(t) || t < 0 || t > MAX_TIER) return null;
+  const r = Number(rank);
+  return { championId: id, tier: t, rank: Number.isInteger(r) && r > 0 ? r : 0 };
+}
+// 海斗: /api/contents/tiers?type=aram_mayhem → { data: [{ champion_id, tier, rank }] }
+function normalizeMayhemTiers(raw) {
+  const out = {};
+  for (const row of Array.isArray(raw && raw.data) ? raw.data : []) {
+    const n = normalizeTierRow(row && row.champion_id, row && row.tier, row && row.rank);
+    if (n) out[n.championId] = { tier: n.tier, rank: n.rank };
+  }
+  return out;
+}
+// 大乱斗等: /api/global/champions/{mode} → { data: [{ id, average_stats: { tier_data: { tier, rank } } }] }
+function normalizeModeTiers(raw) {
+  const out = {};
+  for (const row of Array.isArray(raw && raw.data) ? raw.data : []) {
+    const td = row && row.average_stats && row.average_stats.tier_data;
+    const n = normalizeTierRow(row && row.id, td && td.tier, td && td.rank);
+    if (n) out[n.championId] = { tier: n.tier, rank: n.rank };
+  }
+  return out;
 }
 
 function intList(list, max) {
@@ -131,6 +168,8 @@ function createOpggClient(options) {
   let balance = null;            // { t, value }
   let balancePending = null;
   const builds = new Map();      // key → { t, value }
+  const tiers = new Map();       // mode → { t, value }
+  const tiersPending = new Map();
 
   async function getAramBalance() {
     if (balance && now() - balance.t < BALANCE_TTL_MS) return balance.value;
@@ -172,7 +211,31 @@ function createOpggClient(options) {
     return value;
   }
 
-  return { getAramBalance, getBuild };
+  // mode: aram / aram_mayhem / urf。排位的强度榜渲染层已有 (opgg:champions), 这里不重复提供
+  async function getTiers(mode) {
+    if (!['aram', 'aram_mayhem', 'urf'].includes(mode)) throw new Error('不支持的模式: ' + mode);
+    const hit = tiers.get(mode);
+    if (hit && now() - hit.t < TIERS_TTL_MS) return hit.value;
+    if (tiersPending.has(mode)) return tiersPending.get(mode);
+    const job = (async () => {
+      try {
+        const value = mode === 'aram_mayhem'
+          ? normalizeMayhemTiers(await httpGet(HOST, '/api/contents/tiers?type=aram_mayhem'))
+          : normalizeModeTiers(await httpGet(HOST, `/api/global/champions/${mode}`));
+        if (!Object.keys(value).length) throw new Error('OP.GG 强度榜为空');
+        const result = { mode, champions: value, fetchedAt: now(), source: 'OP.GG' };
+        tiers.set(mode, { t: now(), value: result });
+        return result;
+      } catch (error) {
+        if (hit) return Object.assign({}, hit.value, { stale: true });
+        throw error;
+      } finally { tiersPending.delete(mode); }
+    })();
+    tiersPending.set(mode, job);
+    return job;
+  }
+
+  return { getAramBalance, getBuild, getTiers };
 }
 
-module.exports = { createOpggClient, normalizeBalance, normalizeBuild, BALANCE_FIELDS, MODES, POSITIONS };
+module.exports = { createOpggClient, normalizeBalance, normalizeBuild, normalizeMayhemTiers, normalizeModeTiers, BALANCE_FIELDS, MODES, POSITIONS };

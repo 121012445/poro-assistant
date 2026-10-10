@@ -14,6 +14,8 @@ let champSelectParticipants = null;
 let liveRenderToken = 0;
 // 当前对局是否为大乱斗类模式 (决定玩家卡上显示平衡性调整); 由 renderLiveFromGameflow 按 gameflow 队列更新
 let liveBalanceMode = false;
+// 当前对局的强度榜模式 (aram / aram_mayhem / urf / null), 用于英雄强度角标
+let liveTierMode = null;
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
@@ -237,6 +239,14 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   const session = await lolAPI.lcuRequest("GET", "/lol-gameflow/v1/session");
   liveBalanceMode = isBalanceMode(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
   if (liveBalanceMode) loadAramBalance().catch(() => {});
+  liveTierMode = tierModeFor(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
+  if (liveTierMode) {
+    // 强度榜加载完(首次或过期刷新)后重绘一次, 补上角标; 已加载时 loadModeTiers 直接命中缓存, 不会循环触发
+    const tierMode = liveTierMode, had = modeTiers[tierMode]?.loadedAt || 0;
+    loadModeTiers(tierMode).then(t => {
+      if (t && t.loadedAt !== had && liveTierMode === tierMode && window._gameflowPhase) updateLivePage(window._gameflowPhase);
+    }).catch(() => {});
+  }
   let parts = ((session ?? {}).gameData && (session ?? {}).gameData.participants) || [];
   // 海斗(ARAM)/部分模式用 playerChampionSelections 而非 participants — 结构相同 (puuid+championId+name)
   if (!parts.length) {
@@ -613,7 +623,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const risk = deriveRiskProfile(p.recent);
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
-    const balanceHtml = liveBalanceMode ? balanceBadgeHtml(p.championId) : '';
+    const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>

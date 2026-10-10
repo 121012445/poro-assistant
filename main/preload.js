@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getSummonerSpells: (v) => ipcRenderer.invoke('ddragon:getSummonerSpells', v),
   getOpgg: () => ipcRenderer.invoke('opgg:champions'),
   getAramBalance: () => ipcRenderer.invoke('opgg:aramBalance'),
+  getModeTiers: (mode) => ipcRenderer.invoke('opgg:tiers', mode),
   getOpggBuild: (mode, championId, position) => ipcRenderer.invoke('opgg:build', mode, championId, position),
   getHexChampionAugments: (championId, scope) => ipcRenderer.invoke('hex:championAugments', championId, scope),
   // Riot API (远程战绩)

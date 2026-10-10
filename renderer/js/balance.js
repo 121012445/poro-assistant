@@ -67,3 +67,54 @@ function balanceBadgeHtml(championId) {
   const title = '大乱斗平衡性调整 (OP.GG' + (aramBalance.stale ? ', 数据可能过期' : '') + '): ' + balanceTipFor(championId);
   return `<span class="lp-balance lp-balance-${overall}" title="${escapeHtml(title)}">${label}</span>`;
 }
+
+// ============ 英雄强度角标 (OP.GG 各模式强度榜) ============
+// 大乱斗 / 海斗 / 无限火力的选人阶段, 在英雄头像旁标出该英雄在「当前模式」下的强度等级。
+// 不用英雄库页那份排位 (峡谷) 数据: 排位的强度放到大乱斗里是误导。
+// 注意: 这是 Poro 自己界面里的信息, 不是往游戏客户端里注入角标。
+const TIER_QUEUE_MODES = { 450: 'aram', 2400: 'aram_mayhem', 900: 'urf', 1010: 'urf', 1900: 'urf' };
+const TIER_LABELS = { 0: 'OP', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' };
+const TIER_TTL_MS = 60 * 60 * 1000;
+const modeTiers = {};              // mode → { champions, loadedAt, stale }
+const _modeTierLoading = {};
+
+function tierModeFor(queueId, gameMode) {
+  const q = Number(queueId);
+  if (TIER_QUEUE_MODES[q]) return TIER_QUEUE_MODES[q];
+  const m = String(gameMode || '').toUpperCase();
+  return m === 'ARAM' ? 'aram' : m === 'KIWI' ? 'aram_mayhem' : m === 'URF' ? 'urf' : null;
+}
+
+async function loadModeTiers(mode, force) {
+  if (!mode || !window.lolAPI?.getModeTiers) return null;
+  const have = modeTiers[mode];
+  if (!force && have && Date.now() - have.loadedAt < TIER_TTL_MS) return have;
+  if (_modeTierLoading[mode]) return _modeTierLoading[mode];
+  _modeTierLoading[mode] = (async () => {
+    try {
+      const r = await lolAPI.getModeTiers(mode);
+      if (!r || r.__error || !r.champions || typeof r.champions !== 'object') throw new Error(r?.__error || '数据为空');
+      modeTiers[mode] = { champions: r.champions, loadedAt: Date.now(), stale: !!r.stale };
+    } catch (e) {
+      try { lolAPI.debugLog?.('[TIER] ' + mode + ' 加载失败: ' + (e?.message || e)); } catch (x) {}
+    } finally { delete _modeTierLoading[mode]; }
+    return modeTiers[mode] || null;
+  })();
+  return _modeTierLoading[mode];
+}
+
+function modeTierOf(mode, championId) {
+  const row = modeTiers[mode]?.champions?.[String(Number(championId))];
+  return row && Object.prototype.hasOwnProperty.call(TIER_LABELS, row.tier) ? row : null;
+}
+
+// 角标: 1 阶最强。OP 和 1 用强调色, 4/5 用弱化色, 其余中性; 悬停写清楚模式、排名、来源
+const TIER_MODE_NAMES = { aram: '大乱斗', aram_mayhem: '海克斯大乱斗', urf: '无限火力' };
+function modeTierBadgeHtml(mode, championId) {
+  const row = modeTierOf(mode, championId);
+  if (!row) return '';
+  const cls = row.tier <= 1 ? 'top' : row.tier >= 4 ? 'low' : 'mid';
+  const title = `${TIER_MODE_NAMES[mode] || mode}强度 ${TIER_LABELS[row.tier]} 阶` + (row.rank ? ` · 排名 ${row.rank}` : '') + ' (OP.GG' + (modeTiers[mode]?.stale ? ', 数据可能过期' : '') + ')';
+  const text = row.tier === 0 ? 'OP' : 'T' + TIER_LABELS[row.tier];     // OP 不加 T 前缀, 否则读成 "TOP"
+  return `<span class="lp-tier lp-tier-${cls}" title="${escapeHtml(title)}">${text}</span>`;
+}
