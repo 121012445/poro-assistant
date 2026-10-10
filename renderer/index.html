@@ -200,11 +200,16 @@
         </div>
       </div>
       <div class="tool-card">
-        <h3>自动符文</h3>
-        <p>锁定英雄后自动配置推荐符文页 (按英雄轮换符文树, 非数据推荐; OP.GG 数据源接入中)。</p>
+        <h3>自动符文与出装</h3>
+        <p>锁定英雄后自动配置。优先恢复你保存过的符文记忆，否则按 OP.GG 当前模式的推荐 (峡谷按分路，大乱斗/海斗/无限火力不分路)；OP.GG 不可用时退回原轮换规则。</p>
         <div class="tool-row">
           <span id="autoRuneStatus" class="tool-state">未开启</span>
           <label class="switch"><input type="checkbox" id="autoRuneToggle" onchange="toggleAutoRune(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row opgg-loadout-options">
+          <label><input type="checkbox" id="opggLoadout_runes" checked onchange="setOpggLoadoutOption('runes', this.checked)"> 按 OP.GG 设置符文</label>
+          <label><input type="checkbox" id="opggLoadout_spells" onchange="setOpggLoadoutOption('spells', this.checked)"> 召唤师技能</label>
+          <label><input type="checkbox" id="opggLoadout_items" checked onchange="setOpggLoadoutOption('items', this.checked)"> 写入装备方案</label>
         </div>
       </div>
       <div class="tool-card">
@@ -486,6 +491,7 @@
 <script src="js/chat.js?v=2026100204"></script>
 <script src="js/autobp.js?v=2026100204"></script>
 <script src="js/lcu-events.js?v=2026100204"></script>
+<script src="js/opgg-loadout.js?v=2026100204"></script>
 <script src="js/settings.js?v=2026100204"></script>
 <script src="js/persist.js?v=2026100204"></script>
 <script src="js/autoreturn.js?v=2026100204"></script>

@@ -700,3 +700,5 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 .lp-balance-buff { color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent); }
 .lp-balance-nerf { color: var(--negative); background: color-mix(in srgb, var(--negative) 10%, transparent); }
 .lp-balance-mixed { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+.opgg-loadout-options { flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.opgg-loadout-options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }

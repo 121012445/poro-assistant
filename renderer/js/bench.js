@@ -599,7 +599,7 @@ function handleChampSelectEvent(session) {
   }
   if (autoRuneEnabled && session?.myTeam && window._myPuuid) {
     const mySlot = session.myTeam.find(p => p.puuid === window._myPuuid);
-    if (mySlot && mySlot.championId > 0) doAutoRune(mySlot.championId);
+    if (mySlot && mySlot.championId > 0) doAutoRune(mySlot.championId, session);
   }
   if (document.querySelector(".page.active")?.id === "page-counters") updateCounterClientPick();
 }

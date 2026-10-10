@@ -168,17 +168,34 @@ function toggleAutoRune(on) {
   document.getElementById('autoRuneStatus').style.color = on ? 'var(--positive)' : '';
 }
 let _autoRuneAppliedFor = 0;
-async function doAutoRune(championId) {
+let _autoRuneInFlight = 0;
+async function doAutoRune(championId, champSession) {
   if (!autoRuneEnabled || !lcuConnected || !championId || complianceOn) return;
-  if (_autoRuneAppliedFor === championId) return;
-  // 符文记忆: 玩家手动保存过的符文页优先 (按 英雄|模式 记忆), 无记忆再落原轮换逻辑
+  if (_autoRuneAppliedFor === championId || _autoRuneInFlight === championId) return;
+  // 选人事件很密集: 同一英雄的配置还在进行时不重复触发
+  _autoRuneInFlight = championId;
+  try { await doAutoRuneInner(championId, champSession); } finally { if (_autoRuneInFlight === championId) _autoRuneInFlight = 0; }
+}
+async function doAutoRuneInner(championId, champSession) {
+  const champName = champNumMap[String(championId)]?.name || championId;
+  // 1) 符文记忆: 玩家手动保存过的符文页优先 (按 英雄|模式 记忆)
+  let remembered = false;
   try {
-    if (typeof applyRememberedRune === 'function' && await applyRememberedRune(championId, null)) {
-      _autoRuneAppliedFor = championId;
-      showToast('已恢复记忆符文页: ' + (champNumMap[String(championId)]?.name || championId), 'positive');
-      return;
-    }
+    remembered = typeof applyRememberedRune === 'function' && !!(await applyRememberedRune(championId, null));
   } catch (e) {}
+  // 2) OP.GG 推荐: 符文 (有记忆时跳过) / 召唤师技能 / 装备方案, 见 opgg-loadout.js
+  let opgg = { runesApplied: false, done: [], failed: [] };
+  try { opgg = await applyOpggLoadout(championId, champSession, { skipRunes: remembered }); } catch (e) { opgg.failed.push(e.message); }
+  if (remembered || opgg.runesApplied || opgg.done.length) {
+    _autoRuneAppliedFor = championId;
+    const parts = (remembered ? ['记忆符文页'] : []).concat(opgg.done.map(x => 'OP.GG ' + x));
+    showToast(`已为 ${champName} 设置: ${parts.join('、')}` + (opgg.failed.length ? ` (失败: ${opgg.failed.join('; ')})` : ''), opgg.failed.length ? 'negative' : 'positive');
+    if (remembered || opgg.runesApplied) return;
+  }
+  // 3) 兜底: 原来的轮换规则 (OP.GG 不可用、该模式没有数据、或关掉了「按 OP.GG 设置符文」时)
+  if (opggLoadoutOptions().runes && opgg.failed.length && !opgg.done.length) {
+    try { lolAPI.debugLog?.('[AUTO RUNE] OP.GG 不可用, 退回轮换规则: ' + opgg.failed.join('; ')); } catch (e) {}
+  }
   try {
     const pages = await lolAPI.lcuRequest('GET', '/lol-perks/v1/pages');
     if (!pages || pages.__error || !Array.isArray(pages)) { showToast('自动符文: 获取符文页失败', 'negative'); return; }
@@ -204,8 +221,7 @@ async function doAutoRune(championId) {
     });
     if (putRes && putRes.__error) { showToast('自动符文: 应用失败 ' + putRes.__error, 'negative'); return; }
     _autoRuneAppliedFor = championId;
-    const champName = champNumMap[String(championId)]?.name || championId;
-    showToast('自动符文已应用: ' + champName, 'positive');
+    showToast('自动符文已应用 (轮换规则): ' + champName, 'positive');
   } catch (e) {
     showToast('自动符文异常: ' + e.message, 'negative');
   }
