@@ -18,7 +18,7 @@ const fs = require('fs');
 const http = require('http');
 const WebSocket = require('D:/lol-assistant/node_modules/ws');
 // 复用主进程那份纯函数, 在探针这一侧独立复算一遍期望位置 (不靠"看起来对")
-const position = require('D:/lol-assistant/main/overlay-position');
+const position = require('../main/overlay-position');
 
 const ROOT = 'D:\\lol-assistant';
 const PORT = 9334;                      // 与版本探针错开, 免得两个探针互踩
@@ -179,7 +179,7 @@ async function waitForTarget(match, tries) {
       'className=' + JSON.stringify(c.className) + ' title=' + JSON.stringify(c.title));
     // 探针侧(纯 node)独立再读一次, 与应用回报的值交叉比对
     let nodeRect = null;
-    try { nodeRect = require('D:/lol-assistant/main/win-rect').getLeagueClientRect(); } catch (e) { nodeRect = null; }
+    try { nodeRect = require('../main/win-rect').getLeagueClientRect(); } catch (e) { nodeRect = null; }
     check('探针侧独立读到同样的客户端矩形',
       !!nodeRect && nodeRect.width === c.width && nodeRect.height === c.height && nodeRect.x === c.x,
       'app=' + JSON.stringify(c) + ' node=' + JSON.stringify(nodeRect));

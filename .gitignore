@@ -10,6 +10,14 @@ win-unpacked/
 builder-debug.yml
 gs_lock.json
 
+# 二进制产物一律不入库。
+# 唯一例外: 原生输入助手 PoroInput.exe —— 本环境没有可用的 C# 编译链
+# (见 main/win-rect.js 的注释: csc.exe 被安全策略拦截, 当时改用 koffi 绕开),
+# 它只能手动编译后随仓库分发。源码是同目录的 PoroInput.cs,
+# 改动 .cs 后必须重新编译 .exe 并一起提交, 否则两者会静默漂移。
+*.exe
+!main/native/PoroInput.exe
+
 # 调试脚手架: 临时产物与备份不入库, 只保留有长期价值的工具脚本
 _debug_archive/*
 !_debug_archive/analyze_sections.py
