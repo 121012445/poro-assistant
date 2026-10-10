@@ -20,7 +20,7 @@ $stream = Await-WinRt ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) 
 $decoder = Await-WinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap = Await-WinRt ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('zh-Hans'))
-if ($null -eq $engine) { throw 'Windows 中文 OCR 语言包不可用' }
+if ($null -eq $engine) { throw 'OCR_LANG_MISSING: Windows zh-Hans OCR language pack is not available' }
 $result = Await-WinRt ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::Write($result.Text)

@@ -17,7 +17,7 @@ function Await-WinRt($Operation, [Type]$ResultType) {
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('zh-Hans'))
 if ($null -eq $engine) {
-  # 部分系统登记的 OCR 语言标签是 zh-CN / zh-Hans-CN 等, 不一定能按 'zh-Hans' 直接创建: 逐个匹配已安装的简体中文
+  # Some systems register the OCR language as zh-CN / zh-Hans-CN; try every installed Simplified Chinese recognizer.
   foreach ($candidate in [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages) {
     if ($candidate.LanguageTag -match '^zh-(Hans|CN|SG)') {
       $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($candidate)
@@ -28,8 +28,11 @@ if ($null -eq $engine) {
 if ($null -eq $engine) {
   $installed = @([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | ForEach-Object { $_.LanguageTag }) -join ', '
   if (-not $installed) { $installed = 'none' }
-  # 强化名称是简体中文, 其他语言的 OCR 引擎识别不出来, 所以不退回其他语言。
-  # 本文件没有 BOM, Windows PowerShell 5.1 会按系统 ANSI 代码页读它: 报错只用 ASCII, 中文提示由 main/ocr-worker.js 翻译。
+  # Augment names are Simplified Chinese, so never fall back to another OCR language.
+  # KEEP THIS FILE PURE ASCII (comments included). It has no BOM, so Windows PowerShell 5.1 decodes it with the
+  # system ANSI code page (GBK on Chinese Windows). UTF-8 Chinese text then swallows line breaks and turns the
+  # next line into a comment: 1.5.7 lost a 'foreach' line this way and the whole script failed to parse.
+  # The user-facing Chinese message is produced by main/ocr-worker.js. Guarded by test_ps1_ascii.js.
   throw "OCR_LANG_MISSING installed=$installed"
 }
 [Console]::OutputEncoding = $utf8

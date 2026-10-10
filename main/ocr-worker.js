@@ -75,9 +75,10 @@ function createOcrWorker(options) {
         else item.reject(new Error(value || 'OCR 识别失败'));
       }
     });
-    child.stderr.setEncoding('utf8');
+    // stderr 不设 utf8: 脚本在设置 [Console]::OutputEncoding 之前出的错 (含 PowerShell 自己的语法错误)
+    // 按控制台代码页输出, 中文系统上是 GBK, 当 UTF-8 读就是乱码。按字节收, 见 decodeConsoleText。
     child.stderr.on('data', chunk => {
-      const text = String(chunk).trim();
+      const text = decodeConsoleText(chunk).trim();
       if (!text) return;
       stderrTail = (stderrTail + ' ' + text).trim().slice(-400);
       log('[AUGMENT OCR WORKER] ' + text.substring(0, 400));
@@ -165,8 +166,20 @@ function describeStartupError(text) {
   return firstLine(raw);
 }
 
+// 控制台输出 → 文本: 合法 UTF-8 按 UTF-8, 否则按 GBK (中文 Windows 的控制台代码页 936)。
+// 运行环境不支持 GBK 解码时退回 UTF-8 (最坏与原来一样是乱码, 不会抛错)。
+let gbkDecoder;
+function decodeConsoleText(chunk) {
+  if (typeof chunk === 'string') return chunk;
+  const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk || []);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) {}
+  if (gbkDecoder === undefined) { try { gbkDecoder = new TextDecoder('gbk'); } catch (e) { gbkDecoder = null; } }
+  if (gbkDecoder) { try { return gbkDecoder.decode(buf); } catch (e) {} }
+  return buf.toString('utf8');
+}
+
 function firstLine(text) {
   return String(text || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || '';
 }
 
-module.exports = { createOcrWorker, describeStartupError, STARTUP_BACKOFF_MS };
+module.exports = { createOcrWorker, describeStartupError, decodeConsoleText, STARTUP_BACKOFF_MS };
