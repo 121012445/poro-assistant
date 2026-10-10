@@ -12,6 +12,8 @@ const livePlayersCache = { key: "", data: null, premadeGroups: null };
 // 选人阶段缓存的玩家列表 (加载页面/游戏开始时复用)
 let champSelectParticipants = null;
 let liveRenderToken = 0;
+// 当前对局是否为大乱斗类模式 (决定玩家卡上显示平衡性调整); 由 renderLiveFromGameflow 按 gameflow 队列更新
+let liveBalanceMode = false;
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
@@ -230,6 +232,8 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
 
   // 方式1: gameflow session (选人阶段有完整 puuid)
   const session = await lolAPI.lcuRequest("GET", "/lol-gameflow/v1/session");
+  liveBalanceMode = isBalanceMode(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
+  if (liveBalanceMode) loadAramBalance().catch(() => {});
   let parts = ((session ?? {}).gameData && (session ?? {}).gameData.participants) || [];
   // 海斗(ARAM)/部分模式用 playerChampionSelections 而非 participants — 结构相同 (puuid+championId+name)
   if (!parts.length) {
@@ -604,14 +608,13 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
-    // 注: 这里原有"大乱斗平衡性提示"的 balTip/balHtml 分支, 依赖从未实现的
-    // balanceTipFor()。虽带 typeof 守卫不会抛错, 但 .lp-balance 永远渲染不出来,
-    // 属静默死功能。1.5.2 摘除, 要恢复请连同函数体一起补。
+    // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
+    const balanceHtml = liveBalanceMode ? balanceBadgeHtml(p.championId) : '';
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
-          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${premadeTag}${marksHtml}</div>
+          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${premadeTag}${balanceHtml}${marksHtml}</div>
           <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
         </div>
       </div>

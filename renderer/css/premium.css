@@ -694,3 +694,9 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 #page-live.live-expanded .lp-team-grid { flex: 0 0 auto; }
 #page-live.live-expanded .lp-row { height: auto; }
 #page-live.live-expanded .lp-recent { flex: 0 0 auto; overflow: visible; }
+
+/* 大乱斗平衡性调整徽标 (balance.js): 颜色走主题变量, 深色主题自动适配 */
+.lp-balance { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; border: 1px solid currentColor; }
+.lp-balance-buff { color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent); }
+.lp-balance-nerf { color: var(--negative); background: color-mix(in srgb, var(--negative) 10%, transparent); }
+.lp-balance-mixed { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }

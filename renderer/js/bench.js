@@ -446,7 +446,7 @@ function benchRenderSwapButtons(session) {
   // 一眼就能看出是「可选列表」语义和备战席/抽卡池对不上, 而不是功能没生效。
   const blocked = items.length - usable.length;
   const gateN = Array.isArray(_benchPickableIds) ? _benchPickableIds.length : -1;
-  const key = usable.map(it => it.id + ':' + it.tag + ':' + benchSwapComparison(s, it.id) + ':' + _benchHexRateCache.get(it.id)?.winRate).join(',') + '|' + blocked + '|' + gateN;
+  const key = usable.map(it => it.id + ':' + it.tag + ':' + benchSwapComparison(s, it.id) + ':' + _benchHexRateCache.get(it.id)?.winRate).join(',') + '|' + blocked + '|' + gateN + '|' + aramBalance.loadedAt;
   if (key === _benchSwapBtnsKey) return;
   _benchSwapBtnsKey = key;
   try {
@@ -465,7 +465,7 @@ function benchRenderSwapButtons(session) {
     const rate = hexRecommendContext?.isHex ? _benchHexRateCache.get(it.id) : null;
     const rateText = Number.isFinite(rate?.winRate) ? ' · ' + (rate.winRate * 100).toFixed(1) + '%' : '';
     return '<button class="btn-secondary" onclick="benchSwapNow(' + it.id + ')">换到 ' + name +
-      ' <span class="bench-tag">' + it.tag + rateText + '</span><small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
+      ' <span class="bench-tag">' + it.tag + rateText + '</span>' + balanceBadgeHtml(it.id) + '<small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
   }).join('') + (blocked
     ? '<span class="tool-state">另有 ' + blocked + ' 个备选池英雄暂不可选' +
       (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'
