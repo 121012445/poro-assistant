@@ -72,6 +72,7 @@ function handleGameflowPhase(phase) {
   syncAugmentRecognitionForPhase(phase);
   // 对局结束自动化挂接 (EndOfGame 触发, None 重置); None 时同步重置战力分析标记
   if (typeof autoReturnMaybeTrigger === 'function') autoReturnMaybeTrigger(phase);
+  if (typeof autoflowOnPhase === 'function') autoflowOnPhase(phase);
   if (phase === 'None') {
     _autoReturnSeenEnd = false;
     // 红蓝方提示的重置由 chat.js 的 resetChampSelectSideAnnouncement 负责

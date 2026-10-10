@@ -213,6 +213,22 @@
         </div>
       </div>
       <div class="tool-card">
+        <h3>对局结束自动点赞</h3>
+        <p>结算时从本局真人队友（不含自己和人机）里随机选一位、随机选一种称赞。若你已手动点过或没有可用票数则不动作；同一局只点一次。</p>
+        <div class="tool-row">
+          <span class="tool-state">随机延迟后执行</span>
+          <label class="switch"><input type="checkbox" id="autoHonorToggle" onchange="toggleAutoHonor(this.checked)"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>掉线自动重连</h3>
+        <p>对局中掉线、客户端出现「重新连接」时自动点击重连。失败最多重试 4 次，之后提示你手动处理。</p>
+        <div class="tool-row">
+          <span class="tool-state">掉线时触发</span>
+          <label class="switch"><input type="checkbox" id="autoReconnectToggle" onchange="toggleAutoReconnect(this.checked)"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="tool-card">
         <h3>对局结束自动化</h3>
         <p>结算后自动创建同模式房间（开黑车队需重新邀请），可选立即自动排队。人机/训练模式同样生效。</p>
         <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:6px;">
@@ -499,6 +515,7 @@
 <script src="js/lcu-events.js?v=2026100204"></script>
 <script src="js/opgg-loadout.js?v=2026100204"></script>
 <script src="js/update.js?v=2026100204"></script>
+<script src="js/autoflow.js?v=2026100204"></script>
 <script src="js/settings.js?v=2026100204"></script>
 <script src="js/persist.js?v=2026100204"></script>
 <script src="js/autoreturn.js?v=2026100204"></script>

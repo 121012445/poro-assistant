@@ -993,7 +993,9 @@ const LCU_PREFIXES = ['/lol-summoner', '/lol-ranked', '/lol-champ-select', '/lol
   // 以下三个渲染层早就在调用, 但一直不在白名单里, 请求全被拒绝:
   //   回放观看 (sona-extra.js) 整个功能不可用; 新账号无历史时的大区识别兜底 (home.js getPlatformId) 从未生效。
   // /riotclient 只放行这一条只读路径, 不放行整个前缀 (其下有重启客户端界面等接口)。
-  '/lol-replays', '/lol-platform-config', '/riotclient/region-locale'];
+  '/lol-replays', '/lol-platform-config', '/riotclient/region-locale',
+  // 自动点赞 (autoflow.js); 掉线重连用的 /lol-gameflow/v1/reconnect 已在 /lol-gameflow 前缀内
+  '/lol-honor-v2'];
 
 let lcuStatusCache = { t: 0, data: null };
 let lcuStatusInFlight = null;
