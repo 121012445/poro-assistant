@@ -118,6 +118,7 @@ const augmentOcrMatch = require('./augment-ocr-match');
 const hotkeyPollerFactory = require('./hotkey-poller');
 const { createOcrWorker } = require('./ocr-worker');
 const { createSgpCache } = require('./sgp-cache');
+const { createOpggClient } = require('./opgg');
 const { createChangeLog } = require('./log-change');
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
@@ -949,6 +950,16 @@ ipcMain.handle('riot:getMatch', async (e, region, matchId, apiKey) => {
   try {
     return await riotRequest(region, `/lol/match/v5/matches/${matchId}`, apiKey);
   } catch (err) { return { __error: err.message }; }
+});
+
+// ---------- OP.GG: 大乱斗平衡性调整 + 单英雄推荐配置 (见 main/opgg.js) ----------
+const opggClient = createOpggClient({ httpGet });
+ipcMain.handle('opgg:aramBalance', async () => {
+  try { return await opggClient.getAramBalance(); } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('opgg:build', async (e, mode, championId, position) => {
+  try { return await opggClient.getBuild(String(mode || ''), Number(championId), String(position || '')); }
+  catch (err) { return { __error: err.message }; }
 });
 
 // ---------- op.gg 英雄强度数据 (KR 服务器, 10分钟缓存) ----------
