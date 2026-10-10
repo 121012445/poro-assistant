@@ -106,6 +106,7 @@ const sample = {
   });
   liveCtx.window.lolAPI = liveCtx.lolAPI;
   vm.runInContext(src, liveCtx);
+  vm.runInContext(read('renderer/js/behavior-tags.js'), liveCtx);   // renderLiveTeams 依赖它
   vm.runInContext(read('renderer/js/live.js'), liveCtx);
   await vm.runInContext('loadAramBalance()', liveCtx);
   assert.strictEqual(vm.runInContext('balanceTipFor(2)', liveCtx), '造成伤害 +5% · 技能急速 +10', '前置条件: 实时页上下文里数据已加载');

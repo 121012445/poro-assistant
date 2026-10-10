@@ -26,6 +26,7 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
   const recent = [];
   const teamGames = [];
   const flashSamples = [];
+  const behaviorSamples = [];      // 投降/信号统计需要比战绩列表更多的场次 (≥8 场), 单独收集, 见 behavior-tags.js
   try {
     const resp = await lolAPI.sgpMatchHistory(platformId, puuid, 0, count);
     if (resp?.__error) throw new Error(resp.__error);
@@ -49,11 +50,13 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
         ]);
         const win = stats.win === true || stats.win === "Win" || me.win === true;
         if (recent.length < 10) recent.push({ champId: normalizeChampId(me.championId || stats.championId), win, k: stats.kills ?? me.kills ?? 0, d: stats.deaths ?? me.deaths ?? 0, a: stats.assists ?? me.assists ?? 0, mode: gameMode });
+        const behavior = extractBehavior(Object.assign({}, me, { win }));
+        if (behavior && behaviorSamples.length < 30) behaviorSamples.push({ behavior });
       }
     }
   } catch (e) { throw e; }
   // 成功但确实没有历史时只做短负缓存；网络/鉴权失败完全不缓存。
-  const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, flashPreference: summarizeFlashPreference(flashSamples) };
+  const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, behaviorSamples, flashPreference: summarizeFlashPreference(flashSamples) };
   sgpRecentCache.delete(key);          // 重新写入放到末尾 (最新)
   sgpRecentCache.set(key, profile);
   limitMapSize(sgpRecentCache, SGP_RECENT_CACHE_MAX);
@@ -399,6 +402,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       // 下一帧也能从已完成的共同历史继续推断，不必等十个人重新请求完。
       p.premadeTeamGames = Array.isArray(profile.teamGames) ? profile.teamGames : [];
       p.flashPreference = profile.flashPreference || null;
+      p.behaviorSamples = Array.isArray(profile.behaviorSamples) ? profile.behaviorSamples : [];
       if (!staleSession()) updateLivePlayerRow(p, idx);  // 旧对局/旧账号的异步结果不得污染新阵容
       return profile;
     } catch (e) { return null; }
@@ -623,7 +627,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
         <span class="lp-kda">KDA ${kda}</span>
       </div>
-      <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}</div>
+      <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}${behaviorTagsHtml(p.behaviorSamples)}</div>
       <div class="lp-recent">${recentHtml}</div>
     </div>`;
   };
