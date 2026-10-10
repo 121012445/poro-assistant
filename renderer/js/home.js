@@ -1274,7 +1274,7 @@ async function loadMoreHomeGames() {
           cached.ts = Date.now();
           cached.games = homeGamesData;
           cached.rawGameCount = Math.max(cached.rawGameCount || 0, state.nextIndex);
-          localStorage.setItem(state.cacheKey, JSON.stringify(cached));
+          writeHomeCacheEntry(state.cacheKey, JSON.stringify(cached));
         }
       } catch (e) {}
     } catch (e) {
@@ -1688,7 +1688,7 @@ async function loadHomeStats(force, opts) {
       }
       historyFetchedAt=Date.now();
       const cachePayload = { ts: historyFetchedAt, s, isSelf, games, ranked, rawGameCount, dataSource, platformId: targetPlatformFound || isSelf ? targetPlatformId : '' };
-      try { localStorage.setItem(cacheKey, JSON.stringify(cachePayload)); } catch (e) {}
+      try { writeHomeCacheEntry(cacheKey, JSON.stringify(cachePayload)); } catch (e) {}
       if (isSelf) await writeHomeSelfCache(includePractice, cachePayload);
       if (!profileOverride && s && s.puuid) { try { localStorage.setItem('poro.selfPuuid', s.puuid); } catch (e) {} }
     }
@@ -1869,7 +1869,7 @@ async function loadHomeStats(force, opts) {
       if(hasRankedQueueData(rv)) {
         ranked=rv; rankFromCache=false;
         const payload={ts:historyFetchedAt,rankedTs:Date.now(),s,isSelf,games,ranked,rawGameCount,dataSource,platformId:targetPlatformId};
-        try { localStorage.setItem(cacheKey,JSON.stringify(payload)); } catch(e) {}
+        try { writeHomeCacheEntry(cacheKey,JSON.stringify(payload)); } catch(e) {}
         if(isSelf) writeHomeSelfCache(includePractice,payload).catch(()=>{});
         const ranksEl=panel.querySelector('.home-ranks');
         if(ranksEl) ranksEl.innerHTML=renderRankCards(rv.queueMap);

@@ -17,6 +17,30 @@
 let kernel = null;      // { getRect, available:true } | { available:false, error }
 let loaded = false;
 
+// 多显示器且缩放比例不同时的坐标换算 (由 index.js 在 app ready 后注入 Electron screen)。
+//
+// 原做法把线程切成 DPI UNAWARE, 让 Windows 按"系统 DPI" (登录时主显示器的缩放) 虚拟化坐标。单显示器、
+// 或各显示器缩放一致时, 这正好等于 Electron 的 DIP。但缩放不一致时 (例如主屏 150%、副屏 100%),
+// 副屏上的窗口也会按 150% 缩小: 1920 宽的游戏窗口读成 1280 —— 强化卡截图按它裁剪就裁错位置、
+// 浮窗也贴不到游戏边上。此时改为直接读物理像素 (Electron 主进程是 per-monitor aware),
+// 再用 screen.screenToDipRect 按窗口所在显示器换算。缩放一致时仍走原路径, 行为不变。
+let dpiCfg = null;      // { mixedDpi: () => boolean, screenToDip: rect => rect }
+function configureDpi(cfg) {
+  dpiCfg = cfg && typeof cfg.mixedDpi === 'function' && typeof cfg.screenToDip === 'function' ? cfg : null;
+}
+function usePhysicalPath() {
+  if (!dpiCfg) return false;
+  try { return !!dpiCfg.mixedDpi(); } catch (e) { return false; }
+}
+// 物理像素矩形 → DIP; 换算失败返回 null, 调用方退回原路径
+function physicalToDip(rect) {
+  try {
+    const r = dpiCfg && dpiCfg.screenToDip({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    if (!r || ![r.x, r.y, r.width, r.height].every(Number.isFinite) || r.width <= 0 || r.height <= 0) return null;
+    return Object.assign({}, rect, { x: r.x, y: r.y, width: r.width, height: r.height });
+  } catch (e) { return null; }
+}
+
 function load() {
   if (loaded) return kernel;
   loaded = true;
@@ -77,24 +101,34 @@ function load() {
     }
 
     function getRectFor(classNames) {
+      if (usePhysicalPath()) {
+        const raw = readRect(classNames);
+        const dip = raw && physicalToDip(raw);
+        if (dip) return dip;
+        // 换算失败: 落到下面的原路径
+      }
       let saved = null, switched = false;
       if (SetDpi) {
         // 失败也无所谓, 只是退回物理像素 (再由调用方按工作区做边界校正)
         try { saved = SetDpi(UNAWARE); switched = true; } catch (e) { switched = false; }
       }
       try {
-        // 优先 RCLIENT —— 选人界面就在这个窗口里。
-        // 绝不能把两个类名混在一起按面积挑: 游戏内窗口是全屏的, 一定比客户端大,
-        // 实测(用户正在对局时)会把浮窗贴到全屏游戏窗口上, 读到 1707x960 整屏而不是客户端的 1280x720。
-        const r = findWindow(classNames);
-        if (!r) return null;
-        return {
-          x: r.left, y: r.top, width: r.right - r.left, height: r.bottom - r.top,
-          className: r.className, title: r.title
-        };
+        return readRect(classNames);
       } finally {
         if (switched) { try { SetDpi(saved); } catch (e) {} }
       }
+    }
+
+    // 优先 RCLIENT —— 选人界面就在这个窗口里。
+    // 绝不能把两个类名混在一起按面积挑: 游戏内窗口是全屏的, 一定比客户端大,
+    // 实测(用户正在对局时)会把浮窗贴到全屏游戏窗口上, 读到 1707x960 整屏而不是客户端的 1280x720。
+    function readRect(classNames) {
+      const r = findWindow(classNames);
+      if (!r) return null;
+      return {
+        x: r.left, y: r.top, width: r.right - r.left, height: r.bottom - r.top,
+        className: r.className, title: r.title
+      };
     }
 
     function getRect() { return getRectFor(['RCLIENT']) || getRectFor(['RiotWindowClass']); }
@@ -120,4 +154,7 @@ function getLeagueGameRect() {
 
 function isAvailable() { return !!load().available; }
 
-module.exports = { getLeagueClientRect, getLeagueGameRect, isAvailable, loadError: () => load().error || null };
+module.exports = {
+  getLeagueClientRect, getLeagueGameRect, isAvailable, configureDpi, loadError: () => load().error || null,
+  _internals: { usePhysicalPath, physicalToDip }
+};

@@ -14,24 +14,94 @@ function restoreSideAnnounceToggle() {
 }
 
 // ========== 回放观看 (Game ID → 下载并播放) ==========
+// 原实现调用 POST /lol-replays/v1/rocks —— LCU 里没有这个接口, 且 /lol-replays 不在主进程白名单内,
+// 所以这个功能一直不可用。按 LCU 接口定义 (lol-replays) 的流程:
+//   1. GET  /lol-replays/v1/configuration            回放是否可用 (对局中/客户端更新中不可用)
+//   2. POST /lol-replays/v2/metadata/{id}/create      告诉客户端这局的版本/类型/队列/结束时间
+//   3. GET  /lol-replays/v1/metadata/{id}             state: checking/found → 稍候; download → 下载; watch → 播放; incompatible → 版本过旧
+//   4. POST /lol-replays/v1/rofls/{id}/download 或 /watch, 请求体 { componentType }
+// 下载完成后自动开始播放 (最多等 REPLAY_WAIT_MS)。
+const REPLAY_COMPONENT = { componentType: 'replay-button_match-history' };
+const REPLAY_POLL_MS = 2000;
+const REPLAY_WAIT_MS = 90 * 1000;
+let _replayBusy = false;
+
+function replayFailed(r) { return !!(r && r.__error); }
+function replayErrorText(r) { return (r && (r.message || r.__error)) || '未知错误'; }
+
+// 回放需要这局的版本等信息: 先查本地客户端战绩, 拿不到再查国服战绩服务 (SGP)
+async function replayGameMeta(gameId, platformId) {
+  try {
+    const g = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/games/${gameId}`);
+    if (g && !g.__error && g.gameVersion) {
+      return { gameVersion: g.gameVersion, gameType: g.gameType || '', queueId: Number(g.queueId) || 0,
+        gameEnd: (Number(g.gameCreation) || 0) + (Number(g.gameDuration) || 0) * 1000 };
+    }
+  } catch (e) {}
+  try {
+    if (lolAPI.sgpGameSummary && typeof isTencentPlatform === 'function' && isTencentPlatform(platformId)) {
+      const resp = await lolAPI.sgpGameSummary(platformId, gameId);
+      const j = resp && !resp.__error ? (resp.json || resp) : null;
+      if (j && j.gameVersion) {
+        return { gameVersion: j.gameVersion, gameType: j.gameType || '', queueId: Number(j.queueId) || 0,
+          gameEnd: Number(j.gameEndTimestamp) || ((Number(j.gameCreation) || 0) + (Number(j.gameDuration) || 0) * 1000) };
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function watchReplay() {
   const input = document.getElementById('replayGameId');
   const raw = (input?.value || '').trim();
   if (!raw || !/^\d+$/.test(raw)) return toolMsg('<span style="color:var(--negative)">请输入纯数字 Game ID (对局详情卡上可复制)</span>');
   if (!guardWrite('观看回放')) return;
-  toolMsg('请求回放中...');
+  if (_replayBusy) return toolMsg('回放正在处理中, 请稍候');
+  _replayBusy = true;
+  const gameId = raw;
+  const fail = text => toolMsg('<span style="color:var(--negative)">' + escapeHtml(text) + '</span>');
   try {
-    // platformId: 优先用当前大区
-    let platformId = cachedPlatformId || 'HN1';
-    const r = await lolAPI.lcuRequest('POST', '/lol-replays/v1/rocks', {
-      platformId: platformId, gameId: Number(raw)
-    });
-    if (r && r.__error) {
-      return toolMsg('<span style="color:var(--negative)">回放请求失败: ' + (r.message || r.__error) + '</span>');
+    toolMsg('检查回放...');
+    const conf = await lolAPI.lcuRequest('GET', '/lol-replays/v1/configuration');
+    if (replayFailed(conf)) return fail('回放请求失败: ' + replayErrorText(conf));
+    if (conf && conf.isReplaysEnabled === false) return fail('客户端当前不允许回放 (可能在对局中、正在更新, 或该大区未开放回放)');
+    if (conf && conf.isPlayingGame) return fail('对局进行中无法观看回放');
+
+    const platformId = cachedPlatformId || 'HN1';
+    const meta = await replayGameMeta(gameId, platformId);
+    if (!meta) return fail('查不到这局对局的信息 (Game ID 是否属于当前大区?)');
+    const created = await lolAPI.lcuRequest('POST', `/lol-replays/v2/metadata/${gameId}/create`, meta);
+    if (replayFailed(created)) return fail('回放请求失败: ' + replayErrorText(created));
+
+    const deadline = Date.now() + REPLAY_WAIT_MS;
+    let requestedDownload = false;
+    for (;;) {
+      const m = await lolAPI.lcuRequest('GET', `/lol-replays/v1/metadata/${gameId}`);
+      if (replayFailed(m)) return fail('回放状态读取失败: ' + replayErrorText(m));
+      const state = String(m?.state || '');
+      if (state === 'watch') {
+        const w = await lolAPI.lcuRequest('POST', `/lol-replays/v1/rofls/${gameId}/watch`, REPLAY_COMPONENT);
+        if (replayFailed(w)) return fail('启动回放失败: ' + replayErrorText(w));
+        return toolMsg('<span style="color:var(--positive)">正在启动回放</span>');
+      }
+      if (state === 'incompatible') return fail('这局回放与当前游戏版本不兼容 (回放只能在同一版本内观看)');
+      if (state === 'download' && !requestedDownload) {
+        const d = await lolAPI.lcuRequest('POST', `/lol-replays/v1/rofls/${gameId}/download`, REPLAY_COMPONENT);
+        if (replayFailed(d)) return fail('回放下载失败: ' + replayErrorText(d));
+        requestedDownload = true;
+      }
+      if (Date.now() >= deadline) {
+        return toolMsg(requestedDownload
+          ? '回放仍在下载, 完成后可在客户端「生涯 - 对局记录」里观看'
+          : '<span style="color:var(--negative)">客户端迟迟没有返回回放状态 (' + escapeHtml(state || '未知') + '), 请稍后重试</span>');
+      }
+      toolMsg(state === 'downloading' ? `回放下载中${m?.downloadProgress > 0 && m.downloadProgress <= 100 ? ' ' + m.downloadProgress + '%' : ''}...` : '准备回放...');
+      await new Promise(r => setTimeout(r, REPLAY_POLL_MS));
     }
-    toolMsg('<span style="color:var(--positive)">回放下载已开始, 完成后客户端会自动提示观看 (下载进度见客户端生涯-回放)</span>');
   } catch (e) {
-    toolMsg('<span style="color:var(--negative)">回放失败: ' + e.message + '</span>');
+    fail('回放失败: ' + e.message);
+  } finally {
+    _replayBusy = false;
   }
 }
 // Game ID 复制 (对局详情处调用)

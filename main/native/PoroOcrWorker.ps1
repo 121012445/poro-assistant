@@ -16,7 +16,22 @@ function Await-WinRt($Operation, [Type]$ResultType) {
 
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('zh-Hans'))
-if ($null -eq $engine) { throw 'Windows 中文 OCR 语言包不可用' }
+if ($null -eq $engine) {
+  # 部分系统登记的 OCR 语言标签是 zh-CN / zh-Hans-CN 等, 不一定能按 'zh-Hans' 直接创建: 逐个匹配已安装的简体中文
+  foreach ($candidate in [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages) {
+    if ($candidate.LanguageTag -match '^zh-(Hans|CN|SG)') {
+      $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($candidate)
+      if ($null -ne $engine) { break }
+    }
+  }
+}
+if ($null -eq $engine) {
+  $installed = @([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | ForEach-Object { $_.LanguageTag }) -join ', '
+  if (-not $installed) { $installed = 'none' }
+  # 强化名称是简体中文, 其他语言的 OCR 引擎识别不出来, 所以不退回其他语言。
+  # 本文件没有 BOM, Windows PowerShell 5.1 会按系统 ANSI 代码页读它: 报错只用 ASCII, 中文提示由 main/ocr-worker.js 翻译。
+  throw "OCR_LANG_MISSING installed=$installed"
+}
 [Console]::OutputEncoding = $utf8
 
 while (($line = [Console]::In.ReadLine()) -ne $null) {

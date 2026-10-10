@@ -10,7 +10,7 @@ const app = fs.readFileSync('renderer/js/app.js', 'utf8');
 const hex = fs.readFileSync('renderer/js/hex.js', 'utf8');
 
 assert(main.includes("ipcMain.handle('sgp:invalidateMatchHistory'"), 'main process must expose SGP history invalidation');
-assert(main.includes('parts[1] === target'), 'SGP invalidation must be scoped to the requested PUUID');
+assert(fs.readFileSync('main/sgp-cache.js', 'utf8').includes('parts[1] === target') && main.includes('sgpHistoryCache.invalidatePuuid(puuid)'), 'SGP invalidation must be scoped to the requested PUUID');
 assert(preload.includes('sgpInvalidateMatchHistory:'), 'preload must expose SGP history invalidation');
 assert(events.includes("['ChampSelect', 'GameStart', 'InProgress'].includes(window._gameflowPhase)"), 'retry loop must stop when a new game starts');
 assert(events.includes("loadHomeStats(true, { skipCache: true })"), 'post-game refresh must bypass the persistent home cache');

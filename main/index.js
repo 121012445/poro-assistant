@@ -116,6 +116,8 @@ const augmentRecognizerFactory = require('./augment-recognizer');
 const augmentVision = require('./augment-vision');
 const augmentOcrMatch = require('./augment-ocr-match');
 const hotkeyPollerFactory = require('./hotkey-poller');
+const { createOcrWorker } = require('./ocr-worker');
+const { createSgpCache } = require('./sgp-cache');
 const { createChangeLog } = require('./log-change');
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
@@ -674,90 +676,21 @@ function normalizeOcrText(value) {
   return augmentOcrMatch.normalizeOcrText(value);
 }
 
-let augmentOcrWorker = null;
-let augmentOcrOutput = '';
-let augmentOcrPending = [];
-
 function augmentOcrWorkerPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'main', 'native', 'PoroOcrWorker.ps1')
     : path.join(__dirname, 'native', 'PoroOcrWorker.ps1');
 }
 
-function rejectAugmentOcrPending(error) {
-  const pending = augmentOcrPending.splice(0);
-  for (const item of pending) {
-    clearTimeout(item.timer);
-    item.reject(error);
-  }
-}
-
-function stopAugmentOcrWorker() {
-  const worker = augmentOcrWorker;
-  augmentOcrWorker = null;
-  augmentOcrOutput = '';
-  rejectAugmentOcrPending(new Error('OCR 识别进程已停止'));
-  try { worker?.kill(); } catch (e) {}
-}
-
-function ensureAugmentOcrWorker() {
-  if (augmentOcrWorker && !augmentOcrWorker.killed) return augmentOcrWorker;
-  const worker = spawn('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', augmentOcrWorkerPath()
-  ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  augmentOcrWorker = worker;
-  worker.stdout.setEncoding('utf8');
-  worker.stdout.on('data', chunk => {
-    augmentOcrOutput += chunk;
-    let newline;
-    while ((newline = augmentOcrOutput.indexOf('\n')) >= 0) {
-      const line = augmentOcrOutput.slice(0, newline).replace(/\r$/, '');
-      augmentOcrOutput = augmentOcrOutput.slice(newline + 1);
-      const pending = augmentOcrPending.shift();
-      if (!pending) continue;
-      clearTimeout(pending.timer);
-      const [status, encoded = ''] = line.split('\t', 2);
-      let value = '';
-      try { value = Buffer.from(encoded, 'base64').toString('utf8'); } catch (e) {}
-      if (status === 'OK') pending.resolve(value);
-      else pending.reject(new Error(value || 'OCR 识别失败'));
-    }
-  });
-  worker.stderr.setEncoding('utf8');
-  worker.stderr.on('data', chunk => logErr('[AUGMENT OCR WORKER] ' + String(chunk).trim().substring(0, 400)));
-  const failed = error => {
-    if (augmentOcrWorker !== worker) return;
-    augmentOcrWorker = null;
-    rejectAugmentOcrPending(error instanceof Error ? error : new Error('OCR 识别进程已退出'));
-  };
-  worker.on('error', failed);
-  worker.on('exit', code => failed(new Error('OCR 识别进程已退出 (' + code + ')')));
-  return worker;
-}
-
-function requestAugmentOcr(imagePath) {
-  return new Promise((resolve, reject) => {
-    const worker = ensureAugmentOcrWorker();
-    const pending = { resolve, reject, timer: null };
-    pending.timer = setTimeout(() => {
-      if (!augmentOcrPending.includes(pending)) return;
-      stopAugmentOcrWorker();
-      reject(new Error('OCR 识别超时'));
-    }, 4000);
-    augmentOcrPending.push(pending);
-    const encodedPath = Buffer.from(imagePath, 'utf8').toString('base64');
-    worker.stdin.write(encodedPath + '\n', error => {
-      if (!error) return;
-      const index = augmentOcrPending.indexOf(pending);
-      if (index >= 0) augmentOcrPending.splice(index, 1);
-      clearTimeout(pending.timer);
-      reject(error);
-    });
-  });
-}
+// OCR 子进程管理见 main/ocr-worker.js (含"缺少中文 OCR 语言包时不再每轮重启 PowerShell"的退避)
+const augmentOcr = createOcrWorker({ spawn, scriptPath: augmentOcrWorkerPath, log: logErr });
+function ensureAugmentOcrWorker() { return augmentOcr.ensure(); }
+function stopAugmentOcrWorker() { augmentOcr.stop(); }
+function requestAugmentOcr(imagePath) { return augmentOcr.request(imagePath); }
 
 async function recognizeAugmentNamesByOcr(screenshot, candidates) {
   if (process.platform !== 'win32' || !screenshot || screenshot.isEmpty()) return [];
+  if (!augmentOcr.isAvailable()) return [];
   const size = screenshot.getSize();
   // 每张卡单独 OCR，才能保证结果与左/中/右槽位一一对应。整块 OCR 会按版面分析顺序
   // 返回“左、右、中”，曾导致推荐名称和游戏卡片对不上。
@@ -859,6 +792,7 @@ ipcMain.handle('augment-overlay:status', async () => ({
   bounds: augmentOverlayWindow && !augmentOverlayWindow.isDestroyed() ? augmentOverlayWindow.getBounds() : null,
   items: augmentOverlayPayload.items.length,
   scale: Number(lastAugmentOverlayScale.toFixed(2)),
+  ocr: augmentOcr.status(),
   gameRectAvailable: (() => { try { return !!winRect.getLeagueGameRect(); } catch (e) { return false; } })()
 }));
 
@@ -1043,7 +977,11 @@ ipcMain.handle('hex:championAugments', async (e, championId, scope) => {
 const LCU_PREFIXES = ['/lol-summoner', '/lol-ranked', '/lol-champ-select', '/lol-gameflow',
   '/lol-matchmaking', '/lol-match-history', '/lol-lobby', '/lol-spectator', '/lol-game-data', '/lol-perks',
   '/lol-chat', '/lol-regalia', '/lol-loot', '/lol-event-hub', '/lol-missions', '/lol-challenges', '/lol-game-settings', '/lol-item-sets',
-  '/lol-lobby-team-builder'];
+  '/lol-lobby-team-builder',
+  // 以下三个渲染层早就在调用, 但一直不在白名单里, 请求全被拒绝:
+  //   回放观看 (sona-extra.js) 整个功能不可用; 新账号无历史时的大区识别兜底 (home.js getPlatformId) 从未生效。
+  // /riotclient 只放行这一条只读路径, 不放行整个前缀 (其下有重启客户端界面等接口)。
+  '/lol-replays', '/lol-platform-config', '/riotclient/region-locale'];
 
 let lcuStatusCache = { t: 0, data: null };
 let lcuStatusInFlight = null;
@@ -1281,38 +1219,17 @@ ipcMain.handle('diag:recentLogs', async () => {
 });
 
 // ---------- SGP 服务器网关 (完整战绩) ----------
-// 战绩分页缓存: 同一 puuid 的分页结果短时复用, 避免"点别人→返回→再点"重复走网络
-const _sgpCache = new Map();
-const SGP_CACHE_TTL = 5 * 60 * 1000;   // 战绩是历史数据, 5 分钟内重拉毫无意义; 原先 60s 是"回到我的"点击变慢的主因
-const SGP_CACHE_MAX = 240;
-function _sgpInvalidateMatchHistory(puuid) {
-  const target = String(puuid || '').trim();
-  let removed = 0;
-  for (const key of _sgpCache.keys()) {
-    const parts = key.split('|');
-    if (!target || parts[1] === target) {
-      _sgpCache.delete(key);
-      removed++;
-    }
-  }
-  return removed;
-}
-function _sgpPrune() {
-  const now = Date.now();
-  for (const [k, v] of _sgpCache) if (now - v.t >= SGP_CACHE_TTL) _sgpCache.delete(k);
-  if (_sgpCache.size > SGP_CACHE_MAX) {
-    let cut = _sgpCache.size - SGP_CACHE_MAX;
-    for (const k of _sgpCache.keys()) { if (cut-- <= 0) break; _sgpCache.delete(k); }
-  }
-}
+// 战绩分页缓存: 同一 puuid 的分页结果短时复用 (5 分钟), 避免"点别人→返回→再点"重复走网络;
+// 按原始响应字节数限额 (原先只限 240 条, 每条是一整页原始战绩), 见 main/sgp-cache.js
+const sgpHistoryCache = createSgpCache({ ttlMs: 5 * 60 * 1000, maxEntries: 240, maxBytes: 32 * 1024 * 1024 });
 ipcMain.handle('sgp:matchHistory', async (e, platformId, puuid, startIndex, count, tag) => {
   if (!sgp.SGP_HOSTS[platformId]) return { __error: '不支持的大区: ' + platformId };
   const key = `${platformId}|${puuid}|${startIndex}|${count}|${tag || ''}`;
-  const hit = _sgpCache.get(key);
-  if (hit && Date.now() - hit.t < SGP_CACHE_TTL) return hit.data;
+  const hit = sgpHistoryCache.get(key);
+  if (hit !== undefined) return hit;
   try {
     const data = await sgp.matchHistory(platformId, puuid, startIndex, count, tag);
-    if (!data.__error) { _sgpCache.set(key, { t: Date.now(), data }); _sgpPrune(); }
+    if (!data.__error) sgpHistoryCache.set(key, data, sgp.responseBytes(data));
     return data;
   } catch (err) { return { __error: err.message }; }
 });
@@ -1321,7 +1238,7 @@ ipcMain.handle('sgp:matchHistory', async (e, platformId, puuid, startIndex, coun
 // 必须主动清掉该玩家的分页缓存，否则即使服务器已经入库仍会继续看到最多 5 分钟旧数据。
 ipcMain.handle('sgp:invalidateMatchHistory', (e, puuid) => ({
   ok: true,
-  removed: _sgpInvalidateMatchHistory(puuid)
+  removed: sgpHistoryCache.invalidatePuuid(puuid)
 }));
 
 ipcMain.handle('sgp:summonerByPuuid', async (e, platformId, puuid) => {
@@ -1610,6 +1527,13 @@ if (hasSingleInstanceLock) {
       const gpu = app.getGPUFeatureStatus();
       logErr('[GPU] ' + Object.entries(gpu).map(([k, v]) => k + '=' + v).join(' '));
     } catch (e) { logErr('[GPU] status unavailable: ' + e.message); }
+    // 多显示器缩放比例不一致时, 游戏/客户端窗口坐标改按所在显示器换算 (见 win-rect.js configureDpi)
+    if (process.platform === 'win32' && typeof electronScreen.screenToDipRect === 'function') {
+      winRect.configureDpi({
+        mixedDpi: () => new Set(electronScreen.getAllDisplays().map(d => d.scaleFactor)).size > 1,
+        screenToDip: rect => electronScreen.screenToDipRect(null, rect)
+      });
+    }
     createWindow();
     // 托盘不是主窗口启动的必要条件；个别系统若托盘图标初始化失败，不应拖垮整个程序。
     try { createTray(); } catch (error) { logErr('[TRAY INIT FAILED] ' + formatError(error)); }

@@ -43,6 +43,10 @@ async function getLeagueSessionToken(force) {
   return token;
 }
 
+// 解析后的响应对象 → 原始响应字节数。主进程缓存按它限额 (sgp-cache.js); WeakMap 不影响对象本身, 也不会经 IPC 传出去。
+const RESPONSE_BYTES = new WeakMap();
+function responseBytes(value) { return value && typeof value === 'object' ? RESPONSE_BYTES.get(value) || 0 : 0; }
+
 function rawRequest(host, path, token, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
     // host 形如 "hn1-k8s-sgp.lol.qq.com:21019", 需拆分主机与端口
@@ -82,7 +86,10 @@ function rawRequest(host, path, token, method = 'GET', body = null) {
           err.statusCode = res.statusCode;
           return reject(err);
         }
-        try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('SGP 响应解析失败')); }
+        let parsed;
+        try { parsed = JSON.parse(data); } catch (e) { return reject(new Error('SGP 响应解析失败')); }
+        if (parsed && typeof parsed === 'object') RESPONSE_BYTES.set(parsed, bytes);
+        resolve(parsed);
       });
     });
     req.on('error', e => reject(new Error('SGP 连接失败: ' + e.message)));
@@ -148,4 +155,4 @@ async function summonerByPuuid(platformId, puuid) {
   }
 }
 
-module.exports = { matchHistory, gameSummary, gameDetails, summonerByPuuid, SGP_HOSTS };
+module.exports = { matchHistory, gameSummary, gameDetails, summonerByPuuid, responseBytes, SGP_HOSTS };
