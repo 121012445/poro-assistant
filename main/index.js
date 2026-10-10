@@ -116,6 +116,7 @@ const augmentRecognizerFactory = require('./augment-recognizer');
 const augmentVision = require('./augment-vision');
 const augmentOcrMatch = require('./augment-ocr-match');
 const hotkeyPollerFactory = require('./hotkey-poller');
+const { createOcrWorker } = require('./ocr-worker');
 const { createChangeLog } = require('./log-change');
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
@@ -674,90 +675,21 @@ function normalizeOcrText(value) {
   return augmentOcrMatch.normalizeOcrText(value);
 }
 
-let augmentOcrWorker = null;
-let augmentOcrOutput = '';
-let augmentOcrPending = [];
-
 function augmentOcrWorkerPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'main', 'native', 'PoroOcrWorker.ps1')
     : path.join(__dirname, 'native', 'PoroOcrWorker.ps1');
 }
 
-function rejectAugmentOcrPending(error) {
-  const pending = augmentOcrPending.splice(0);
-  for (const item of pending) {
-    clearTimeout(item.timer);
-    item.reject(error);
-  }
-}
-
-function stopAugmentOcrWorker() {
-  const worker = augmentOcrWorker;
-  augmentOcrWorker = null;
-  augmentOcrOutput = '';
-  rejectAugmentOcrPending(new Error('OCR 识别进程已停止'));
-  try { worker?.kill(); } catch (e) {}
-}
-
-function ensureAugmentOcrWorker() {
-  if (augmentOcrWorker && !augmentOcrWorker.killed) return augmentOcrWorker;
-  const worker = spawn('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', augmentOcrWorkerPath()
-  ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  augmentOcrWorker = worker;
-  worker.stdout.setEncoding('utf8');
-  worker.stdout.on('data', chunk => {
-    augmentOcrOutput += chunk;
-    let newline;
-    while ((newline = augmentOcrOutput.indexOf('\n')) >= 0) {
-      const line = augmentOcrOutput.slice(0, newline).replace(/\r$/, '');
-      augmentOcrOutput = augmentOcrOutput.slice(newline + 1);
-      const pending = augmentOcrPending.shift();
-      if (!pending) continue;
-      clearTimeout(pending.timer);
-      const [status, encoded = ''] = line.split('\t', 2);
-      let value = '';
-      try { value = Buffer.from(encoded, 'base64').toString('utf8'); } catch (e) {}
-      if (status === 'OK') pending.resolve(value);
-      else pending.reject(new Error(value || 'OCR 识别失败'));
-    }
-  });
-  worker.stderr.setEncoding('utf8');
-  worker.stderr.on('data', chunk => logErr('[AUGMENT OCR WORKER] ' + String(chunk).trim().substring(0, 400)));
-  const failed = error => {
-    if (augmentOcrWorker !== worker) return;
-    augmentOcrWorker = null;
-    rejectAugmentOcrPending(error instanceof Error ? error : new Error('OCR 识别进程已退出'));
-  };
-  worker.on('error', failed);
-  worker.on('exit', code => failed(new Error('OCR 识别进程已退出 (' + code + ')')));
-  return worker;
-}
-
-function requestAugmentOcr(imagePath) {
-  return new Promise((resolve, reject) => {
-    const worker = ensureAugmentOcrWorker();
-    const pending = { resolve, reject, timer: null };
-    pending.timer = setTimeout(() => {
-      if (!augmentOcrPending.includes(pending)) return;
-      stopAugmentOcrWorker();
-      reject(new Error('OCR 识别超时'));
-    }, 4000);
-    augmentOcrPending.push(pending);
-    const encodedPath = Buffer.from(imagePath, 'utf8').toString('base64');
-    worker.stdin.write(encodedPath + '\n', error => {
-      if (!error) return;
-      const index = augmentOcrPending.indexOf(pending);
-      if (index >= 0) augmentOcrPending.splice(index, 1);
-      clearTimeout(pending.timer);
-      reject(error);
-    });
-  });
-}
+// OCR 子进程管理见 main/ocr-worker.js (含"缺少中文 OCR 语言包时不再每轮重启 PowerShell"的退避)
+const augmentOcr = createOcrWorker({ spawn, scriptPath: augmentOcrWorkerPath, log: logErr });
+function ensureAugmentOcrWorker() { return augmentOcr.ensure(); }
+function stopAugmentOcrWorker() { augmentOcr.stop(); }
+function requestAugmentOcr(imagePath) { return augmentOcr.request(imagePath); }
 
 async function recognizeAugmentNamesByOcr(screenshot, candidates) {
   if (process.platform !== 'win32' || !screenshot || screenshot.isEmpty()) return [];
+  if (!augmentOcr.isAvailable()) return [];
   const size = screenshot.getSize();
   // 每张卡单独 OCR，才能保证结果与左/中/右槽位一一对应。整块 OCR 会按版面分析顺序
   // 返回“左、右、中”，曾导致推荐名称和游戏卡片对不上。
@@ -859,6 +791,7 @@ ipcMain.handle('augment-overlay:status', async () => ({
   bounds: augmentOverlayWindow && !augmentOverlayWindow.isDestroyed() ? augmentOverlayWindow.getBounds() : null,
   items: augmentOverlayPayload.items.length,
   scale: Number(lastAugmentOverlayScale.toFixed(2)),
+  ocr: augmentOcr.status(),
   gameRectAvailable: (() => { try { return !!winRect.getLeagueGameRect(); } catch (e) { return false; } })()
 }));
 

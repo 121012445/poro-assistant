@@ -82,7 +82,13 @@ async function refreshDiagnostics() {
       candidates: augmentOverlay?.items || 0,
       scale: augmentOverlay?.scale || 1,
       gameRectAvailable: !!augmentOverlay?.gameRectAvailable,
-      bounds: augmentOverlay?.bounds || null
+      bounds: augmentOverlay?.bounds || null,
+      // OCR 不可用时强化识别只能靠图标比对 (准确率更低)。最常见原因: 系统没有「中文(简体)」OCR 语言包
+      ocr: augmentOverlay?.ocr ? {
+        available: augmentOverlay.ocr.available !== false,
+        reason: augmentOverlay.ocr.reason || '',
+        retryInSeconds: Math.round((augmentOverlay.ocr.retryInMs || 0) / 1000)
+      } : null
     },
     recentLogs: Array.isArray(logs) ? logs : []
   };
