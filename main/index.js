@@ -144,6 +144,24 @@ function loadAppIcon() {
 }
 
 const augmentRecognizer = augmentRecognizerFactory.createRecognizer(nativeImage, USER_DATA, logErr);
+// 接线自检: 下面 recognizeAugments 走的是**工厂返回的对象**, 不是模块本身。
+// 曾经工厂只返回 { recognize, cacheSize }, 于是 augmentRecognizer.isSafeVisualMatch
+// 恒为 undefined —— OCR 漏读一张卡时整轮识别抛错失败, 视觉兜底完全没生效,
+// 用户感受就是"三选一浮窗反应慢"。这种"测试用模块、生产用工厂对象"的缺口
+// 必须在启动时喊出来, 不能等它静默降级。
+if (typeof augmentRecognizer.isSafeVisualMatch !== 'function') {
+  logErr('[AUGMENT RECOGNIZER] 工厂未暴露 isSafeVisualMatch —— 视觉兜底将整轮失败, 请检查 augment-recognizer.js 的返回值');
+}
+// 视觉兜底的准入判断。启动时已自检过接线, 但这里再兜一层: 兜底本身失败只该丢
+// 一张卡的视觉票(下一轮 OCR / 视觉还能补), 绝不能把整轮识别打挂。
+function safeVisualMatch(offer, iconUnique) {
+  try {
+    return augmentRecognizer.isSafeVisualMatch(offer, iconUnique) === true;
+  } catch (e) {
+    logErr('[AUGMENT VISION] isSafeVisualMatch 调用失败: ' + (e && e.message));
+    return false;
+  }
+}
 
 let mainWindow = null;
 if (!hasSingleInstanceLock) {
@@ -868,7 +886,7 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
             alternatives: []
           };
           const iconUnique = iconNames.get(String(visionOffer?.icon || '').trim().toLowerCase())?.size === 1;
-          const safeVisual = augmentRecognizer.isSafeVisualMatch(visionOffer, iconUnique);
+          const safeVisual = safeVisualMatch(visionOffer, iconUnique);
           return Object.assign({}, visionOffer, {
             // 同一图标可能对应多个强化名称；重复两帧只能证明图标稳定，不能证明名称正确。
             // 不同资源地址也可能使用高度相似的图形（如溢流/活力再生），因此视觉兜底
@@ -882,7 +900,7 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
         logErr('[AUGMENT OCR] ' + ocrError.message);
         result.offers.forEach(item => {
           const iconUnique = iconNames.get(String(item?.icon || '').trim().toLowerCase())?.size === 1;
-          const safeVisual = augmentRecognizer.isSafeVisualMatch(item, iconUnique);
+          const safeVisual = safeVisualMatch(item, iconUnique);
           item.accepted = safeVisual;
           item.confirmedBy = 'vision-safe';
           item.iconUnique = iconUnique;

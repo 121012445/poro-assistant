@@ -152,4 +152,45 @@ assert.ok(mainSource.includes("showAugmentOverlayWindow(augmentOverlayWindow, 'd
 assert.ok(mainSource.includes("win.setAlwaysOnTop(true, 'screen-saver', 1)") && mainSource.includes('win.moveTop()'),
   '强化浮窗每次显示都必须恢复全屏置顶层级');
 assert.ok(mainSource.includes("ipcMain.handle('augment-overlay:status'"), '强化浮窗必须提供真实可见状态诊断');
+
+// ---------- 接线回归护栏 (2026-10-11) ----------
+// 生产走的是 augmentRecognizerFactory.createRecognizer(...) 的**返回对象**,
+// 而上面所有断言用的都是**模块本身**。工厂一度只返回 { recognize, cacheSize },
+// 于是 main/index.js 里的 augmentRecognizer.isSafeVisualMatch 恒为 undefined:
+// OCR 只要漏读任意一张卡, 视觉兜底就抛 "is not a function", 整轮识别失败,
+// 表现为"三选一浮窗反应慢、刷新后要等好几秒", 且视觉兜底从未真正生效。
+// 这类"测试用模块 / 生产用工厂对象"的缺口必须由测试直接钉住。
+const os = require('os');
+const pathMod = require('path');
+const recognizerStubImage = { createFromBuffer: () => ({ getSize: () => ({ width: 1, height: 1 }) }) };
+const recognizerInstance = augmentRecognizer.createRecognizer(
+  recognizerStubImage, pathMod.join(os.tmpdir(), 'poro-augment-test'), () => {});
+
+assert.strictEqual(typeof recognizerInstance.isSafeVisualMatch, 'function',
+  'createRecognizer 的返回对象必须暴露 isSafeVisualMatch —— main/index.js 调的是它，不是模块导出');
+assert.strictEqual(typeof recognizerInstance.recognize, 'function', '工厂必须返回 recognize');
+assert.strictEqual(typeof recognizerInstance.cacheSize, 'function', '工厂必须返回 cacheSize');
+assert.strictEqual(recognizerInstance.isSafeVisualMatch({ score: 0.91, margin: 0.09 }, true), true,
+  '工厂对象上的 isSafeVisualMatch 必须与模块导出行为一致（高分高差值 + 图标唯一 = 放行）');
+assert.strictEqual(recognizerInstance.isSafeVisualMatch({ score: 0.771, margin: 0.048 }, true), false,
+  '工厂对象上的 isSafeVisualMatch 必须与模块导出行为一致（低分或低差值 = 拒绝）');
+assert.strictEqual(recognizerInstance.isSafeVisualMatch({ score: 0.93, margin: 0.12 }, false), false,
+  '工厂对象上的 isSafeVisualMatch 必须与模块导出行为一致（图标不唯一 = 拒绝）');
+
+assert.ok(mainSource.includes("typeof augmentRecognizer.isSafeVisualMatch !== 'function'"),
+  '主进程启动时必须自检工厂对象是否暴露 isSafeVisualMatch，接线错误要在启动时就喊出来');
+assert.ok(/function safeVisualMatch\(offer, iconUnique\)/.test(mainSource),
+  '视觉兜底必须走 safeVisualMatch 包装函数');
+assert.ok(/catch \(e\) \{\s*\n\s*logErr\('\[AUGMENT VISION\] isSafeVisualMatch 调用失败/.test(mainSource),
+  '视觉兜底调用必须 try/catch 兜住：兜底失败只丢一张卡的票，不能把整轮识别打挂');
+assert.ok(!/const safeVisual = augmentRecognizer\.isSafeVisualMatch\(/.test(mainSource),
+  '业务路径必须走 safeVisualMatch 包装，不得直连工厂对象');
+
+assert.ok(/async function scanCurrentAugmentOffers\(manual = false, chain = 0\)/.test(hexSource),
+  '手动重扫入口必须支持补帧链参数');
+assert.ok(hexSource.includes('scanCurrentAugmentOffers(false, chain + 1)'),
+  'F6 检测到卡片但未凑齐三张时，必须立刻补采一帧，而不是干等扫描循环的 500ms');
+assert.ok(hexSource.includes('chain < 1'),
+  '补帧链必须只补一次：OCR 持续漏读时若无限补帧会变成无延迟自旋');
+
 console.log('海斗强化画面识别几何与特征测试通过');

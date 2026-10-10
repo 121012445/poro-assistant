@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const STAGE = 'D:\\_asar_stage';
@@ -20,6 +21,65 @@ function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch
 function fileHash(p) {
   return crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex');
 }
+
+/** 列出正在运行的 Poro 进程。优先用 CIM 拿到可执行路径; 拿不到就退回 tasklist (只有 PID)。 */
+function listPoroProcesses() {
+  try {
+    const ps = 'Get-CimInstance Win32_Process -Filter "Name=\'Poro.exe\'" | '
+      + 'ForEach-Object { "$($_.ProcessId)|$($_.ExecutablePath)" }';
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps],
+      { encoding: 'utf8', timeout: 20000, windowsHide: true });
+    return out.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(line => {
+      const i = line.indexOf('|');
+      return { pid: Number(line.slice(0, i)), exe: i >= 0 ? line.slice(i + 1).trim() : '' };
+    }).filter(p => Number.isFinite(p.pid) && p.pid > 0);
+  } catch (e) { /* 落到 tasklist */ }
+  try {
+    const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq Poro.exe', '/NH'],
+      { encoding: 'utf8', timeout: 20000, windowsHide: true });
+    return out.split(/\r?\n/).map(s => s.trim())
+      .filter(s => /^Poro\.exe/i.test(s))
+      .map(s => ({ pid: Number(s.split(/\s+/)[1]) || 0, exe: '' }));
+  } catch (e) { return []; }
+}
+
+/**
+ * 热替换 app.asar 前必须确认 Poro 没在跑。
+ *
+ * 为什么: Electron 会把 asar 的头表(每文件的 offset 表)缓存在进程里。运行中把
+ * app.asar 换成另一份(文件数/布局不同 -> 偏移全变), 之后**才创建**的窗口会拿
+ * 旧偏移去读新文件, 读到别的文件的内容。启动时就加载好的主窗口没事, 所以界面
+ * 看起来一切正常, 只有延迟创建的窗口(选人浮窗 / 海斗强化浮窗)炸。
+ *
+ * 2026-10-11 真实踩到: 浮窗里显示的是 node_modules/koffi 的 C++ 源码
+ * (`K_UNREACHABLE` / `MUST_TAIL`), 排查了半天以为是渲染层坏了。
+ */
+function assertTargetNotInUse(target, force) {
+  const installDir = path.dirname(path.dirname(target));   // <install>/resources/app.asar -> <install>
+  const procs = listPoroProcesses();
+  if (!procs.length) return true;
+  const inInstall = procs.filter(p => p.exe && p.exe.toLowerCase().startsWith(installDir.toLowerCase()));
+  const relevant = inInstall.length ? inInstall : procs;
+  const detail = relevant.map(p => 'PID ' + p.pid + (p.exe ? '  ' + p.exe : '  (路径未知)')).join('\n     ');
+  if (force) {
+    console.log('!! 检测到 Poro 正在运行, 但指定了 --force, 继续热替换:');
+    console.log('     ' + detail);
+    console.log('   !! 运行中的实例仍在用旧头表偏移读新 asar —— 之后创建的浮窗会显示成乱码。');
+    console.log('   !! 替换完请立刻完全退出并重启 Poro。');
+    return true;
+  }
+  console.log('');
+  console.log('XX 检测到 Poro 正在运行, 拒绝热替换 app.asar:');
+  console.log('     ' + detail);
+  console.log('   原因: Electron 把 asar 头表(偏移表)缓存在进程里。运行中换文件后, 之后才');
+  console.log('         创建的窗口会用旧偏移读新文件, 读到别的文件内容 —— 浮窗里出现一堆');
+  console.log('         乱码源码。(2026-10-11 实测: 浮窗显示了 koffi 的 C++ 源码)');
+  console.log('   处理: 从托盘完全退出 Poro (确认 Poro.exe 全部结束) 后重新运行本脚本。');
+  console.log('         确实要强行热替换就加 --force, 但之后必须立刻重启 Poro。');
+  console.log('');
+  return false;
+}
+
 
 /**
  * 逐文件同步解包目录 (app.asar.unpacked), 返回是否全部成功。
@@ -68,7 +128,11 @@ function syncUnpacked(src, dst) {
 }
 
 function main() {
-  const target = process.argv[2] || null;
+  const force = process.argv.includes('--force');
+  const target = process.argv.slice(2).find(a => !a.startsWith('--')) || null;
+
+  // 尽早拦: 别白构建一遍再失败
+  if (target && !assertTargetNotInUse(target, force)) process.exit(1);
 
   rmrf(STAGE);
   fs.mkdirSync(path.join(STAGE, 'node_modules'), { recursive: true });
@@ -115,7 +179,14 @@ function main() {
       ['强化推荐浮层', Buffer.from('augment-overlay.html')],
       // 贴边: 读客户端窗口矩形 + 位置计算, 两者缺一浮窗就只贴屏幕边缘
       ['贴边 win-rect', Buffer.from('SetThreadDpiAwarenessContext')],
-      ['贴边 位置计算', Buffer.from('computeOverlayBounds')]
+      ['贴边 位置计算', Buffer.from('computeOverlayBounds')],
+      // 海斗强化识别 (2026-10-11 修): createRecognizer 的返回对象必须带上
+      // isSafeVisualMatch。漏了它, 只要 OCR 漏读任意一张卡, 视觉兜底分支就抛
+      // "is not a function" 把整轮识别打挂 —— 现象是"三选一浮窗反应慢, 刷新后
+      // 要等两三秒"(得等到某一轮 OCR 恰好三张全对才出结果)。这条必须钉死在包里。
+      ['强化视觉兜底工厂暴露', Buffer.from('cacheSize: () => cache.size, isSafeVisualMatch')],
+      ['强化视觉兜底自检', Buffer.from("typeof augmentRecognizer.isSafeVisualMatch !== 'function'")],
+      ['强化补帧 chain', Buffer.from('scanCurrentAugmentOffers(false, chain + 1)')]
     ];
     console.log('打包完成: ' + OUT + '  (' + (body.length / 1024).toFixed(0) + ' KB, ' + list.length + ' 个条目, v' + version + ')');
     let allOk = true;
@@ -179,8 +250,11 @@ function main() {
         fs.copyFileSync(target, bak);
         console.log('已备份原 asar (内含 v' + oldVer + ') -> ' + bak);
       }
+      // 再拦一次: 构建期间用户可能刚把 Poro 打开, 那时上面那次检查还是"没在跑"
+      if (!assertTargetNotInUse(target, force)) process.exit(1);
       fs.copyFileSync(OUT, target);
       console.log('已热替换 -> ' + target);
+      console.log('提示: 若刚才有实例在跑(--force), 请立刻完全退出并重启 Poro, 否则浮窗会显示乱码。');
     }
   }).catch(e => { console.log('打包失败: ' + e.message); process.exit(1); });
 }

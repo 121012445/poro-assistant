@@ -159,7 +159,12 @@ function createRecognizer(nativeImage, userDataPath, logger) {
     return { width: size.width, height: size.height, offers };
   }
 
-  return { recognize, cacheSize: () => cache.size };
+  // isSafeVisualMatch 必须一起返回: main/index.js 用的是工厂返回的对象
+  // (augmentRecognizer.isSafeVisualMatch), 而不是本模块。漏了它, 只要 OCR 漏读
+  // 任意一张卡, 视觉兜底这条分支就会抛 "is not a function", 把整轮识别打挂 ——
+  // 表现为"三选一浮窗反应慢/刷新后要等好几秒", 而视觉兜底等于从未生效。
+  // 2026-10-11 实测踩到。
+  return { recognize, cacheSize: () => cache.size, isSafeVisualMatch };
 }
 
 module.exports = {
