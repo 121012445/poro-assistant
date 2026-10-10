@@ -1523,6 +1523,13 @@ if (hasSingleInstanceLock) {
       const gpu = app.getGPUFeatureStatus();
       logErr('[GPU] ' + Object.entries(gpu).map(([k, v]) => k + '=' + v).join(' '));
     } catch (e) { logErr('[GPU] status unavailable: ' + e.message); }
+    // 多显示器缩放比例不一致时, 游戏/客户端窗口坐标改按所在显示器换算 (见 win-rect.js configureDpi)
+    if (process.platform === 'win32' && typeof electronScreen.screenToDipRect === 'function') {
+      winRect.configureDpi({
+        mixedDpi: () => new Set(electronScreen.getAllDisplays().map(d => d.scaleFactor)).size > 1,
+        screenToDip: rect => electronScreen.screenToDipRect(null, rect)
+      });
+    }
     createWindow();
     // 托盘不是主窗口启动的必要条件；个别系统若托盘图标初始化失败，不应拖垮整个程序。
     try { createTray(); } catch (error) { logErr('[TRAY INIT FAILED] ' + formatError(error)); }
