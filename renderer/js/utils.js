@@ -11,6 +11,18 @@ function inlineArg(value) {
   return escapeHtml(JSON.stringify(String(value ?? '')));
 }
 
+// Map 超过 max 条时删掉最早写入的 (Map 保持插入顺序)。用于按玩家累积、长时间运行会一直增长的缓存。
+function limitMapSize(map, max) {
+  if (!map || typeof map.size !== 'number' || !(max >= 0)) return 0;
+  let removed = 0;
+  for (const key of map.keys()) {
+    if (map.size <= max) break;
+    map.delete(key);
+    removed++;
+  }
+  return removed;
+}
+
 async function mapWithConcurrency(items, limit, mapper) {
   const list = Array.from(items || []);
   const results = new Array(list.length);

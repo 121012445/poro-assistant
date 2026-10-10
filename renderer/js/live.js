@@ -15,6 +15,8 @@ let liveRenderToken = 0;
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
+// 每局 10 人、每条约十几 KB (近 10 场 + 30 场同队记录); 长时间挂着会一直累积, 只保留最近的
+const SGP_RECENT_CACHE_MAX = 300;
 async function sgpProfileFor(platformId, puuid, count = 30) {
   const key = platformId + '|' + puuid;
   const hit = sgpRecentCache.get(key);
@@ -50,7 +52,9 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
   } catch (e) { throw e; }
   // 成功但确实没有历史时只做短负缓存；网络/鉴权失败完全不缓存。
   const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, flashPreference: summarizeFlashPreference(flashSamples) };
+  sgpRecentCache.delete(key);          // 重新写入放到末尾 (最新)
   sgpRecentCache.set(key, profile);
+  limitMapSize(sgpRecentCache, SGP_RECENT_CACHE_MAX);
   return profile;
 }
 async function lcuProfileFor(platformId, puuid, count = 30) {
@@ -73,7 +77,9 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
     if (recent.length < 10) recent.push({ champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0, mode: game.mode });
   }
   const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, flashPreference: summarizeFlashPreference(flashSamples) };
+  sgpRecentCache.delete(key);          // 重新写入放到末尾 (最新)
   sgpRecentCache.set(key, profile);
+  limitMapSize(sgpRecentCache, SGP_RECENT_CACHE_MAX);
   return profile;
 }
 function recentProfileFor(platformId, puuid, count = 30) {

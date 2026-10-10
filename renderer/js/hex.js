@@ -1238,6 +1238,7 @@ function homeSearch() {
 const summonerLookupCache = new Map();
 const SUMMONER_LOOKUP_TTL = 10 * 60 * 1000;
 const summonerPuuidLookupCache = new Map();
+const SUMMONER_LOOKUP_CACHE_MAX = 500;    // 两个查询缓存从不删除, 长时间运行后加上限 (超出删最早写入的)
 function hasSummonerLevel(summoner) {
   return validSummonerLevel(summoner?.summonerLevel);
 }
@@ -1266,7 +1267,11 @@ async function resolveSummonerByPuuid(puuid, seed) {
   const resolved = mergeSummonerProfile(seed, profile);
   resolved.puuid = puuid;
   // 完整档案才进入长缓存，防止一次瞬时空响应导致等级持续缺失。
-  if (hasSummonerLevel(resolved)) summonerPuuidLookupCache.set(puuid, { ts: Date.now(), data: resolved });
+  if (hasSummonerLevel(resolved)) {
+    summonerPuuidLookupCache.delete(puuid);
+    summonerPuuidLookupCache.set(puuid, { ts: Date.now(), data: resolved });
+    limitMapSize(summonerPuuidLookupCache, SUMMONER_LOOKUP_CACHE_MAX);
+  }
   return resolved;
 }
 async function resolveSummonerByName(input) {
@@ -1298,7 +1303,9 @@ async function resolveSummonerByName(input) {
         resolved.gameName = resolved.gameName || alias.gameName || gameName;
         resolved.tagLine = resolved.tagLine || alias.tagLine || tagLine;
         // 等级缺失时只缓存基础 Riot ID 15 秒，下一次查询仍会重新尝试完整档案。
+        summonerLookupCache.delete(lookupKey);
         summonerLookupCache.set(lookupKey, { ts: hasSummonerLevel(resolved) ? Date.now() : Date.now() - SUMMONER_LOOKUP_TTL + 15000, data: resolved });
+        limitMapSize(summonerLookupCache, SUMMONER_LOOKUP_CACHE_MAX);
         return resolved;
       }
     }
@@ -1307,7 +1314,9 @@ async function resolveSummonerByName(input) {
   // 兼容旧客户端及不带 Tag 的历史名称查询。
   const r = await lolAPI.lcuRequest('GET', '/lol-summoner/v1/summoners?name=' + encodeURIComponent(raw));
   if (r && !r.__error && r.puuid) {
+    summonerLookupCache.delete(lookupKey);
     summonerLookupCache.set(lookupKey, { ts: Date.now(), data: r });
+    limitMapSize(summonerLookupCache, SUMMONER_LOOKUP_CACHE_MAX);
     return r;
   }
   if (!raw.includes('#')) return { __error: '未找到: ' + raw + ' (国服需完整 名字#Tag, 如 召唤师#0000)' };
