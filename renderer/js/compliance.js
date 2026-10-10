@@ -15,7 +15,9 @@ function applyComplianceState() {
     autoAcceptToggle: !!autoAcceptOn,
     autoBPToggle: typeof autoBPEnabled !== 'undefined' && !!autoBPEnabled,
     autoRuneToggle: typeof autoRuneEnabled !== 'undefined' && !!autoRuneEnabled,
-    gsLockToggle: typeof storeGet === 'function' && storeGet('gsLockOn') === '1'
+    gsLockToggle: typeof storeGet === 'function' && storeGet('gsLockOn') === '1',
+    autoHonorToggle: typeof autoflow !== 'undefined' && !!autoflow.honor,
+    autoReconnectToggle: typeof autoflow !== 'undefined' && !!autoflow.reconnect
   };
   for (const [id, preferred] of Object.entries(preferences)) {
     const el = document.getElementById(id);

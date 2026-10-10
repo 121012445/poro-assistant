@@ -694,3 +694,35 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 #page-live.live-expanded .lp-team-grid { flex: 0 0 auto; }
 #page-live.live-expanded .lp-row { height: auto; }
 #page-live.live-expanded .lp-recent { flex: 0 0 auto; overflow: visible; }
+
+/* 大乱斗平衡性调整徽标 (balance.js): 颜色走主题变量, 深色主题自动适配 */
+.lp-balance { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; border: 1px solid currentColor; }
+.lp-balance-buff { color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent); }
+.lp-balance-nerf { color: var(--negative); background: color-mix(in srgb, var(--negative) 10%, transparent); }
+.lp-balance-mixed { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+.opgg-loadout-options { flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.opgg-loadout-options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+
+/* 软件更新卡片 (update.js) */
+.update-badge { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 600; color: #fff; background: var(--accent); vertical-align: middle; }
+.update-body { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.update-line span { color: var(--text-muted); font-size: var(--fs-sm); }
+.update-notes { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: var(--fs-sm); max-height: 120px; overflow: auto; }
+.update-progress { width: 100%; max-width: 360px; height: 6px; border-radius: 3px; background: var(--bg-secondary); overflow: hidden; }
+.update-progress > div { height: 100%; background: var(--accent); transition: width .2s; }
+
+/* 玩家行为标签 (behavior-tags.js): 只作提示, 颜色走主题变量 */
+.lp-behavior { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 600; line-height: 15px; cursor: help; white-space: nowrap; }
+.lp-behavior-bad { color: var(--negative); background: color-mix(in srgb, var(--negative) 11%, transparent); }
+.lp-behavior-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 13%, transparent); }
+.lp-behavior-info { color: var(--text-secondary); background: var(--bg-secondary); }
+/* 画像行高度是实时页「战绩区高度预算」的一部分 (见 test_live_compact.js): 标签再多也不折行、不增高,
+   放不下的部分被裁掉, 完整内容看每个标签的 title */
+.lp-profile-line { flex-wrap: nowrap; overflow: hidden; }
+.lp-profile-line > * { flex-shrink: 0; }
+
+/* 英雄强度角标 (balance.js): OP.GG 当前模式强度榜, 1 阶最强 */
+.lp-tier { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; }
+.lp-tier-top { color: #fff; background: var(--accent); }
+.lp-tier-mid { color: var(--text-secondary); background: var(--bg-secondary); }
+.lp-tier-low { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }

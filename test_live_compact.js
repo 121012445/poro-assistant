@@ -40,6 +40,7 @@ const context = vm.createContext({
   allChampions: {}, champNumMap: { '266': { id: 'Aatrox', name: '亚托克斯' } }, rankTierCN: t => t,
   mapWithConcurrency: async () => [], resolveNames: async () => {}, resolveRanks: async () => {}, rankCache: {}
 });
+vm.runInContext(fs.readFileSync('renderer/js/behavior-tags.js', 'utf8'), context, { filename: 'renderer/js/behavior-tags.js' });   // renderLiveTeams 依赖它
 vm.runInContext(liveSrc, context, { filename: 'renderer/js/live.js' });
 const run = code => vm.runInContext(code, context);
 
@@ -123,11 +124,20 @@ const body = makeEl('liveGameArea');
   assert.ok(/syncLiveExpandButton\(!!body\.querySelector\('\.lp-wrap'\)\)/.test(liveSrc), '渲染结束后应按是否有阵容校准按钮');
 
   // ---------- ④ CSS 尺寸预算 ----------
+  // 与浏览器层叠一致: 同一选择器的多条规则要合并, 后面的只覆盖它自己写了的属性。
+  // (原先只取最后一条, 后面追加的无关规则 —— 例如别的功能给同一选择器加了 flex-wrap —— 会把前面的 margin 等"挡住"。)
   const rule = (css, sel) => {
     const re = new RegExp('(?:^|\\n)' + sel.replace(/[.#[\]()]/g, '\\$&') + '\\s*\\{([^}]*)\\}', 'g');
-    let last = null, m;
-    while ((m = re.exec(css))) last = m[1];
-    return last;
+    const props = new Map();
+    let any = false, m;
+    while ((m = re.exec(css))) {
+      any = true;
+      for (const decl of m[1].split(';')) {
+        const i = decl.indexOf(':');
+        if (i > 0) props.set(decl.slice(0, i).trim(), decl.slice(i + 1).trim());
+      }
+    }
+    return any ? [...props].map(([k, v]) => k + ': ' + v).join('; ') : null;
   };
   const px = (decl, prop) => { const m = new RegExp('(?:^|[;\\s])' + prop + '\\s*:\\s*([^;]+)').exec(decl || ''); return m ? m[1].trim() : null; };
   const compact = rule(premium.slice(premium.indexOf('实时对局：紧凑布局')), '.lp-team-head');

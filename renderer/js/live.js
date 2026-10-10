@@ -12,6 +12,10 @@ const livePlayersCache = { key: "", data: null, premadeGroups: null };
 // 选人阶段缓存的玩家列表 (加载页面/游戏开始时复用)
 let champSelectParticipants = null;
 let liveRenderToken = 0;
+// 当前对局是否为大乱斗类模式 (决定玩家卡上显示平衡性调整); 由 renderLiveFromGameflow 按 gameflow 队列更新
+let liveBalanceMode = false;
+// 当前对局的强度榜模式 (aram / aram_mayhem / urf / null), 用于英雄强度角标
+let liveTierMode = null;
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
@@ -24,6 +28,7 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
   const recent = [];
   const teamGames = [];
   const flashSamples = [];
+  const behaviorSamples = [];      // 投降/信号统计需要比战绩列表更多的场次 (≥8 场), 单独收集, 见 behavior-tags.js
   try {
     const resp = await lolAPI.sgpMatchHistory(platformId, puuid, 0, count);
     if (resp?.__error) throw new Error(resp.__error);
@@ -47,11 +52,13 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
         ]);
         const win = stats.win === true || stats.win === "Win" || me.win === true;
         if (recent.length < 10) recent.push({ champId: normalizeChampId(me.championId || stats.championId), win, k: stats.kills ?? me.kills ?? 0, d: stats.deaths ?? me.deaths ?? 0, a: stats.assists ?? me.assists ?? 0, mode: gameMode });
+        const behavior = extractBehavior(Object.assign({}, me, { win }));
+        if (behavior && behaviorSamples.length < 30) behaviorSamples.push({ behavior });
       }
     }
   } catch (e) { throw e; }
   // 成功但确实没有历史时只做短负缓存；网络/鉴权失败完全不缓存。
-  const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, flashPreference: summarizeFlashPreference(flashSamples) };
+  const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, behaviorSamples, flashPreference: summarizeFlashPreference(flashSamples) };
   sgpRecentCache.delete(key);          // 重新写入放到末尾 (最新)
   sgpRecentCache.set(key, profile);
   limitMapSize(sgpRecentCache, SGP_RECENT_CACHE_MAX);
@@ -230,6 +237,16 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
 
   // 方式1: gameflow session (选人阶段有完整 puuid)
   const session = await lolAPI.lcuRequest("GET", "/lol-gameflow/v1/session");
+  liveBalanceMode = isBalanceMode(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
+  if (liveBalanceMode) loadAramBalance().catch(() => {});
+  liveTierMode = tierModeFor(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
+  if (liveTierMode) {
+    // 强度榜加载完(首次或过期刷新)后重绘一次, 补上角标; 已加载时 loadModeTiers 直接命中缓存, 不会循环触发
+    const tierMode = liveTierMode, had = modeTiers[tierMode]?.loadedAt || 0;
+    loadModeTiers(tierMode).then(t => {
+      if (t && t.loadedAt !== had && liveTierMode === tierMode && window._gameflowPhase) updateLivePage(window._gameflowPhase);
+    }).catch(() => {});
+  }
   let parts = ((session ?? {}).gameData && (session ?? {}).gameData.participants) || [];
   // 海斗(ARAM)/部分模式用 playerChampionSelections 而非 participants — 结构相同 (puuid+championId+name)
   if (!parts.length) {
@@ -395,6 +412,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       // 下一帧也能从已完成的共同历史继续推断，不必等十个人重新请求完。
       p.premadeTeamGames = Array.isArray(profile.teamGames) ? profile.teamGames : [];
       p.flashPreference = profile.flashPreference || null;
+      p.behaviorSamples = Array.isArray(profile.behaviorSamples) ? profile.behaviorSamples : [];
       if (!staleSession()) updateLivePlayerRow(p, idx);  // 旧对局/旧账号的异步结果不得污染新阵容
       return profile;
     } catch (e) { return null; }
@@ -604,14 +622,13 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
-    // 注: 这里原有"大乱斗平衡性提示"的 balTip/balHtml 分支, 依赖从未实现的
-    // balanceTipFor()。虽带 typeof 守卫不会抛错, 但 .lp-balance 永远渲染不出来,
-    // 属静默死功能。1.5.2 摘除, 要恢复请连同函数体一起补。
+    // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
+    const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
-          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${premadeTag}${marksHtml}</div>
+          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${premadeTag}${balanceHtml}${marksHtml}</div>
           <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
         </div>
       </div>
@@ -620,7 +637,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
         <span class="lp-kda">KDA ${kda}</span>
       </div>
-      <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}</div>
+      <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}${behaviorTagsHtml(p.behaviorSamples)}</div>
       <div class="lp-recent">${recentHtml}</div>
     </div>`;
   };

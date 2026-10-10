@@ -24,7 +24,7 @@ const htmlSrc = fs.existsSync('renderer/index.html') ? fs.readFileSync('renderer
 const rendererScripts = [...htmlSrc.matchAll(/<script src="([^"]+)"/g)].map(m => 'renderer/' + m[1].split('?')[0]);
 // 样式表同样从 index.html 解析: 漏一个的表现是"界面整体错位", 比缺脚本更显眼但也更该在出包前拦住
 const rendererStyles = [...htmlSrc.matchAll(/<link[^>]*href="(css\/[^"?]+)/g)].map(m => 'renderer/' + m[1]);
-const requiredFiles = ['main/index.js', 'main/lcu.js', 'main/lcu-ws.js', 'main/sgp.js', 'main/gamedata.js', 'main/game-settings.js', 'main/preload.js', 'main/native/PoroInput.exe', 'main/native/PoroOcrWorker.ps1', 'main/win-rect.js', 'main/overlay-position.js', 'main/ocr-worker.js', 'main/sgp-cache.js', ...rendererScripts, ...rendererStyles, 'renderer/index.html', 'renderer/overlay.html', 'renderer/js/overlay.js'];
+const requiredFiles = ['main/index.js', 'main/lcu.js', 'main/lcu-ws.js', 'main/sgp.js', 'main/gamedata.js', 'main/game-settings.js', 'main/preload.js', 'main/native/PoroInput.exe', 'main/native/PoroOcrWorker.ps1', 'main/win-rect.js', 'main/overlay-position.js', 'main/ocr-worker.js', 'main/sgp-cache.js', 'main/opgg.js', 'main/updater.js', ...rendererScripts, ...rendererStyles, 'renderer/index.html', 'renderer/overlay.html', 'renderer/js/overlay.js'];
 for (const f of requiredFiles) {
   if (!fs.existsSync(f)) fail.push(f + ' 缺失');
 }

@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getItems: (v) => ipcRenderer.invoke('ddragon:getItems', v),
   getSummonerSpells: (v) => ipcRenderer.invoke('ddragon:getSummonerSpells', v),
   getOpgg: () => ipcRenderer.invoke('opgg:champions'),
+  getAramBalance: () => ipcRenderer.invoke('opgg:aramBalance'),
+  getModeTiers: (mode) => ipcRenderer.invoke('opgg:tiers', mode),
+  getOpggBuild: (mode, championId, position) => ipcRenderer.invoke('opgg:build', mode, championId, position),
   getHexChampionAugments: (championId, scope) => ipcRenderer.invoke('hex:championAugments', championId, scope),
   // Riot API (远程战绩)
   getAccount: (region, gameName, tagLine, apiKey) => ipcRenderer.invoke('riot:getAccount', region, gameName, tagLine, apiKey),
@@ -45,6 +48,11 @@ contextBridge.exposeInMainWorld('lolAPI', {
   importBackup: () => ipcRenderer.invoke('backup:import'),
   getUserData: () => ipcRenderer.invoke('app:userData'),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  openUpdatePage: () => ipcRenderer.invoke('update:openPage'),
+  onUpdateProgress: (cb) => { ipcRenderer.on('update:progress', (e, p) => cb(p)); },
   getElevation: () => ipcRenderer.invoke('app:elevation'),
   // 全局快捷键 (游戏内 F7/F8 发送 KDA 简报)
   onShortcut: (cb) => { ipcRenderer.on('shortcut:kda', (e, ally) => cb(ally)); },

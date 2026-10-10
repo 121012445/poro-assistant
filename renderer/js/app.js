@@ -206,11 +206,14 @@ async function init() {
   loadOpgg();
   loadRuneMemory();
   autoReturnLoad();
-  // 注: 1.5.0/1.5.1 此处曾调用 loadAramBalance(), 但该函数全库从未实现。
-  // 位置在 try/catch(只覆盖到 199 行) 之外 —— 抛 ReferenceError 会静默掐断
-  // 下面全部初始化(LCU 事件接线 / 主题 / 首页加载 / 轮询), 界面照画、日志无异常。
-  // 1.5.2 摘除。若将来要做"大乱斗平衡性调整提示", 必须同时补函数体, 别只加调用。
+  // 大乱斗平衡性调整 (balance.js)。1.5.0/1.5.1 曾在这里调用一个从未实现的 loadAramBalance(),
+  // 抛 ReferenceError 掐断了下面全部初始化。现在函数体在 balance.js, 且内部捕获所有错误、不等待结果;
+  // test_undef_globals.js 会拦住"调用了但没定义"的情况。
+  loadAramBalance().catch(() => {});
   initAutoReturnToggles();
+  autoflowLoad();
+  chatStatusLoad();
+  initUpdate();
   restoreSideAnnounceToggle();
   wireLcuEvents();
   applyTheme();

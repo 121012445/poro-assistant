@@ -83,6 +83,7 @@ function loadConfig() {
     const bpRules = storeGet('autoBPRules');
     if (bpRules) autoBPRules = { ...autoBPRules, ...JSON.parse(bpRules) };
     if (storeGet('autoRune') === '1') { autoRuneEnabled = true; document.getElementById('autoRuneToggle').checked = true; document.getElementById('autoRuneStatus').textContent = '已开启'; document.getElementById('autoRuneStatus').style.color = 'var(--positive)'; }
+    if (typeof restoreOpggLoadoutOptions === 'function') restoreOpggLoadoutOptions();
     if (storeGet('premadeNotify') === '0') { premadeNotifyOn = false; document.getElementById('premadeNotifyToggle').checked = false; document.getElementById('premadeNotifyState').textContent = '已关闭'; }
     if (storeGet('benchAlert') === '1') {
       benchAlertOn = true;

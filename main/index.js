@@ -118,6 +118,8 @@ const augmentOcrMatch = require('./augment-ocr-match');
 const hotkeyPollerFactory = require('./hotkey-poller');
 const { createOcrWorker } = require('./ocr-worker');
 const { createSgpCache } = require('./sgp-cache');
+const { createOpggClient } = require('./opgg');
+const { createUpdater } = require('./updater');
 const { createChangeLog } = require('./log-change');
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
@@ -951,6 +953,19 @@ ipcMain.handle('riot:getMatch', async (e, region, matchId, apiKey) => {
   } catch (err) { return { __error: err.message }; }
 });
 
+// ---------- OP.GG: 大乱斗平衡性调整 + 单英雄推荐配置 (见 main/opgg.js) ----------
+const opggClient = createOpggClient({ httpGet });
+ipcMain.handle('opgg:aramBalance', async () => {
+  try { return await opggClient.getAramBalance(); } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('opgg:tiers', async (e, mode) => {
+  try { return await opggClient.getTiers(String(mode || '')); } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('opgg:build', async (e, mode, championId, position) => {
+  try { return await opggClient.getBuild(String(mode || ''), Number(championId), String(position || '')); }
+  catch (err) { return { __error: err.message }; }
+});
+
 // ---------- op.gg 英雄强度数据 (KR 服务器, 10分钟缓存) ----------
 let opggCache = { t: 0, data: null };
 ipcMain.handle('opgg:champions', async () => {
@@ -981,7 +996,9 @@ const LCU_PREFIXES = ['/lol-summoner', '/lol-ranked', '/lol-champ-select', '/lol
   // 以下三个渲染层早就在调用, 但一直不在白名单里, 请求全被拒绝:
   //   回放观看 (sona-extra.js) 整个功能不可用; 新账号无历史时的大区识别兜底 (home.js getPlatformId) 从未生效。
   // /riotclient 只放行这一条只读路径, 不放行整个前缀 (其下有重启客户端界面等接口)。
-  '/lol-replays', '/lol-platform-config', '/riotclient/region-locale'];
+  '/lol-replays', '/lol-platform-config', '/riotclient/region-locale',
+  // 自动点赞 (autoflow.js); 掉线重连用的 /lol-gameflow/v1/reconnect 已在 /lol-gameflow 前缀内
+  '/lol-honor-v2'];
 
 let lcuStatusCache = { t: 0, data: null };
 let lcuStatusInFlight = null;
@@ -1361,6 +1378,47 @@ ipcMain.handle('app:userData', async () => USER_DATA);
 
 // 应用版本: 优先读包内 package.json (asar 内的才是真正部署的版本),
 // 拿不到再退回 app.getVersion()。渲染层绝不要再硬编码版本号。
+// ---------- 软件更新 (见 main/updater.js) ----------
+// 检查 GitHub Releases → 用户点击下载 → 校验 sha256 → 用户点击安装。渲染层不能传入下载地址。
+const appUpdater = createUpdater({
+  getJson: httpGet,
+  httpsGet: (url, headers) => new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.get({ hostname: u.hostname, port: 443, path: u.pathname + u.search, headers }, resolve);
+    req.on('error', reject);
+    req.setTimeout(30000, () => req.destroy(new Error('下载超时')));
+  }),
+  currentVersion: () => { try { return JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).version; } catch (e) { return app.getVersion(); } },
+  // 当前是否以管理员运行: 是 → 正式版, 否 → 受限版 (与已安装的版本保持一致)
+  edition: () => { try { return require('./elevation').isElevated() ? 'full' : 'limited'; } catch (e) { return 'full'; } },
+  tmpDir: () => path.join(app.getPath('temp'), 'poro-update'),
+  spawnInstaller: file => { spawn(file, [], { detached: true, stdio: 'ignore' }).unref(); },
+  quit: () => { app.isQuitting = true; setTimeout(() => app.quit(), 300); }
+});
+function fromMainWindow(e) { return mainWindow && !mainWindow.isDestroyed() && e.sender.id === mainWindow.webContents.id; }
+ipcMain.handle('update:check', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  try { return await appUpdater.check(); } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('update:download', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  try {
+    let lastSent = 0;
+    await appUpdater.download(p => { const t = Date.now(); if (t - lastSent > 250) { lastSent = t; sendToWindow('update:progress', p); } });
+    return { ok: true, info: appUpdater.status() };
+  } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('update:install', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  try { appUpdater.install(); return { ok: true }; } catch (err) { return { __error: err.message }; }
+});
+ipcMain.handle('update:openPage', async e => {
+  if (!fromMainWindow(e)) return { __error: '调用来源无效' };
+  const info = appUpdater.status();
+  if (!info || !/^https:\/\/github\.com\/121012445\/poro-assistant\/releases\//.test(info.pageUrl)) return { __error: '没有可打开的发布页' };
+  try { await require('electron').shell.openExternal(info.pageUrl); return { ok: true }; } catch (err) { return { __error: err.message }; }
+});
+
 ipcMain.handle('app:version', async () => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));

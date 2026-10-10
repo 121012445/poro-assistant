@@ -200,11 +200,32 @@
         </div>
       </div>
       <div class="tool-card">
-        <h3>自动符文</h3>
-        <p>锁定英雄后自动配置推荐符文页 (按英雄轮换符文树, 非数据推荐; OP.GG 数据源接入中)。</p>
+        <h3>自动符文与出装</h3>
+        <p>锁定英雄后自动配置。优先恢复你保存过的符文记忆，否则按 OP.GG 当前模式的推荐 (峡谷按分路，大乱斗/海斗/无限火力不分路)；OP.GG 不可用时退回原轮换规则。</p>
         <div class="tool-row">
           <span id="autoRuneStatus" class="tool-state">未开启</span>
           <label class="switch"><input type="checkbox" id="autoRuneToggle" onchange="toggleAutoRune(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row opgg-loadout-options">
+          <label><input type="checkbox" id="opggLoadout_runes" checked onchange="setOpggLoadoutOption('runes', this.checked)"> 按 OP.GG 设置符文</label>
+          <label><input type="checkbox" id="opggLoadout_spells" onchange="setOpggLoadoutOption('spells', this.checked)"> 召唤师技能</label>
+          <label><input type="checkbox" id="opggLoadout_items" checked onchange="setOpggLoadoutOption('items', this.checked)"> 写入装备方案</label>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>对局结束自动点赞</h3>
+        <p>结算时从本局真人队友（不含自己和人机）里随机选一位、随机选一种称赞。若你已手动点过或没有可用票数则不动作；同一局只点一次。</p>
+        <div class="tool-row">
+          <span class="tool-state">随机延迟后执行</span>
+          <label class="switch"><input type="checkbox" id="autoHonorToggle" onchange="toggleAutoHonor(this.checked)"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="tool-card">
+        <h3>掉线自动重连</h3>
+        <p>对局中掉线、客户端出现「重新连接」时自动点击重连。失败最多重试 4 次，之后提示你手动处理。</p>
+        <div class="tool-row">
+          <span class="tool-state">掉线时触发</span>
+          <label class="switch"><input type="checkbox" id="autoReconnectToggle" onchange="toggleAutoReconnect(this.checked)"><span class="slider"></span></label>
         </div>
       </div>
       <div class="tool-card">
@@ -303,6 +324,18 @@
         </div>
       </div>
       <div class="tool-card">
+        <h3>在线状态与个性签名</h3>
+        <p>改变好友列表里别人看到的你：在线、手机在线、离开、勿扰或隐身。客户端进入或离开对局时会把状态改回去，勾选「锁定」后会自动改回你选的状态。</p>
+        <div class="tool-row">
+          <select id="chatAvailability" class="tool-input" onchange="onChatAvailabilityChange(this)"></select>
+          <label class="opgg-loadout-options"><input type="checkbox" id="chatLockToggle" onchange="toggleChatLock(this.checked)"> 锁定</label>
+        </div>
+        <div class="tool-row">
+          <input type="text" id="chatStatusMessage" class="tool-input" placeholder="个性签名（留空即清空）" style="flex:1">
+          <button class="btn-secondary" onclick="applyChatStatusMessage()">设置签名</button>
+        </div>
+      </div>
+      <div class="tool-card">
         <h3>伪造排位段位</h3>
         <p>修改好友列表中自己卡片显示的段位 (仅展示效果)。</p>
         <div class="tool-row">
@@ -351,6 +384,12 @@
         </div>
       </div>
       <div class="tools-section">设置与数据</div>
+      <div class="tool-card span-all">
+        <h3>软件更新 <span id="updateBadge" class="update-badge" hidden>有新版本</span></h3>
+        <p>从本项目的 GitHub 发布页检查新版本。只在你点击后下载，下载完成会校验 sha256 与文件大小，再由你点击安装；不会自动安装。</p>
+        <div class="tool-row"><button id="updateCheckBtn" class="btn-secondary" onclick="checkForUpdate(false)">检查更新</button></div>
+        <div id="updateBody" class="update-body"></div>
+      </div>
       <div class="tool-card">
         <h3>合规模式（默认关闭）</h3>
         <p>开启后进入<b>只读模式</b>：自动化与对客户端的写入操作全部停用。Poro 不注入游戏进程、不读取游戏内存；关闭前请自行确认所在服务器规则。</p>
@@ -470,6 +509,8 @@
 <script src="js/session-state.js?v=2026100204"></script>
 <script src="js/performance.js?v=2026100204"></script>
 <script src="js/diagnostics.js?v=2026100204"></script>
+<script src="js/balance.js?v=2026100204"></script>
+<script src="js/behavior-tags.js?v=2026100204"></script>
 <script src="js/bench.js?v=2026100204"></script>
 <script src="js/champions.js?v=2026100204"></script>
 <script src="js/progress-report.js?v=2026100204"></script>
@@ -485,6 +526,10 @@
 <script src="js/chat.js?v=2026100204"></script>
 <script src="js/autobp.js?v=2026100204"></script>
 <script src="js/lcu-events.js?v=2026100204"></script>
+<script src="js/opgg-loadout.js?v=2026100204"></script>
+<script src="js/update.js?v=2026100204"></script>
+<script src="js/autoflow.js?v=2026100204"></script>
+<script src="js/chat-status.js?v=2026100204"></script>
 <script src="js/settings.js?v=2026100204"></script>
 <script src="js/persist.js?v=2026100204"></script>
 <script src="js/autoreturn.js?v=2026100204"></script>
