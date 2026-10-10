@@ -176,6 +176,28 @@ assert.strictEqual(vm.runInContext('hexFlowChampion(__flow)', context), 81, '加
   assert.deepStrictEqual(JSON.parse(JSON.stringify(overlayPayload.items.map(x => x.name))), ['掷骰狂人', '易损', '珠光护手']);
   assert.ok(overlayPayload.items.every(x => Number.isFinite(x.gain)), '可靠样本应携带相对英雄基准的正负收益');
 
+  // 同一组卡片持续显示时 (每 0.5 秒一轮), 不应每轮都额外查询浮窗状态、写日志
+  {
+    const api = context.lolAPI;
+    const origStatus = api.augmentOverlayStatus, origLog = api.debugLog, origUpdate = api.augmentOverlayUpdate;
+    let statusCalls = 0, overlayLogs = 0;
+    api.augmentOverlayStatus = async () => { statusCalls++; return { visible: true }; };
+    api.debugLog = m => { if (String(m).startsWith('[AUGMENT OVERLAY] update')) overlayLogs++; };
+    for (let i = 0; i < 6; i++) assert.strictEqual(await vm.runInContext('scanCurrentAugmentOffers(false)', context), true);
+    assert.strictEqual(statusCalls, 0, `同一组卡片重复推送时不应查询浮窗状态 (实际 ${statusCalls} 次)`);
+    assert.strictEqual(overlayLogs, 0, `同一组卡片重复推送时不应写日志 (实际 ${overlayLogs} 行)`);
+    // 浮窗没显示出来: 要查状态并记录, 便于排查
+    api.augmentOverlayUpdate = async payload => { overlayPayload = payload; return { ok: true, visible: false }; };
+    await vm.runInContext('scanCurrentAugmentOffers(false)', context);
+    assert.strictEqual(statusCalls, 1, '浮窗未显示时应查询一次状态');
+    assert.strictEqual(overlayLogs, 1, '浮窗未显示时应记录一行');
+    api.augmentOverlayUpdate = origUpdate;
+    // 手动重扫 (F6) 也要记录
+    await vm.runInContext('scanCurrentAugmentOffers(true)', context);
+    assert.strictEqual(overlayLogs, 2, '手动重扫应记录');
+    api.augmentOverlayStatus = origStatus; api.debugLog = origLog;
+  }
+
   // 后两轮光效较强时，OCR 常连续出现“先识别两张、下一帧补齐第三张”。
   // 三个卡槽在短时间窗口内都确认后仍必须弹出推荐。
   vm.runInContext('hideAugmentRecommendation()', context);

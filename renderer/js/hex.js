@@ -812,11 +812,16 @@ async function scanCurrentAugmentOffers(manual = false) {
     _augmentLastPayload = overlayPayload;
     _augmentOverlayHeartbeatAt = Date.now();
     const overlayResult = await lolAPI.augmentOverlayUpdate(overlayPayload);
-    try {
-      const status = window.lolAPI?.augmentOverlayStatus ? await lolAPI.augmentOverlayStatus() : overlayResult;
-      lolAPI.debugLog?.('[AUGMENT OVERLAY] update result=' + JSON.stringify(overlayResult) + ' status=' + JSON.stringify(status));
-    } catch (e) {
-      lolAPI.debugLog?.('[AUGMENT OVERLAY] status failed: ' + e.message);
+    // 卡片显示期间每 0.5 秒都会推一次同样的浮窗。原先每轮还额外查一次状态 (主进程要枚举全部顶层窗口
+    // 找游戏窗口) 并写一行日志 (主进程同步写盘)。现在只在出现新推荐、手动重扫、或浮窗没显示出来时才查。
+    const overlayShown = !!(overlayResult && overlayResult.visible === true);
+    if (isNewOffer || manual || !overlayShown) {
+      try {
+        const status = window.lolAPI?.augmentOverlayStatus ? await lolAPI.augmentOverlayStatus() : overlayResult;
+        lolAPI.debugLog?.('[AUGMENT OVERLAY] update result=' + JSON.stringify(overlayResult) + ' status=' + JSON.stringify(status));
+      } catch (e) {
+        lolAPI.debugLog?.('[AUGMENT OVERLAY] status failed: ' + e.message);
+      }
     }
     if (manual || isNewOffer) {
       lolAPI.notify?.('Poro 海斗强化', '推荐：' + rows.map((row, i) => (i + 1) + '.' + row.name).join('  '));
