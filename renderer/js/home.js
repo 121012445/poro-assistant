@@ -2087,7 +2087,12 @@ async function loadHomeStats(force, opts) {
     // 他人查询失败后保留当前错误页，等待用户修正名称或主动重试；若设为 false，
     // pollLoop 会把它当作“本人首页尚未加载”而永久重试，形成周期性整页闪烁。
     homeStatsLoaded = !!profileOverride;
-    panel.innerHTML = `<div class="msg-error">统计数据加载失败: ${escapeHtml(e.message)}</div>`;
+    // 失败页必须给出路: 重试 + 回到我的 (否则他人查询失败 = 整页死路, 只能重启)
+    panel.innerHTML = `<div class="msg-error">统计数据加载失败: ${escapeHtml(e.message)}</div>
+      <div class="msg-error-actions">
+        <button class="btn-primary" onclick="loadHomeStats(true)">重试</button>
+        ${profileOverride ? '<button class="btn-secondary" onclick="backToMe()">⟲ 回到我的战绩</button>' : ''}
+      </div>`;
     restoreHomeScroll(profileOverride?.puuid || cachedSummoner?.puuid || '');
   } finally {
     window.poroPerf?.record('home.load', performance.now() - loadStartedAt, {

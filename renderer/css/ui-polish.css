@@ -292,3 +292,6 @@ body.dark ::-webkit-scrollbar-thumb { background: rgba(150, 165, 190, .26); bord
 
 /* ---------- 近 N 场走势折线图 (我的画像) ---------- */
 .trend-svg { margin-top: 4px; }
+
+/* 查询失败页的操作按钮 */
+.msg-error-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
