@@ -9,8 +9,11 @@ let autoBPRules = { mode: 'all', position: 'all' };
 function toggleAutoBP(on) {
   if (on && !guardAutomation('自动BP')) { document.getElementById('autoBPToggle').checked = false; return; }
   autoBPEnabled = on;
-  document.getElementById('autoBPStatus').textContent = on ? '已开启' : '未开启';
-  document.getElementById('autoBPStatus').style.color = on ? 'var(--positive)' : '';
+  const status = document.getElementById('autoBPStatus');
+  if (status) {
+    status.textContent = on ? '已开启' : '未开启';
+    status.style.color = on ? 'var(--positive)' : '';
+  }
   saveConfig();
 }
 
@@ -70,12 +73,18 @@ function removeAutoBPHero(type, idx) {
   renderAutoBPHeroList();
 }
 function renderAutoBPHeroList() {
+  // autoBPHeroes 存的是数字 key, 而 allChampions 以英文 id 为索引,
+  // 直接 allChampions[id] 恒为 undefined —— 必须经 champNumMap 反查。
+  if (typeof ensureChampMap === 'function') ensureChampMap();
   ['ban', 'pick'].forEach(type => {
     const el = document.getElementById(type === 'ban' ? 'autoBPBanList' : 'autoBPPickList');
+    if (!el) return;
     el.innerHTML = autoBPHeroes[type].map((id, i) => {
-      const name = allChampions[id]?.name || id;
+      const name = champNumMap?.[String(id)]?.name
+        || Object.values(allChampions).find(c => String(c.key) === String(id))?.name
+        || id;
       return `<span style="display:inline-flex;align-items:center;gap:2px;background:#2a2a3a;padding:2px 6px;border-radius:4px;font-size:11px;">
-        ${name} <span onclick="removeAutoBPHero('${type}',${i})" style="cursor:pointer;color:#f44;">×</span>
+        ${escapeHtml(String(name))} <span onclick="removeAutoBPHero('${type}',${i})" style="cursor:pointer;color:var(--negative);">×</span>
       </span>`;
     }).join('');
   });
@@ -102,7 +111,14 @@ async function doAutoBP() {
       if (action.type === 'ban' && autoBPHeroes.ban.length > 0) {
         for (const heroId of autoBPHeroes.ban) {
           try {
-            await lolAPI.lcuRequest('PATCH', `/lol-champ-select/v1/session/actions/${action.id}`, { championId: heroId });
+            // LCU 对 4xx/5xx 不抛异常而是返回带 __error 的对象(与 bench.js/home.js
+            // 的约定一致), 必须显式检查, 否则第一个被拒的英雄会 break 掉整个备选列表。
+            const r = await lolAPI.lcuRequest('PATCH', `/lol-champ-select/v1/session/actions/${action.id}`, { championId: heroId });
+            if (r && r.__error) continue;
+            // ban 与 pick 一样: PATCH 只是"悬停", 轮到我们时必须 POST complete 才算锁定。
+            if (action.isInProgress) {
+              await lolAPI.lcuRequest('POST', `/lol-champ-select/v1/session/actions/${action.id}/complete`);
+            }
             break;
           } catch (e) {}
         }
@@ -110,7 +126,8 @@ async function doAutoBP() {
         // 预选→锁定: PATCH 设英雄后, 轮到我们(isInProgress)时 POST complete 完成选择
         for (const heroId of autoBPHeroes.pick) {
           try {
-            await lolAPI.lcuRequest('PATCH', `/lol-champ-select/v1/session/actions/${action.id}`, { championId: heroId });
+            const r = await lolAPI.lcuRequest('PATCH', `/lol-champ-select/v1/session/actions/${action.id}`, { championId: heroId });
+            if (r && r.__error) continue;
             if (action.isInProgress) {
               await lolAPI.lcuRequest('POST', `/lol-champ-select/v1/session/actions/${action.id}/complete`);
             }

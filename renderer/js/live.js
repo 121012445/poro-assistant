@@ -89,8 +89,20 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
   limitMapSize(sgpRecentCache, SGP_RECENT_CACHE_MAX);
   return profile;
 }
-function recentProfileFor(platformId, puuid, count = 30) {
-  return isTencentPlatform(platformId) ? sgpProfileFor(platformId, puuid, count) : lcuProfileFor(platformId, puuid, count);
+async function recentProfileFor(platformId, puuid, count = 30) {
+  if (!isTencentPlatform(platformId)) return lcuProfileFor(platformId, puuid, count);
+  // SGP 网关故障 (如 HTTP 503, 一故障就是几分钟) 期间组队推断/闪现偏好会整体失明:
+  // SGP 失败或空数据时回退 LCU 战绩接口, 场次可能少一些但功能不至于整体失效。
+  let sgpProfile = null;
+  try {
+    sgpProfile = await sgpProfileFor(platformId, puuid, count);
+    if (sgpProfile.recent.length || sgpProfile.teamGames.length) return sgpProfile;
+  } catch (e) { /* SGP 故障, 走 LCU 兜底 */ }
+  try {
+    const lcu = await lcuProfileFor(platformId, puuid, count);
+    if (lcu.recent.length || lcu.teamGames.length) return lcu;
+  } catch (e) { /* LCU 也不可用 */ }
+  return sgpProfile || { t: Date.now(), ttl: 30000, recent: [], teamGames: [], flashPreference: null };
 }
 async function announceInferredPremades(players, groups) {
   if (!premadeNotifyOn) return;
@@ -201,7 +213,10 @@ function buildLivePlayers(livePlayers, parts, phase) {
     players = livePlayers.map(lp => {
       let cid = lp.championId || 0;
       if (!cid && lp.championName && allChampions) {
-        const found = Object.values(allChampions).find(c => c.name === lp.championName);
+        // Live Client Data 的 championName 是英文皮肤名 (如 "Yasuo"),
+        // allChampions[].name 是中文, 先按英文 id 匹配, 中文名仅作兜底。
+        const found = Object.values(allChampions).find(c =>
+          (c.id || '').toLowerCase() === lp.championName?.toLowerCase() || c.name === lp.championName);
         if (found) cid = +found.key;
       }
       const sp = cid ? sessionByChamp[cid] : null;
@@ -569,8 +584,11 @@ function flashPreferenceHtml(pref) {
 
 function updateLivePlayerRow(p, idx) {
   const key = livePlayerKey(p);
-  const row = [...document.querySelectorAll('.lp-row')].find(el => el.dataset.playerKey === key)
-    || document.querySelectorAll('.lp-row')[idx];
+  const rows = [...document.querySelectorAll('.lp-row')];
+  // idx 兜底仅对没有 puuid 的条目 (BOT/名字未补全) 开放: 有 puuid 时按下标写
+  // 可能在队伍分组变化后把战绩写到别的玩家卡上, 宁可等下一次全量重绘。
+  const row = rows.find(el => el.dataset.playerKey === key)
+    || (!p?.puuid && rows[idx] ? rows[idx] : null);
   if (!row) return;
   const c = champOfLive(p.championId);
   const recentHtml = p.recent.length ? p.recent.slice(0, recentLimit()).map(recentIcon).join('') : '<span class="ri-empty">无数据</span>';
@@ -615,10 +633,10 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const kda = p.recent.length ? ((totK + totA) / Math.max(1, totD)).toFixed(1) : '--';
     const name = p.name || nameCache[p.puuid] || '未知';
     const isSelf = selfPuuid && p.puuid === selfPuuid;
-    const tag = isSelf ? ' <span style="color:#ffd700;font-size:10px">★ 自己</span>' : '';
+    const tag = isSelf ? ' <span style="color:var(--data-gold,#e0b76a);font-size:10px">★ 自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
     const premadeTag = premadeGroupId ? `<span class="lp-premade" title="开黑组 ${premadeGroupId}">${poroIcon('users')}组${premadeGroupId}</span>` : '';
-    const marksHtml = !isSelf && p.puuid ? `<span style="cursor:pointer;font-size:9px;color:#888;margin-left:4px;" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
+    const marksHtml = !isSelf && p.puuid ? `<span style="cursor:pointer;font-size:9px;color:var(--text-muted);margin-left:4px;" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
@@ -659,10 +677,104 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   body.innerHTML = `
     ${buildLiveDecisionPanel(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue')}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+  // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
+  pushGameLiveBoard(data, premadeGroups);
+  updateChampSelectCounterHint(data);
   syncLiveExpandButton(true);
 }
-async function updateLivePage(phase) {
-  const startedAt = performance.now();
+// ---------- F9 对局战报浮窗: 数据准备 (推送紧凑版 10 人摘要) ----------
+let _gameLiveBoardKey = '';
+function pushGameLiveBoard(data, premadeGroups) {
+  if (window._gameflowPhase !== 'InProgress' && window._gameflowPhase !== 'GameStart' && window._gameflowPhase !== 'ChampSelect') return;
+  if (!lolAPI.gameLivePush || !Array.isArray(data) || !data.length) return;
+  try {
+    // premadeGroups 是 puuid -> gid (gid 形态不定), 按首次出现顺序编成 开黑1/开黑2
+    const groupLabel = {};
+    let gi = 0;
+    for (const p of data) {
+      const gid = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
+      if (!gid) continue;
+      if (!groupLabel[gid]) groupLabel[gid] = '开黑' + (++gi);
+    }
+    ensureChampMap();
+    const players = data.map(p => {
+      const c = champOfLive(p.championId);
+      const wins = p.recent.filter(r => r.win === true || r.win === 'Win').length;
+      const flash = p.flashPreference
+        ? (p.flashPreference.inconsistent ? '闪现混乱' : (p.flashPreference.preferred || (p.flashPreference.d ? 'D' : 'F') || '') + '闪')
+        : '';
+      return {
+        team: p.team === 200 || p.team === '200' ? 200 : 100,
+        name: p.name || nameCache[p.puuid] || '未知',
+        champKey: c ? c.id : '',
+        champName: c ? c.name : '',
+        isSelf: !!(p.puuid && p.puuid === (window._myPuuid || '')),
+        isBot: !!p.isBot,
+        games: p.recent.length,
+        wins,
+        k: p.recent.reduce((s, r) => s + r.k, 0),
+        d: p.recent.reduce((s, r) => s + r.d, 0),
+        a: p.recent.reduce((s, r) => s + r.a, 0),
+        flash, rank: p.rank || '',
+        premade: p.puuid && groupLabel[premadeGroups && premadeGroups[p.puuid]] || ''
+      };
+    });
+    const key = players.map(p => [p.name, p.champKey, p.games, p.wins, p.premade].join(':')).join('|');
+    if (key === _gameLiveBoardKey) return;   // 数据没变不重复推
+    _gameLiveBoardKey = key;
+    lolAPI.gameLivePush({ players, ddragonVersion: (typeof version !== 'undefined' && version) || '' });
+  } catch (e) { try { lolAPI.debugLog('[GAME LIVE] push error: ' + (e?.message || e)); } catch (e2) {} }
+}
+
+// ---------- 选人克制提醒: 我的锁定英雄 vs 敌方已锁定英雄 ----------
+let _counterHintKey = '';
+function updateChampSelectCounterHint(data) {
+  if (window._gameflowPhase !== 'ChampSelect') return;
+  const area = document.getElementById('liveGameArea');
+  if (!area || typeof calcCounterData !== 'function') return;
+  let strip = document.getElementById('csCounterHint');
+  try {
+    const me = data.find(p => p.puuid && p.puuid === window._myPuuid);
+    const myChampId = me && me.championId ? +me.championId : 0;
+    const enemies = data
+      .filter(p => p.championId && p.team !== (me ? me.team : null))
+      .map(p => +p.championId);
+    if (!myChampId || !enemies.length) {
+      if (strip) strip.remove();
+      _counterHintKey = '';
+      return;
+    }
+    const key = myChampId + ':' + enemies.slice().sort((a, b) => a - b).join(',');
+    if (key === _counterHintKey && strip) return;
+    _counterHintKey = key;
+    ensureChampMap();
+    const cData = calcCounterData(myChampId);
+    const pick = list => (list || [])
+      .filter(t => enemies.includes(+t.id))
+      .slice(0, 4)
+      .map(t => {
+        const ck = champNumMap?.[String(t.id)];
+        return ck ? '<span class="ch-champ">' + escapeHtml(ck.name) + ' <i>' + (t.wr * 100).toFixed(0) + '%</i></span>' : '';
+      })
+      .filter(Boolean);
+    const threats = pick(cData ? cData.threats : []);
+    const preys = pick(cData ? cData.preys : []);
+    const myName = champNumMap?.[String(myChampId)]?.name || '';
+    const html = (threats.length ? '<span class="ch-sec danger">⚠ 克制 ' + escapeHtml(myName) + ':</span>' + threats.join('')
+      + (preys.length ? '<span class="ch-sec sep"></span>' : '') : '')
+      + (preys.length ? '<span class="ch-sec good">✦ 你克制:</span>' + preys.join('') : '');
+    if (!html) { if (strip) strip.remove(); return; }
+    if (!strip) {
+      strip = document.createElement('div');
+      strip.id = 'csCounterHint';
+      strip.className = 'counter-hint';
+      area.prepend(strip);
+    }
+    strip.innerHTML = html;
+  } catch (e) { try { lolAPI.debugLog('[COUNTER HINT] ' + (e?.message || e)); } catch (e2) {} }
+}
+
+async function updateLivePage(phase) {  const startedAt = performance.now();
   const body = document.getElementById("liveGameArea");
   if (!body) return;
   const gpEl = document.getElementById("gameflowPhase"); if (gpEl) gpEl.textContent = PHASE_TEXT[phase] || phase || "未知";

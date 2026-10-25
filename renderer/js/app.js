@@ -64,7 +64,80 @@ function fmtTime(sec) {
   return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
 }
 
+// ========== 主题系统: C 浅蓝(默认) / A 雾紫 / B 暗色玻璃 / 经典深色 ==========
+let _lastLightUiTheme = 'c';   // 月亮按钮在 浅色变体 <-> 暗色 之间切换时记住的浅色主题
+function applyUiTheme(v, persist = true) {
+  const b = document.body;
+  b.classList.remove('theme-a', 'theme-b', 'theme-c');
+  if (v === 'b') { b.classList.add('theme-b', 'dark'); }
+  else if (v === 'dark') { b.classList.remove('theme-a', 'theme-b', 'theme-c'); b.classList.add('dark'); }
+  else {
+    v = (v === 'a' || v === 'c') ? v : 'c';
+    b.classList.remove('dark');
+    b.classList.add('theme-' + v);
+  }
+  if (v !== 'b' && v !== 'dark') _lastLightUiTheme = v;
+  if (persist) { try { storeSet('uiTheme', v); } catch (e) {} }
+  // 月亮/太阳图标跟随明暗
+  const btn = document.getElementById('themeToggle');
+  if (btn && typeof poroIcon === 'function') {
+    const dark = b.classList.contains('dark');
+    btn.innerHTML = dark ? poroIcon('sun') : poroIcon('moon');
+  }
+  // 主题切换器按钮高亮
+  document.querySelectorAll('#themePopover .theme-opt').forEach(el => {
+    el.classList.toggle('on', el.dataset.v === v);
+  });
+}
+function setUiTheme(v) { applyUiTheme(v); }
+
+// 主题选择弹窗 (侧边栏底部调色板按钮)
+function toggleThemePicker(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  const pop = document.getElementById('themePopover');
+  const btn = document.getElementById('themePickerBtn');
+  if (!pop || !btn) return;
+  if (!pop.hidden) { pop.hidden = true; return; }
+  pop.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let x = r.right + 10;
+  if (x + pw > window.innerWidth - 8) x = r.left - pw - 10;
+  let y = Math.max(8, Math.min(r.bottom - ph, window.innerHeight - ph - 8));
+  pop.style.left = x + 'px';
+  pop.style.top = y + 'px';
+}
+function pickTheme(v) {
+  applyUiTheme(v);
+  const pop = document.getElementById('themePopover');
+  if (pop) pop.hidden = true;
+}
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('themePopover');
+  if (!pop || pop.hidden) return;
+  if (!pop.contains(e.target) && e.target.closest?.('#themePickerBtn')) return;
+  if (!pop.contains(e.target)) pop.hidden = true;
+});
+
 // ========== 页面切换 ==========
+// 导航栏收起/展开 (收起成 64px 图标栏, 偏好持久化)
+function applyNavCollapsedState() {
+  const collapsed = storeGet('navCollapsed') === '1';
+  document.body.classList.toggle('nav-collapsed', collapsed);
+  syncNavTooltips(collapsed);
+}
+function toggleNavCollapsed() {
+  const collapsed = !document.body.classList.contains('nav-collapsed');
+  document.body.classList.toggle('nav-collapsed', collapsed);
+  try { storeSet('navCollapsed', collapsed ? '1' : ''); } catch (e) {}
+  syncNavTooltips(collapsed);
+}
+function syncNavTooltips(collapsed) {
+  // 收起时悬停图标显示页面名
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.title = collapsed ? (el.querySelector('span')?.textContent || '') : '';
+  });
+}
 function switchPage(page) {
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
@@ -112,11 +185,10 @@ async function loadPerkIcons(ver) {
   } catch (e) { /* 缓存缺失或损坏, 走网络加载 */ }
 
   for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
       const rr = await fetch(`https://ddragon.leagueoflegends.com/cdn/${ver}/data/zh_CN/runesReforged.json`, { signal: ctrl.signal }).then(r => r.json());
-      clearTimeout(timer);
       if (!Array.isArray(rr) || !rr.length) throw new Error('符文数据为空');
       perkIconMap = {}; styleIconMap = {};
       for (const style of rr) {
@@ -130,6 +202,8 @@ async function loadPerkIcons(ver) {
       // 三次都失败: 已有缓存则不影响使用, 只降级提示
       if (Object.keys(perkIconMap || {}).length) console.log("符文数据刷新失败, 已使用本地缓存:", e.message);
       else console.warn("符文数据加载失败且无缓存:", e.message);
+    } finally {
+      clearTimeout(timer);
     }
   }
   return false;
@@ -153,6 +227,12 @@ async function init() {
     window.__appVersion = appVer;
     setVersionText('');
     await loadStore();
+    // 主题要在拿到持久化配置后立刻应用, 否则深色用户每次启动都先闪一下浅色
+    applyTheme();
+    // 正式主题选择 (C 浅蓝默认 / A 雾紫 / B 暗色玻璃 / dark 经典深色) 覆盖旧的深浅开关
+    applyUiTheme(storeGet('uiTheme') || 'c');
+    // 恢复导航栏收起/展开偏好
+    applyNavCollapsedState();
     // 静态数据 (DDragon/符文图标/英雄网格) 与首页数据并行: 首页不再等待静态资源
     const staticLoad = (async () => {
       try {
@@ -218,6 +298,9 @@ async function init() {
   wireLcuEvents();
   applyTheme();
   loadAiConfig();
+  // 外服聊天翻译 + 好友助手 (需在 loadStore 之后的任意时点初始化)
+  initGameTranslate();
+  initFriendAssist();
   // 严格先完成首页文件缓存渲染，再启动 LCU 探测。两者并发时，国服客户端日志扫描
   // 会占用主进程并让缓存 IPC 排队数秒，造成“缓存命中但首页仍然慢”的假象。
   await loadHomeStats();
@@ -226,7 +309,7 @@ async function init() {
 
 // ========== 快捷键 ==========
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable || e.target.tagName === 'SELECT') return;
   if (e.key === 'PageUp') { e.preventDefault(); sendKDABriefing(true); }
   if (e.key === 'PageDown') { e.preventDefault(); sendKDABriefing(false); }
 });

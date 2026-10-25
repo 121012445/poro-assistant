@@ -34,7 +34,7 @@ function renderUpdateCard() {
       html += info.installable
         ? '<button class="btn-primary" onclick="downloadUpdate()">下载更新</button>'
         : '<span class="tool-state">这个版本没有可校验的安装包，请到发布页手动下载。</span>';
-      html += ' <button class="btn-secondary" onclick="lolAPI.openUpdatePage()">查看发布页</button>';
+      html += ' <button class="btn-secondary" onclick="openUpdatePageSafe()">查看发布页</button>';
     } else if (s.phase === 'downloading') {
       html += `<div class="update-progress"><div style="width:${Math.min(100, s.progress)}%"></div></div><span class="tool-state">下载中 ${s.progress}%</span>`;
     } else {
@@ -74,21 +74,34 @@ async function downloadUpdate() {
   const info = updateState.info;
   updateState = { phase: 'downloading', info, error: '', progress: 0 };
   renderUpdateCard();
-  const r = await lolAPI.downloadUpdate();
-  if (!r || r.__error) {
-    updateState = { phase: 'error', info: null, error: '下载失败: ' + (r?.__error || '未知错误'), progress: 0 };
-    renderUpdateCard();
-    return;
+  try {
+    const r = await lolAPI.downloadUpdate();
+    if (!r || r.__error) {
+      updateState = { phase: 'error', info: null, error: '下载失败: ' + (r?.__error || '未知错误'), progress: 0 };
+    } else {
+      updateState = { phase: 'ready', info: Object.assign({}, info, { downloaded: true }), error: '', progress: 100 };
+    }
+  } catch (e) {
+    // IPC 异常 (主进程抛错/正在退出) 不能让 UI 永远卡在"下载中"
+    updateState = { phase: 'error', info: null, error: '下载失败: ' + (e?.message || e), progress: 0 };
   }
-  updateState = { phase: 'ready', info: Object.assign({}, info, { downloaded: true }), error: '', progress: 100 };
   renderUpdateCard();
 }
 
 async function installUpdate() {
   if (updateState.phase !== 'ready') return;
   if (!confirm('将启动安装程序并关闭 Poro。继续吗？')) return;
-  const r = await lolAPI.installUpdate();
-  if (r && r.__error) { updateState = { phase: 'error', info: null, error: '启动安装失败: ' + r.__error, progress: 0 }; renderUpdateCard(); }
+  try {
+    const r = await lolAPI.installUpdate();
+    if (r && r.__error) { updateState = { phase: 'error', info: null, error: '启动安装失败: ' + r.__error, progress: 0 }; renderUpdateCard(); }
+  } catch (e) {
+    updateState = { phase: 'error', info: null, error: '启动安装失败: ' + (e?.message || e), progress: 0 };
+    renderUpdateCard();
+  }
+}
+
+function openUpdatePageSafe() {
+  try { lolAPI?.openUpdatePage(); } catch (e) {}
 }
 
 function initUpdate() {

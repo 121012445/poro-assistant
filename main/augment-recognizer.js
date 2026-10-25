@@ -22,6 +22,10 @@ function isSafeVisualMatch(offer, iconUnique) {
 function createRecognizer(nativeImage, userDataPath, logger) {
   const cacheFile = path.join(userDataPath, 'augment-icon-descriptors.json');
   const cache = new Map();
+  // 下载失败的短 TTL 负缓存: 三选一期间每 0.5-2s 扫描一轮, 没有它时同一批
+  // 失败 URL 会被反复重试, 形成对社区源的请求风暴并拖慢每轮识别。
+  const failedUntil = new Map();
+  const FAILED_TTL = 60 * 1000;
   let loaded = false;
   let dirty = false;
   let saveTimer = null;
@@ -82,6 +86,7 @@ function createRecognizer(nativeImage, userDataPath, logger) {
   async function descriptorFor(url) {
     loadCache();
     if (cache.has(url)) return cache.get(url);
+    if (Date.now() < (failedUntil.get(url) || 0)) return null;
     try {
       const image = nativeImage.createFromBuffer(await download(url));
       const descriptor = vision.descriptorFromImage(image, 'template');
@@ -91,6 +96,7 @@ function createRecognizer(nativeImage, userDataPath, logger) {
       }
       return descriptor;
     } catch (e) {
+      failedUntil.set(url, Date.now() + FAILED_TTL);
       log('[AUGMENT VISION] icon failed ' + url.substring(0, 120) + ': ' + e.message);
       return null;
     }

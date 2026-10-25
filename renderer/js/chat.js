@@ -105,7 +105,7 @@ async function maybeAnnounceChampSelectSide(champSession) {
     if (window._gameflowPhase !== 'ChampSelect') return false;
     const room = activeChampSelectConversation(conversations, champSession);
     const side = champSelectSideFromData(gameflow, champSession, self);
-    if (!room?.id || !side) return false; // 数据尚未齐全，等待下一次选人事件重试。
+    if (!room?.id || !side) { try { lolAPI.debugLog('[SIDE] skip: room/side not ready'); } catch (e) {} return false; }
     const key = `${room.id}:${side}`;
     if (_champSelectSideAnnouncedFor === key) return true;
     const mapId = Number(gameflow?.gameData?.mapId || gameflow?.map?.id || 0);
@@ -118,28 +118,34 @@ async function maybeAnnounceChampSelectSide(champSession) {
     // 国服聊天服务要求消息携带 /lol-chat/v1/me 中的真实聊天身份。fromId/pid 为空或
     // fromSummonerId=0 时客户端只会乐观显示，随后服务器同步会将其撤回。
     const payload = buildLcuChatMessage(room.id, body, chatSelf, 'chat');
-    if (!payload.fromId || !payload.fromPid || !payload.fromSummonerId) return false;
+    if (!payload.fromId || !payload.fromPid || !payload.fromSummonerId) { try { lolAPI.debugLog('[SIDE] skip: no chat identity'); } catch (e) {} return false; }
     const result = await lolAPI.lcuRequest(
       'POST',
       endpoint,
       payload
     );
-    if (result?.__error) return false;
-    // 回读只在服务明确返回消息数组且目标消息缺失时补发一次。接口不可读时不盲目重发，
-    // 避免不同客户端版本下产生重复队伍消息。
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    if (window._gameflowPhase === 'ChampSelect') {
-      const history = await lolAPI.lcuRequest('GET', endpoint).catch(() => null);
-      const readableHistory = Array.isArray(history) || Array.isArray(history?.messages);
-      if (readableHistory && !chatHistoryContains(history, body)) {
-        const retry = await lolAPI.lcuRequest('POST', endpoint, payload);
-        if (retry?.__error) return false;
-        try { lolAPI.debugLog(`[SIDE] first message not persisted; resent room=${room.id}`); } catch (e) {}
-      }
-    }
+    if (result?.__error) { try { lolAPI.debugLog('[SIDE] post failed: ' + (result.__error || '')); } catch (e) {} return false; }
     _champSelectChatCid = room.id;
     _champSelectSideAnnouncedFor = key;
     try { lolAPI.debugLog(`[SIDE] announced room=${room.id} side=${sideName} map=${mapId || 'unknown'}`); } catch (e) {}
+    // 服务器可能延迟数秒才撤回机器人消息: 在 1.5s/4s/8s 三次回读, 缺失则补发 (最多 2 次)。
+    // 后台执行, 不占用 announceBusy; 接口不可读时不盲目重发, 避免不同客户端版本下产生重复消息。
+    (async () => {
+      const delays = [1500, 2500, 4000];
+      let resends = 0;
+      for (const delay of delays) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        if (window._gameflowPhase !== 'ChampSelect') return;
+        const history = await lolAPI.lcuRequest('GET', endpoint).catch(() => null);
+        if (!(Array.isArray(history) || Array.isArray(history?.messages))) return;
+        if (chatHistoryContains(history, body)) continue;
+        if (resends >= 2) { try { lolAPI.debugLog('[SIDE] message recalled again, give up room=' + room.id); } catch (e) {} return; }
+        resends++;
+        const retry = await lolAPI.lcuRequest('POST', endpoint, payload).catch(() => null);
+        try { lolAPI.debugLog(`[SIDE] missing at +${delay}ms, resend#${resends} ` + (retry && !retry.__error ? 'ok' : 'failed: ' + (retry?.__error || ''))); } catch (e) {}
+        if (retry?.__error) return;
+      }
+    })();
     return true;
   } catch (error) {
     try { lolAPI.debugLog('[SIDE] announce failed: ' + (error?.message || String(error))); } catch (e) {}
@@ -183,9 +189,16 @@ async function sendGameChat(text) {
   const cid = await getGameChatCid();
   try { lolAPI.debugLog('[CHAT] cid=' + (cid ? 'found' : 'none') + ' phase=' + window._gameflowPhase); } catch (e) {}
   if (cid) {
-    const r = await lolAPI.lcuRequest('POST', `/lol-chat/v1/conversations/${encodeURIComponent(cid)}/messages`, { body: text, type: 'chat' });
+    // 与 maybeAnnounceChampSelectSide 相同的原因: 只发 body/type 时部分客户端会
+    // 乐观显示一瞬间后由服务器撤回, 必须携带 /lol-chat/v1/me 的真实聊天身份信封。
+    const chatSelf = await lolAPI.lcuRequest('GET', '/lol-chat/v1/me').catch(() => null);
+    const payload = buildLcuChatMessage(cid, text, chatSelf, 'chat');
+    const hasIdentity = !!(payload.fromId && payload.fromPid && payload.fromSummonerId);
+    const body1 = hasIdentity ? payload : { body: text, type: 'chat' };
+    const r = await lolAPI.lcuRequest('POST', `/lol-chat/v1/conversations/${encodeURIComponent(cid)}/messages`, body1);
     if (!(r && r.__error)) return { ok: true };
-    const r2 = await lolAPI.lcuRequest('POST', '/lol-chat/v1/messages', { body: text, cid, type: 'chat' });
+    const body2 = hasIdentity ? { ...buildLcuChatMessage(cid, text, chatSelf, 'chat'), cid } : { body: text, cid, type: 'chat' };
+    const r2 = await lolAPI.lcuRequest('POST', '/lol-chat/v1/messages', body2);
     if (!(r2 && r2.__error)) return { ok: true };
   }
   return { ok: false, error: cid ? '消息发送失败' : '未在对局中, 无法发送' };

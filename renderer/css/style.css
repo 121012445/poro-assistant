@@ -289,7 +289,7 @@ body {
   display: none; position: fixed; inset: 0; z-index: 2000;
   background: rgba(74, 60, 46, 0.4); align-items: center; justify-content: center;
 }
-.modal-overlay.active { display: flex; }
+.modal-overlay.active, .modal-overlay.show { display: flex; }
 .modal-content {
   background: var(--bg-primary); border: 1px solid var(--border);
   border-radius: 16px; width: 90%; max-width: 700px; max-height: 85vh;
@@ -521,19 +521,69 @@ body {
 .ban-grid { display: flex; gap: 8px; flex-wrap: wrap; }
 .ban-cell img { width: 36px; height: 36px; border-radius: 6px; filter: grayscale(0.8); }
 .ban-cell .cs-empty { width: 36px; height: 36px; font-size: 14px; }
-.tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
 /* 工具箱分区标题: 横跨整行, 右侧拖一条细线, 让 20+ 张卡片有分组感 */
-.tools-section { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: 10px 0 -2px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-muted); }
+.tools-section { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: 6px 0 0; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-muted); }
 .tools-section::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .tools-section:first-child { margin-top: 0; }
 .sel-reward-list { margin: 8px 0; font-size: 11px; max-height: 168px; overflow-y: auto; }
-.tool-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-.tool-card h3 { font-size: 15px; margin-bottom: 8px; color: var(--accent-deep); }
-.tool-card p { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6; }
-.tool-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.tool-state { font-size: 13px; color: var(--text-secondary); flex: 1; }
-.tool-select, .tool-input { flex: 1; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 8px; font-size: 13px; outline: none; }
+.tool-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.tool-card h3 { font-size: 14px; margin-bottom: 5px; color: var(--accent-deep); }
+/* 说明文字压到两行截断 (悬停完整显示), 长文案不再把整页撑开 */
+.tool-card > p { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tool-card > p:hover, .tool-card > p.tool-warn { display: block; -webkit-line-clamp: unset; }
+.tool-card > p.tool-warn { font-size: 10px; margin-top: -2px; }
+.tool-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tool-row + .tool-row { margin-top: 8px; }
+.tool-state { font-size: 12px; color: var(--text-secondary); flex: 1; }
+.tool-select, .tool-input { flex: 1; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 9px; border-radius: 8px; font-size: 12px; outline: none; }
 .tool-msg { margin-top: 16px; font-size: 14px; }
+/* 选人克制提醒条 (实时页选人视图顶部) */
+.counter-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 7px 12px; margin-bottom: 8px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border); font-size: 12px; }
+.counter-hint .ch-sec { font-weight: 700; }
+.counter-hint .ch-sec.danger { color: var(--negative); }
+.counter-hint .ch-sec.good { color: var(--positive); }
+.counter-hint .ch-sec.sep { width: 1px; height: 14px; background: var(--border); }
+.counter-hint .ch-champ { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 7px; background: var(--bg-secondary); }
+.counter-hint .ch-champ i { font-style: normal; font-size: 10px; color: var(--text-muted); }
+/* 首页周报入口: 按钮嵌在首页搜索行内 (homeSearchMarkup), 不再浮在角落 */
+/* 周报分享卡 (会作为 PNG 保存分享, 视觉按信息卡片海报标准做) */
+.weekly-card { width: 460px; box-sizing: border-box; padding: 24px 26px 16px; position: relative; overflow: hidden;
+  background: linear-gradient(165deg, #fdfaf3, #f1ecdf); color: #33414d; font-family: "Microsoft YaHei", sans-serif; border-radius: 16px;
+  box-shadow: 0 14px 36px rgba(31, 42, 51, .16), inset 0 1px rgba(255, 255, 255, .65); }
+.weekly-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  background: linear-gradient(90deg, #2c8ea3, #67c6b8 55%, #e8c766); }
+.wc-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.wc-logo { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #2c8ea3, #1f5f6e); color: #eafcff; font-weight: 900; font-size: 21px;
+  box-shadow: 0 4px 12px rgba(44, 142, 163, .35); }
+.wc-title-wrap h3 { margin: 0; font-size: 21px; color: #1f5f6e; letter-spacing: .02em; }
+.wc-sub { font-size: 11px; color: #8a97a0; margin-top: 2px; }
+.wc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-bottom: 12px; }
+.wc-stat { background: rgba(255, 255, 255, .82); border: 1px solid #e7dfcd; border-radius: 12px; padding: 10px 6px 8px;
+  text-align: center; box-shadow: 0 2px 6px rgba(31, 42, 51, .05); }
+.wc-stat b { display: block; font-size: 18px; color: #245a6b; line-height: 1.3; }
+.wc-stat span { font-size: 10px; color: #8a97a0; }
+.wc-stat.accent { background: linear-gradient(160deg, #2c8ea3, #1f5f6e); border-color: transparent; }
+.wc-stat.accent b { color: #ffffff; }
+.wc-stat.accent span { color: #c8e8ee; }
+.wc-delta { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 7px; vertical-align: 2px; margin-left: 2px; }
+.wc-delta.up { color: #1d8a4e; background: #e2f6ea; }
+.wc-delta.down { color: #c24747; background: #fdeaea; }
+.wc-delta:not(.up):not(.down) { color: #cfe9ee; background: rgba(255, 255, 255, .16); }
+.wc-stat.accent .wc-delta.up { color: #c9f5dd; background: rgba(255, 255, 255, .18); }
+.wc-stat.accent .wc-delta.down { color: #ffd9d9; background: rgba(255, 255, 255, .18); }
+.wc-row { display: flex; gap: 9px; margin-bottom: 12px; }
+.wc-champ { flex: 1; position: relative; background: rgba(255, 255, 255, .82); border: 1px solid #e7dfcd; border-radius: 12px;
+  padding: 14px 8px 9px; text-align: center; box-shadow: 0 2px 6px rgba(31, 42, 51, .05); }
+.wc-rank { position: absolute; top: 7px; left: 7px; font-style: normal; font-size: 9px; font-weight: 800;
+  padding: 1px 6px; border-radius: 6px; background: #f0e5c8; color: #a37b2c; letter-spacing: .04em; }
+.wc-champ img { width: 46px; height: 46px; border-radius: 10px; }
+.wc-champ b { display: block; font-size: 12px; margin-top: 4px; }
+.wc-champ span { font-size: 10px; color: #8a97a0; }
+.wc-note { font-size: 11px; color: #6b7a84; line-height: 1.8; border-top: 1px dashed #d9cfba; padding-top: 9px; }
+.wc-note b { color: #245a6b; }
+.wc-foot { margin-top: 10px; text-align: right; font-size: 10px; color: #a8b2b8; letter-spacing: .04em; }
 .switch { position: relative; width: 46px; height: 24px; flex-shrink: 0; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .switch .slider { position: absolute; inset: 0; background: var(--border); border-radius: 24px; cursor: pointer; transition: 0.2s; }
@@ -961,7 +1011,15 @@ body {
   .rk-mid, .rk-itemrow, .rk-game-teams { display: none; }
 }
 .switch-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); user-select: none; } .switch-row input { width: 16px; height: 16px; cursor: pointer; }
-.bg-champ-dropdown {\n  position: absolute; top: 100%; left: 0; right: 0; z-index: 9999 !important;\n  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;\n  max-height: 240px; overflow-y: auto; margin-top: 4px;\n  box-shadow: 0 8px 24px rgba(0,0,0,0.3);\n  display: block !important;\n}
+/* DOM 里实际使用的类名是 bg-champ-list (index.html#bgChampDropdown); 旧规则不仅写错类名,
+   还带字面 \n, 整条被解析器吞掉, 导致浅色主题下下拉完全没有样式。 */
+.bg-champ-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 9999 !important;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  max-height: 240px; overflow-y: auto; margin-top: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  display: block !important;
+}
 .bg-champ-option {
   padding: 8px 12px; cursor: pointer; font-size: 13px;
   display: flex; align-items: center; justify-content: space-between;

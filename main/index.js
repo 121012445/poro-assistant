@@ -696,6 +696,203 @@ function normalizeOcrText(value) {
   return augmentOcrMatch.normalizeOcrText(value);
 }
 
+// ---------- 外服聊天翻译 (主窗口发送框与游戏内浮窗共用) ----------
+const TRANSLATE_CACHE_MAX = 300;
+const translateCache = new Map();   // `${target}\u0000${text}` -> 译文 (命中即刷新 LRU 位置)
+function translateCacheGet(key) {
+  const hit = translateCache.get(key);
+  if (hit !== undefined) { translateCache.delete(key); translateCache.set(key, hit); }
+  return hit;
+}
+function translateCacheSet(key, value) {
+  if (translateCache.size >= TRANSLATE_CACHE_MAX) translateCache.delete(translateCache.keys().next().value);
+  translateCache.set(key, value);
+}
+
+const TRANSLATE_LANG_NAMES = {
+  'zh-CN': '简体中文', 'en': '英语', 'ja': '日语', 'ko': '韩语',
+  'es': '西班牙语', 'pt': '葡萄牙语', 'ru': '俄语', 'vi': '越南语', 'th': '泰语'
+};
+
+// 优先 AI 接口: 游戏黑话/缩写 (ss, jgl diff, off cooldown) 的处理比机翻好得多
+async function aiTranslateBatch(texts, target) {
+  const cfg = readAiConfig();
+  if (!cfg.apiKey || !cfg.baseUrl) return null;
+  const langName = TRANSLATE_LANG_NAMES[target] || '简体中文';
+  const prompt = 'You are an in-game chat translator for League of Legends. '
+    + '将下列每一行游戏聊天翻译成' + langName + '。保留游戏黑话/术语的习惯译法, 不要解释。'
+    + '输出一个 JSON 字符串数组, 与输入行一一对应, 不要输出任何其他内容。\n输入:\n'
+    + texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
+  const targetUrl = resolveChatUrl(cfg.baseUrl);
+  const body = JSON.stringify({ model: cfg.model || 'glm-4-flash', messages: [{ role: 'user', content: prompt }], temperature: 0.1 });
+  const resp = await httpsPost(targetUrl.hostname, targetUrl.port, targetUrl.path, { 'Authorization': 'Bearer ' + cfg.apiKey }, body, 30000);
+  if (resp.error || !resp.choices?.[0]?.message?.content) return null;
+  const match = String(resp.choices[0].message.content || '').match(/\[[\s\S]*\]/);
+  if (!match) return null;
+  const parsed = JSON.parse(match[0]);
+  if (!Array.isArray(parsed) || parsed.length !== texts.length) return null;
+  return parsed.map(x => String(x || '').trim());
+}
+
+// 兜底: Google 免费机翻端点 (无需 Key)。失败返回 null, 由调用方回退原文。
+function googleTranslateOne(text, target) {
+  return new Promise(resolve => {
+    try {
+      const u = new URL('https://translate.googleapis.com/translate_a/single');
+      u.searchParams.set('client', 'gtx');
+      u.searchParams.set('sl', 'auto');
+      u.searchParams.set('tl', target);
+      u.searchParams.set('dt', 't');
+      u.searchParams.set('q', text);
+      const req = https.get(u, { headers: { 'User-Agent': 'Poro/1.5' } }, res => {
+        if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            const segs = Array.isArray(data?.[0]) ? data[0].map(seg => seg?.[0] || '').join('') : '';
+            resolve(segs || null);
+          } catch (e) { resolve(null); }
+        });
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(6000, () => { req.destroy(); resolve(null); });
+    } catch (e) { resolve(null); }
+  });
+}
+
+ipcMain.handle('translate:text', async (e, texts, target) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+  const list = (Array.isArray(texts) ? texts : [])
+    .map(t => String(t || '').trim().substring(0, 300))
+    .filter(Boolean)
+    .slice(0, 10);
+  if (!list.length) return [];
+  const lang = TRANSLATE_LANG_NAMES[target] ? target : 'zh-CN';
+  const out = new Array(list.length);
+  const pendingIdx = [];
+  list.forEach((text, i) => {
+    const hit = translateCacheGet(lang + '\u0000' + text);
+    if (hit !== undefined) out[i] = hit;
+    else pendingIdx.push(i);
+  });
+  if (pendingIdx.length) {
+    const pending = pendingIdx.map(i => list[i]);
+    let results = null;
+    try { results = await aiTranslateBatch(pending, lang); } catch (e) { results = null; }
+    if (!results) {
+      results = [];
+      for (const text of pending) results.push(await googleTranslateOne(text, lang) || '');
+    }
+    pendingIdx.forEach((idx, i) => {
+      const value = results[i] && results[i] !== pending[i] ? results[i] : pending[i];
+      out[idx] = value;
+      translateCacheSet(lang + '\u0000' + pending[i], value);
+    });
+  }
+  return out;
+});
+
+// ---------- 外服聊天翻译浮窗 (点击穿透, 贴游戏窗口聊天区上方) ----------
+let gameTranslateWindow = null;
+const GAME_TRANSLATE_SIZE = { width: 350, height: 230 };
+
+function gameTranslateMetrics() {
+  let game = null;
+  try { game = winRect.getLeagueGameRect(); } catch (e) {}
+  let display = null;
+  try { display = game ? electronScreen.getDisplayMatching(game) : electronScreen.getPrimaryDisplay(); } catch (e) {}
+  const area = display?.workArea || { x: 0, y: 0, width: 1280, height: 720 };
+  const heightScale = game?.height ? game.height / 1440 : area.height / 1080;
+  const dpiScale = Math.max(1, Number(display?.scaleFactor) || 1);
+  const scale = Math.max(0.70, Math.min(1.30, heightScale * Math.min(1.12, Math.sqrt(dpiScale))));
+  const width = Math.round(GAME_TRANSLATE_SIZE.width * scale);
+  const height = Math.round(GAME_TRANSLATE_SIZE.height * scale);
+  const padX = 16;
+  // 聊天框在游戏窗口左下角 (约占底部四分之一): 浮窗贴在它上方, 避开聊天与技能区
+  const bottomPad = Math.round((game ? game.height : area.height) * 0.27);
+  const x = game ? game.x + padX : area.x + padX;
+  const y = game ? game.y + game.height - bottomPad - height : area.y + area.height - bottomPad - height;
+  return { scale, bounds: {
+    x: Math.max(area.x, Math.min(x, area.x + area.width - width)),
+    y: Math.max(area.y, Math.min(y, area.y + area.height - height)),
+    width,
+    height
+  }};
+}
+
+function showGameTranslateWindow() {
+  if (!gameTranslateWindow || gameTranslateWindow.isDestroyed()) return;
+  try {
+    const metrics = gameTranslateMetrics();
+    gameTranslateWindow.setBounds(metrics.bounds);
+    try { gameTranslateWindow.webContents.setZoomFactor(metrics.scale); } catch (e) {}
+    gameTranslateWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    gameTranslateWindow.setIgnoreMouseEvents(true, { forward: false });
+    gameTranslateWindow.show();
+    try { gameTranslateWindow.moveTop(); } catch (e) {}
+  } catch (error) { logErr('[TRANSLATE OVERLAY] show failed: ' + error.message); }
+}
+
+function hideGameTranslateWindow() {
+  if (gameTranslateWindow && !gameTranslateWindow.isDestroyed() && gameTranslateWindow.isVisible()) gameTranslateWindow.hide();
+}
+
+function createGameTranslateWindow() {
+  if (gameTranslateWindow && !gameTranslateWindow.isDestroyed()) return gameTranslateWindow;
+  gameTranslateWindow = new BrowserWindow(Object.assign(gameTranslateMetrics().bounds, {
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    focusable: false,
+    alwaysOnTop: true,
+    title: 'Poro 聊天翻译',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: !rendererCompatActive,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js'),
+      devTools: !app.isPackaged
+    }
+  }));
+  gameTranslateWindow.setAlwaysOnTop(true, 'screen-saver');
+  gameTranslateWindow.setIgnoreMouseEvents(true, { forward: false });
+  try { gameTranslateWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
+  gameTranslateWindow.loadFile(path.join(__dirname, '..', 'renderer', 'game-translate.html'));
+  gameTranslateWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  gameTranslateWindow.webContents.on('did-fail-load', (e, code, desc) => logErr('[TRANSLATE OVERLAY LOAD FAILED] ' + code + ' ' + desc));
+  gameTranslateWindow.on('closed', () => { gameTranslateWindow = null; });
+  return gameTranslateWindow;
+}
+
+ipcMain.handle('game-translate:push', async (e, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  const lines = (Array.isArray(payload?.lines) ? payload.lines : [])
+    .filter(it => it && typeof it === 'object')
+    .slice(-6)
+    .map(it => ({
+      name: String(it.name || '玩家').substring(0, 24),
+      body: String(it.body || '').substring(0, 140),
+      translated: String(it.translated || '').substring(0, 200),
+      ts: Number(it.ts) || Date.now()
+    }));
+  createGameTranslateWindow();
+  try { gameTranslateWindow.webContents.send('game-translate:data', { lines }); } catch (e2) {}
+  if (lines.length) showGameTranslateWindow();
+  return true;
+});
+
+
+
 function augmentOcrWorkerPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'main', 'native', 'PoroOcrWorker.ps1')
@@ -703,7 +900,11 @@ function augmentOcrWorkerPath() {
 }
 
 // OCR 子进程管理见 main/ocr-worker.js (含"缺少中文 OCR 语言包时不再每轮重启 PowerShell"的退避)
-const augmentOcr = createOcrWorker({ spawn, scriptPath: augmentOcrWorkerPath, log: logErr });
+// PowerShell 用 System32 绝对路径: 应用以管理员运行, 按 PATH 搜索可被同名程序劫持。
+function powershellExePath() {
+  return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+const augmentOcr = createOcrWorker({ spawn, exePath: powershellExePath(), scriptPath: augmentOcrWorkerPath, log: logErr });
 function ensureAugmentOcrWorker() { return augmentOcr.ensure(); }
 function stopAugmentOcrWorker() { augmentOcr.stop(); }
 function requestAugmentOcr(imagePath) { return augmentOcr.request(imagePath); }
@@ -864,7 +1065,15 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
         iconNames.set(icon, names);
       }
     }
-    const result = await augmentRecognizer.recognize(screenshot, rawCandidates);
+    let result;
+    try {
+      result = await augmentRecognizer.recognize(screenshot, rawCandidates);
+    } catch (visionError) {
+      // 视觉识别不可用(图标缓存未就绪/下载失败等)时退化为纯 OCR 路径,
+      // 不能让这里的异常跳到外层把整轮识别(含 OCR)一起打挂。
+      logErr('[AUGMENT VISION] ' + visionError.message);
+      result = { width: screenshot.getSize().width, height: screenshot.getSize().height, offers: [] };
+    }
     const looksLikeOfferScreen = layoutDetected || augmentVision.isLikelyOfferScreen(result.offers);
     if (looksLikeOfferScreen) {
       try {
@@ -872,7 +1081,8 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
         // 每个 OCR 成功的卡槽都立即回传。后两轮强化光效较强时，常出现本次只读到
         // 2 张、下一次读到另 1 张；渲染层会在很短的同轮窗口内按 slot 汇总。
         const ocrBySlot = new Map(names.map(item => [Number(item.slot), item]));
-        result.offers = result.offers.map((visionOffer, slot) => {
+        result.offers = result.offers.length
+          ? result.offers.map((visionOffer, slot) => {
           const item = ocrBySlot.get(slot);
           if (item) return {
             slot,
@@ -895,7 +1105,19 @@ ipcMain.handle('game:recognizeAugments', async (e, candidates) => {
             confirmedBy: 'vision-safe',
             iconUnique
           });
-        });
+        })
+          // 视觉 offers 为空(退化路径)时直接采用 OCR 结果。
+          : names.map(item => ({
+            slot: Number(item.slot),
+            id: item.id,
+            name: item.name,
+            icon: item.icon,
+            score: 1,
+            margin: 1,
+            accepted: true,
+            confirmedBy: item.confirmedBy || 'ocr',
+            alternatives: []
+          }));
       } catch (ocrError) {
         logErr('[AUGMENT OCR] ' + ocrError.message);
         result.offers.forEach(item => {
@@ -1061,13 +1283,22 @@ ipcMain.handle('lcu:reset', async () => {
   return true;
 });
 
+// 白名单之外再加路径规范化校验: 拒绝 ..、//、%2e 等形式, 防止前缀匹配被
+// "/lol-summoner/v1/current-summoner/../../lol-logout" 这类路径穿越绕过。
+const LCU_DEBUG = process.env.PORO_LCU_DEBUG === '1';
+function isSafeLcuPath(p) {
+  if (typeof p !== 'string' || !p || p.length > 512) return false;
+  if (p.includes('..') || p.includes('//') || p.includes('\\') || /%2e/i.test(p)) return false;
+  return LCU_PREFIXES.some(prefix => p === prefix || p.startsWith(prefix));
+}
+
 ipcMain.handle('lcu:request', async (e, method, urlPath, body) => {
-  if (typeof urlPath !== 'string' || !LCU_PREFIXES.some(p => urlPath.startsWith(p))) {
+  if (!isSafeLcuPath(urlPath)) {
     return { __error: 'LCU 路径不在白名单内' };
   }
   if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) return { __error: '方法不允许' };
   try {
-    console.log('[LCU-IPC]', method, urlPath, body ? JSON.stringify(body).substring(0, 300) : '(no body)');
+    if (LCU_DEBUG) console.log('[LCU-IPC]', method, urlPath, body ? JSON.stringify(body).substring(0, 300) : '(no body)');
     const result = await lcu.lcuRequest(method, urlPath, body);
     lcuWs.connect();
     return result;
@@ -1123,8 +1354,172 @@ function dispatchInGameHotkey(action, source) {
   } else if (action === 'f6') {
     logErr('[SHORTCUT] F6 fired source=' + source + ' -> AugmentRecognition');
     sendToWindow('shortcut:augment', true);
+  } else if (action === 'f9') {
+    logErr('[SHORTCUT] F9 fired source=' + source + ' -> GameLiveBoard');
+    toggleGameLiveWindow();
   }
 }
+
+// ---------- 对局战报浮窗 (F9 呼出, 点击穿透, 贴游戏窗口右侧居中) ----------
+// 数据由主窗口的实时对局页在 InProgress 期间推送 (game-live:push), 主进程缓存
+// 最近一份; F9 只是显示/隐藏这个缓存, 数据拉取逻辑完全复用 live.js。
+let gameLiveWindow = null;
+let gameLivePayload = { players: [], ddragonVersion: '' };
+let gameLiveVisible = false;
+const GAME_LIVE_SIZE = { width: 400, height: 560 };
+
+function gameLiveMetrics() {
+  let game = null;
+  try { game = winRect.getLeagueGameRect(); } catch (e) {}
+  let display = null;
+  try { display = game ? electronScreen.getDisplayMatching(game) : electronScreen.getPrimaryDisplay(); } catch (e) {}
+  const area = display?.workArea || { x: 0, y: 0, width: 1280, height: 720 };
+  const heightScale = game?.height ? game.height / 1440 : area.height / 1080;
+  const dpiScale = Math.max(1, Number(display?.scaleFactor) || 1);
+  const scale = Math.max(0.70, Math.min(1.30, heightScale * Math.min(1.12, Math.sqrt(dpiScale))));
+  const width = Math.round(GAME_LIVE_SIZE.width * scale);
+  const height = Math.round(GAME_LIVE_SIZE.height * scale);
+  const padX = 16;
+  const x = game ? game.x + game.width - width - padX : area.x + area.width - width - padX;
+  const y = game ? game.y + Math.max(0, (game.height - height) / 2) : area.y + Math.max(0, (area.height - height) / 2);
+  return { scale, bounds: {
+    x: Math.max(area.x, Math.min(x, area.x + area.width - width)),
+    y: Math.max(area.y, Math.min(y, area.y + area.height - height)),
+    width,
+    height
+  }};
+}
+
+function pushGameLiveData() {
+  if (!gameLiveWindow || gameLiveWindow.isDestroyed()) return;
+  try { gameLiveWindow.webContents.send('game-live:data', gameLivePayload); } catch (e) {}
+}
+
+function createGameLiveWindow() {
+  if (gameLiveWindow && !gameLiveWindow.isDestroyed()) return gameLiveWindow;
+  gameLiveWindow = new BrowserWindow(Object.assign(gameLiveMetrics().bounds, {
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    focusable: false,
+    alwaysOnTop: true,
+    title: 'Poro 对局战报',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: !rendererCompatActive,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js'),
+      devTools: !app.isPackaged
+    }
+  }));
+  gameLiveWindow.setAlwaysOnTop(true, 'screen-saver');
+  gameLiveWindow.setIgnoreMouseEvents(true, { forward: false });
+  try { gameLiveWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
+  gameLiveWindow.loadFile(path.join(__dirname, '..', 'renderer', 'game-live.html'));
+  gameLiveWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  gameLiveWindow.webContents.on('did-finish-load', () => { if (gameLiveVisible) pushGameLiveData(); });
+  gameLiveWindow.webContents.on('did-fail-load', (e, code, desc) => logErr('[GAME LIVE LOAD FAILED] ' + code + ' ' + desc));
+  gameLiveWindow.on('closed', () => { gameLiveWindow = null; });
+  return gameLiveWindow;
+}
+
+function toggleGameLiveWindow() {
+  try {
+    if (gameLiveVisible) {
+      gameLiveVisible = false;
+      if (gameLiveWindow && !gameLiveWindow.isDestroyed() && gameLiveWindow.isVisible()) gameLiveWindow.hide();
+      return;
+    }
+    const metrics = gameLiveMetrics();
+    createGameLiveWindow();
+    gameLiveWindow.setBounds(metrics.bounds);
+    try { gameLiveWindow.webContents.setZoomFactor(metrics.scale); } catch (e) {}
+    gameLiveWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    gameLiveWindow.setIgnoreMouseEvents(true, { forward: false });
+    gameLiveVisible = true;
+    gameLiveWindow.show();
+    try { gameLiveWindow.moveTop(); } catch (e) {}
+    pushGameLiveData();
+  } catch (error) { logErr('[GAME LIVE] toggle failed: ' + error.message); }
+}
+
+function hideGameLiveWindow() {
+  gameLiveVisible = false;
+  if (gameLiveWindow && !gameLiveWindow.isDestroyed() && gameLiveWindow.isVisible()) gameLiveWindow.hide();
+}
+
+ipcMain.handle('game-live:push', async (e, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  const p = payload || {};
+  gameLivePayload = {
+    ddragonVersion: String(p.ddragonVersion || '').replace(/[^0-9a-z._-]/gi, '').substring(0, 20),
+    updatedAt: Date.now(),
+    players: (Array.isArray(p.players) ? p.players : [])
+      .filter(it => it && typeof it === 'object')
+      .slice(0, 12)
+      .map(it => ({
+        team: Number(it.team) === 200 ? 200 : 100,
+        name: String(it.name || '未知').substring(0, 24),
+        champKey: String(it.champKey || '').replace(/[^0-9A-Za-z._-]/g, '').substring(0, 32),
+        champName: String(it.champName || '').substring(0, 16),
+        isSelf: !!it.isSelf,
+        isBot: !!it.isBot,
+        games: Math.max(0, Math.min(99, Number(it.games) || 0)),
+        wins: Math.max(0, Math.min(99, Number(it.wins) || 0)),
+        k: Number(it.k) || 0, d: Number(it.d) || 0, a: Number(it.a) || 0,
+        flash: String(it.flash || '').substring(0, 8),
+        premade: String(it.premade || '').substring(0, 8),
+        rank: String(it.rank || '').substring(0, 16),
+        dataReady: !!it.dataReady
+      }))
+  };
+  if (gameLiveVisible) pushGameLiveData();
+  return true;
+});
+
+// ---------- 周报分享卡保存 (渲染层拼好 HTML, 主进程离屏渲染后截图存 PNG) ----------
+ipcMain.handle('share-card:save', async (e, html, width, height) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+  const w = Math.max(200, Math.min(1600, Number(width) || 460));
+  const h = Math.max(200, Math.min(2400, Number(height) || 760));
+  if (typeof html !== 'string' || !html.length || html.length > 500000) return { __error: '内容无效' };
+  let win = null;
+  try {
+    win = new BrowserWindow({
+      width: w, height: h, show: false, frame: false, transparent: false,
+      backgroundColor: '#f5f2ea', resizable: false, skipTaskbar: true,
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: false }
+    });
+    // 渲染层只允许引用 ddragon 图片; html 由本应用渲染层生成, 再包一层基础 CSP。
+    const wrapped = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+      + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src https://ddragon.leagueoflegends.com">'
+      + '</head><body style="margin:0">' + html + '</body></html>';
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(wrapped));
+    await new Promise(resolve => setTimeout(resolve, 600)); // 等图片解码
+    const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: h });
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: '保存周报图片',
+      defaultPath: path.join(app.getPath('desktop'), 'Poro周报-' + new Date().toISOString().slice(0, 10) + '.png'),
+      filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+    });
+    if (canceled || !filePath) return { canceled: true };
+    fs.writeFileSync(filePath, image.toPNG());
+    return { ok: true, filePath };
+  } catch (error) {
+    logErr('[SHARE CARD] save failed: ' + error.message);
+    return { __error: error.message };
+  } finally {
+    try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
+  }
+});
 
 // 主进程阶段联动: Electron 注册为第一通道，Win32 GetAsyncKeyState 为游戏吞键时的第二通道。
 function handlePhaseChange(phase) {
@@ -1141,15 +1536,18 @@ function handlePhaseChange(phase) {
       const ok1 = globalShortcut.isRegistered('F7') || globalShortcut.register('F7', () => dispatchInGameHotkey('f7', 'electron'));
       const ok2 = globalShortcut.isRegistered('F8') || globalShortcut.register('F8', () => dispatchInGameHotkey('f8', 'electron'));
       const ok3 = globalShortcut.isRegistered('F6') || globalShortcut.register('F6', () => dispatchInGameHotkey('f6', 'electron'));
-      logErr('[SHORTCUT] register F6=' + ok3 + ' F7=' + ok1 + ' F8=' + ok2 + (ok1 && ok2 && ok3 ? '' : ' (注册失败, Win32轮询仍会接管)'));
+      const ok4 = globalShortcut.isRegistered('F9') || globalShortcut.register('F9', () => dispatchInGameHotkey('f9', 'electron'));
+      logErr('[SHORTCUT] register F6=' + ok3 + ' F7=' + ok1 + ' F8=' + ok2 + ' F9=' + ok4 + (ok1 && ok2 && ok3 && ok4 ? '' : ' (注册失败, Win32轮询仍会接管)'));
       logErr('[HOTKEY POLL] available=' + hotkeyPoller.available + ' running=' + hotkeyPoller.isRunning() + ' started=' + pollStarted);
     } else {
       inProgressHotkeysActive = false;
       hotkeyPoller.stop();
-      for (const key of ['F6', 'F7', 'F8']) {
+      for (const key of ['F6', 'F7', 'F8', 'F9']) {
         if (globalShortcut.isRegistered(key)) globalShortcut.unregister(key);
       }
       if (augmentOverlayWindow && !augmentOverlayWindow.isDestroyed()) augmentOverlayWindow.hide();
+      hideGameTranslateWindow();
+      hideGameLiveWindow();
       logErr('[SHORTCUT] unregistered (left InProgress)');
     }
   } catch (e) { logErr('[SHORTCUT] ' + e.message); }
@@ -1298,7 +1696,7 @@ ipcMain.handle('sgp:gameDetails', async (e, platformId, gameId) => {
 });
 
 // ---------- 文件读写 (持久化配置, 白名单: 仅 userData 目录) ----------
-const ALLOWED_USER_DATA_FILES = new Set(['poro-config.json', 'jade-calib.json', 'hexdata.json', 'gs_lock.json', 'home-cache-0.json', 'home-cache-1.json']);
+const ALLOWED_USER_DATA_FILES = new Set(['poro-config.json', 'poro-config.json.bak', 'jade-calib.json', 'hexdata.json', 'gs_lock.json', 'home-cache-0.json', 'home-cache-1.json']);
 function isPathAllowed(p) {
   try {
     const resolved = path.resolve(p);
@@ -1320,7 +1718,10 @@ ipcMain.handle('fs:writeFile', async (e, filePath, content) => {
   try {
     if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_USER_FILE_BYTES) return false;
     if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
-    fs.writeFileSync(filePath, content, 'utf8');
+    // 先写临时文件再 rename, 进程被杀时不会留下半截 JSON (gamedata.js 同款做法)。
+    const temp = filePath + '.tmp';
+    fs.writeFileSync(temp, content, 'utf8');
+    fs.renameSync(temp, filePath);
     return true;
   } catch (err) { return false; }
 });
@@ -1410,7 +1811,13 @@ const appUpdater = createUpdater({
   // 当前是否以管理员运行: 是 → 正式版, 否 → 受限版 (与已安装的版本保持一致)
   edition: () => { try { return require('./elevation').isElevated() ? 'full' : 'limited'; } catch (e) { return 'full'; } },
   tmpDir: () => path.join(app.getPath('temp'), 'poro-update'),
-  spawnInstaller: file => { spawn(file, [], { detached: true, stdio: 'ignore' }).unref(); },
+  spawnInstaller: file => {
+    const child = spawn(file, [], { detached: true, stdio: 'ignore' });
+    // 杀软拦截/文件被占/策略禁止时 spawn 会异步发出 error, 不挂监听会变成
+    // uncaughtException 把整个应用炸掉 (可能正发生在对局中)。
+    child.on('error', err => logErr('[UPDATER] install spawn failed: ' + err.message));
+    child.unref();
+  },
   quit: () => { app.isQuitting = true; setTimeout(() => app.quit(), 300); }
 });
 function fromMainWindow(e) { return mainWindow && !mainWindow.isDestroyed() && e.sender.id === mainWindow.webContents.id; }

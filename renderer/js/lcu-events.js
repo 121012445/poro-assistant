@@ -4,8 +4,10 @@
 
 // ========== LCU WebSocket 事件驱动 (轮询仅作兜底) ==========
 async function reconnectLcu() {
-  await lolAPI.lcuReconnect();
-  document.getElementById("lcuStatusText").textContent = "重新检测中...";
+  const el = document.getElementById("lcuStatusText");
+  if (el) el.textContent = "重新检测中...";
+  try { await lolAPI.lcuReconnect(); }
+  catch (e) { if (el) el.textContent = "客户端未连接"; }
 }
 let _lastAutoBPTs = 0;
 let _readyCheckAccepting = false;
@@ -73,6 +75,8 @@ function handleGameflowPhase(phase) {
   // 对局结束自动化挂接 (EndOfGame 触发, None 重置); None 时同步重置战力分析标记
   if (typeof autoReturnMaybeTrigger === 'function') autoReturnMaybeTrigger(phase);
   if (typeof autoflowOnPhase === 'function') autoflowOnPhase(phase);
+  // 外服聊天翻译: 进入对局重置本局状态, 按阶段启停扫描轮询
+  if (typeof gameTranslateOnPhase === 'function') gameTranslateOnPhase(phase);
   // 客户端进入/离开对局时会把在线状态改回去: 阶段变化后稍等一下再检查锁定的状态
   if (typeof chatLockEnforce === 'function' && phase !== previousPhase) setTimeout(() => chatLockEnforce(), 2500);
   if (phase === 'None') {

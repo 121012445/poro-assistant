@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src https://ddragon.leagueoflegends.com data:">
+<title>Poro 对局战报</title>
+<style>
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; color:#f5f0e7; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; user-select:none; }
+  .panel { box-sizing:border-box; width:100%; height:100%; padding:10px 11px; border-radius:14px; overflow:hidden;
+    background:linear-gradient(145deg,rgba(15,36,49,.95),rgba(24,24,37,.93)); border:1px solid rgba(91,220,217,.45);
+    box-shadow:0 12px 32px rgba(0,0,0,.36),inset 0 1px rgba(255,255,255,.08); display:flex; flex-direction:column; gap:6px; }
+  .head { display:flex; align-items:center; gap:7px; height:22px; flex-shrink:0; }
+  .poro { width:19px; height:19px; border-radius:50%; display:grid; place-items:center; background:#e9fbfa; color:#177f91; font-size:11px; font-weight:900; }
+  .title { font-size:12px; font-weight:800; }
+  .tip { margin-left:auto; color:#7f979d; font-size:9px; }
+  .teams { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .team { min-width:0; display:flex; flex-direction:column; gap:4px; }
+  .team-head { font-size:10px; font-weight:800; padding:3px 7px; border-radius:7px; text-align:center; }
+  .t100 .team-head { background:linear-gradient(100deg,rgba(70,150,220,.30),rgba(70,150,220,.14)); color:#9ecdf5; }
+  .t200 .team-head { background:linear-gradient(100deg,rgba(230,110,100,.30),rgba(230,110,100,.14)); color:#f3b3ab; }
+  .rows { flex:1; display:flex; flex-direction:column; gap:4px; }
+  .row { min-height:0; flex:1; display:flex; align-items:center; gap:6px; padding:3px 6px; box-sizing:border-box;
+    border-radius:8px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.07); overflow:hidden; }
+  .row.self { border-color:rgba(224,183,106,.55); background:rgba(224,183,106,.10); }
+  .row img { width:26px; height:26px; border-radius:6px; background:rgba(0,0,0,.3); flex-shrink:0; object-fit:cover; }
+  .info { min-width:0; flex:1; }
+  .name { display:block; font-size:11px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sub { display:block; font-size:9px; color:#93a7ad; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kda { text-align:right; flex-shrink:0; }
+  .kda b { display:block; font-size:12px; font-weight:800; }
+  .kda b.good { color:#58e6ad; } .kda b.bad { color:#ff7580; }
+  .kda span { display:block; font-size:9px; color:#8fa4aa; }
+  .tag { display:inline-block; margin-left:3px; padding:0 4px; border-radius:5px; font-size:8px; background:rgba(255,255,255,.10); color:#b9c8cc; vertical-align:1px; }
+  .tag.premade { color:#f4d48a; background:rgba(224,176,78,.16); }
+  .state { color:#8fa4aa; font-size:10px; text-align:center; padding:16px 0; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="head"><span class="poro">P</span><span class="title">对局战报</span><span class="tip">F9 显示/隐藏</span></div>
+    <div class="teams" id="teams"><div class="state">正在读取本局数据…<br>(实时对局页拉到战绩后自动更新)</div></div>
+  </div>
+  <script src="js/game-live.js"></script>
+</body>
+</html>

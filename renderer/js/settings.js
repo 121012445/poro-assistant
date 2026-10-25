@@ -108,7 +108,7 @@ async function applyLockedGameSettings(phase) {
       if (!fullStatus?.ok) throw new Error(fullStatus?.error || '完整设置快照创建失败');
     }
     const fullResult = await lolAPI.applyFullGameSettings();
-    if (!fullResult?.ok || fullResult.mismatchCount > 0) throw new Error(fullResult?.error || `完整配置仍有 ${fullResult.mismatchCount} 项未恢复`);
+    if (!fullResult?.ok || (fullResult?.mismatchCount ?? 0) > 0) throw new Error(fullResult?.error || `完整配置仍有 ${fullResult?.mismatchCount ?? '?'} 项未恢复`);
     const result = await lolAPI.lcuRequest("PATCH", "/lol-game-settings/v1/game-settings", gs);
     if (!result || result.__error) throw new Error(result?.__error || '客户端未确认设置更新');
     const mismatches = [];
@@ -174,10 +174,14 @@ async function doAutoRune(championId, champSession) {
   if (_autoRuneAppliedFor === championId || _autoRuneInFlight === championId) return;
   // 选人事件很密集: 同一英雄的配置还在进行时不重复触发
   _autoRuneInFlight = championId;
-  try { await doAutoRuneInner(championId, champSession); } finally { if (_autoRuneInFlight === championId) _autoRuneInFlight = 0; }
+  try { await doAutoRuneInner(championId, champSession); }
+  catch (e) { try { showToast('自动符文失败: ' + (e?.message || e), 'negative'); } catch (ignored) {} }
+  finally { if (_autoRuneInFlight === championId) _autoRuneInFlight = 0; }
 }
 async function doAutoRuneInner(championId, champSession) {
-  const champName = champNumMap[String(championId)]?.name || championId;
+  // 静态英雄表可能在选人时还没加载完 (champNumMap 初始为 null), 不能在这里抛 TypeError
+  if (typeof ensureChampMap === 'function') ensureChampMap();
+  const champName = champNumMap?.[String(championId)]?.name || championId;
   // 1) 符文记忆: 玩家手动保存过的符文页优先 (按 英雄|模式 记忆)
   let remembered = false;
   try {

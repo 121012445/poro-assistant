@@ -68,6 +68,22 @@ function mmrJadeEstimate(agg, soloMmr) {
   }
   return { v: Math.max(1000, Math.min(3000, Math.round(base + perf))), basis };
 }
+
+// 段位晋升追踪: LP 进度条 + 预计晋级场次 (按每胜约 +15LP 估算; 大师以上无分段 LP 不封顶, 不显示)
+function rankPromoHtml(q) {
+  const lp = q.leaguePoints || 0;
+  const tier = String(q.tier || '').toUpperCase();
+  if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tier)) return '';
+  if (String(q.division || '').toUpperCase() === 'I') {
+    return lp >= 100 ? '<div class="rank-promo"><span>已进入晋级赛, 祝好运!</span></div>' : '';
+  }
+  const wins = Math.max(1, Math.ceil((100 - lp) / 15));
+  const pct = Math.max(0, Math.min(100, lp));
+  return '<div class="rank-promo" title="按每胜约 +15LP 估算, 仅供参考">'
+    + '<div class="rank-promo-bar"><i style="width:' + pct + '%"></i></div>'
+    + '<span>距晋级约 <b>' + wins + '</b> 胜</span></div>';
+}
+
 // 段位卡片 (统一用 home-ranks 大卡片, 与 premium 设计一致; 旧 rank-mini 已弃用)
 function renderRankCards(queues) {
   return RANK_QUEUE_LABELS.map(([queueKey, label]) => {
@@ -81,6 +97,7 @@ function renderRankCards(queues) {
       <div class="rank-card-label">${label}</div>
       <div class="rank-card-tier">${t} ${q.division || ''}</div>
       <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
+      ${rankPromoHtml(q)}
     </div>`;
   }).join("");
 }
@@ -565,6 +582,66 @@ function renderProfileOwnerNote() {
   note.classList.toggle('is-other', !homeGamesOwnerIsSelf);
 }
 
+
+
+// 胜率走势图: 折线 = 场均 KDA (带 Y 轴刻度/网格/渐变面积), 圆点颜色 = 胜负, X 轴为日期
+function buildHomeTrendChart(games, summoner) {
+  const puuid = summoner?.puuid || window._myPuuid;
+  if (!puuid) return '';
+  const rows = [];
+  for (const g of (games || [])) {
+    if (rows.length >= 20) break;
+    const me = (g.participants || []).find(p => p.puuid === puuid);
+    if (!me) continue;
+    if (typeof isExcludedGame === 'function' && isExcludedGame({ mode: g.mode, queueId: g.queueId, gameType: g.gameType })) continue;
+    rows.push({ win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0, time: +g.time || 0, mode: g.mode });
+  }
+  if (rows.length < 4) return '';
+  rows.reverse();   // 时间正序
+  const n = rows.length;
+  const W = 468, H = 178, padL = 36, padR = 16, padT = 16, padB = 30;
+  const xAt = i => padL + i * ((W - padL - padR) / (n - 1));
+  const kdaOf = r => (r.k + r.a) / Math.max(1, r.d);
+  const maxK = Math.max(3, Math.ceil(Math.max(...rows.map(kdaOf)) * 2) / 2);
+  const yAt = v => padT + (1 - v / maxK) * (H - padT - padB);
+  const fmtD = t => t ? new Date(t).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '';
+
+  // Y 轴刻度 + 横向网格
+  let grid = '';
+  const steps = 4;
+  for (let s = 0; s <= steps; s++) {
+    const v = maxK * s / steps;
+    const y = yAt(v).toFixed(1);
+    grid += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '" stroke="var(--border)" stroke-width="1"' + (s === 0 ? '' : ' stroke-dasharray="3,4"') + '/>';
+    grid += '<text x="' + (padL - 6) + '" y="' + (+y + 3) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + (Math.round(v * 10) / 10) + '</text>';
+  }
+  // X 轴日期 (首/中/末)
+  const xTicks = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+  let xLabels = '';
+  for (const i of xTicks) {
+    const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+    xLabels += '<text x="' + xAt(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '" font-size="9" fill="var(--text-muted)">' + fmtD(rows[i].time) + '</text>';
+  }
+  // 折线 + 渐变面积
+  const linePts = rows.map((r, i) => xAt(i).toFixed(1) + ',' + yAt(kdaOf(r)).toFixed(1));
+  const areaPath = 'M' + linePts.join(' L') + ' L' + xAt(n - 1).toFixed(1) + ',' + (H - padB) + ' L' + xAt(0).toFixed(1) + ',' + (H - padB) + ' Z';
+  const dots = rows.map((r, i) => {
+    const tip = fmtD(r.time) + ' ' + (r.mode || '') + ' ' + r.k + '/' + r.d + '/' + r.a + ' · ' + (r.win ? '胜' : '负');
+    return '<circle cx="' + xAt(i).toFixed(1) + '" cy="' + yAt(kdaOf(r)).toFixed(1) + '" r="3" fill="var(--' + (r.win ? 'positive' : 'negative') + ')" stroke="var(--bg-card)" stroke-width="1"><title>' + escapeHtml(tip) + '</title></circle>';
+  }).join('');
+  const wins = rows.filter(r => r.win).length;
+  return '<section class="home-fun"><div class="home-fun-head"><span><b>近 ' + n + ' 场走势</b><small>' + wins + '胜' + (n - wins) + '负 · 折线为场均 KDA, 圆点: 绿胜红负</small></span><em>悬停看单局</em></div>'
+    + '<svg class="trend-svg" viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">'
+    + '<defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">'
+    + '<stop offset="0" stop-color="var(--accent)" stop-opacity=".16"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>'
+    + '</linearGradient></defs>'
+    + grid
+    + '<path d="' + areaPath + '" fill="url(#trendFill)"/>'
+    + '<polyline points="' + linePts.join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+    + dots + xLabels
+    + '</svg></section>';
+}
+
 function renderProfilePage() {
   const host = profileHost();
   if (!host) return;
@@ -573,7 +650,7 @@ function renderProfilePage() {
     delete host.dataset.owner;
   } else {
     const s = { puuid: homeGamesOwner };
-    host.innerHTML = buildHomeFunStats(homeGamesData, s) + buildHomeCoach(homeGamesData, s);
+    host.innerHTML = buildHomeFunStats(homeGamesData, s) + buildHomeTrendChart(homeGamesData, s) + buildHomeCoach(homeGamesData, s);
     host.dataset.owner = homeGamesOwner;
   }
   renderProfileOwnerNote();
@@ -609,6 +686,7 @@ function homeSearchMarkup(placeholderText) {
       </div>` : ''}
     </div>
     <button onclick="homeSearch()">查询</button>
+    <button class="btn-secondary" onclick="openWeeklyReport()" title="统计最近 7 天的对局数据" style="font-size:12px;">生成周报</button>
     <span class="home-search-msg" id="homeSearchMsg"></span>
   </div>`;
 }
@@ -1445,12 +1523,15 @@ function buildHomeTemplate(v) {
       <div class="rank-card-label">${label}</div>
       <div class="rank-card-tier">${t} ${q.division || ''}</div>
       <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
+      ${rankPromoHtml(q)}
     </div>`;
   };
   // 常用英雄
   const topChampRows = buildHomeChampionRows(champCount, champMeta);
   // 常一起玩
   const friendList = Object.entries(friendCount).sort((a, b) => b[1].count - a[1].count).slice(0, 8);
+  window._poroDuoList = friendList;   // 好友助手: 一键邀请用
+  if (typeof refreshDuoChips === 'function') refreshDuoChips();
   const friendRows = friendList.map(([puuid, f]) => {
     const tag = f.tagLine || tagCache[puuid] || '';
     const displayName = tag ? f.name + '#' + tag : f.name;

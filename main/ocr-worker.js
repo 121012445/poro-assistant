@@ -17,6 +17,7 @@ const STARTUP_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000];   // 第 1 次启动失�
 function createOcrWorker(options) {
   const opts = options || {};
   const spawn = opts.spawn;
+  const exePath = opts.exePath || 'powershell.exe';
   const scriptPath = opts.scriptPath;
   const log = typeof opts.log === 'function' ? opts.log : () => {};
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
@@ -48,7 +49,9 @@ function createOcrWorker(options) {
   function ensure() {
     if (worker && !worker.killed) return worker;
     if (backoffActive()) return null;
-    const child = spawn('powershell.exe', [
+    // exePath 默认由调用方注入绝对路径: 应用以管理员运行, 从 PATH 解析
+    // powershell.exe 存在被同名程序替换的劫持面。
+    const child = spawn(exePath, [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPathValue()
     ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     worker = child;

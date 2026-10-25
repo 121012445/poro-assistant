@@ -7,6 +7,8 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const LCU_DEBUG = process.env.PORO_LCU_DEBUG === '1';
+// 应用以管理员运行, PowerShell 必须用 System32 绝对路径, 不能交给 PATH 解析。
+const POWERSHELL = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
 // keep-alive agent: LCU/SGP 高频请求复用 TLS 连接, 省掉每次握手的固定开销
 // (本地 LCU 毫秒级握手是纯浪费; 客户端重启导致连接失效时在错误回调里销毁整个池, 下一请求自动重建)
@@ -38,7 +40,7 @@ function parseConn(text) {
 
 // 策略1: LeagueClientUx.exe 进程命令行 (非提权环境可用)
 async function fromProcess() {
-  const out = await execCmd('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object Name -EQ \'LeagueClientUx.exe\' | Select-Object -First 1 -ExpandProperty CommandLine"');
+  const out = await execCmd(`"${POWERSHELL}" -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object Name -EQ 'LeagueClientUx.exe' | Select-Object -First 1 -ExpandProperty CommandLine"`);
   const line = out.trim();
   const conn = parseConn(line);
   let exeDir = null;
@@ -296,7 +298,7 @@ function rawRequest(conn, method, urlPath, body) {
       res.on('data', c => { data += decoder.write(c); });
       res.on('end', () => {
         data += decoder.end();
-        console.log('[LCU] <<', method, urlPath, 'status=' + res.statusCode, 'len=' + data.length);
+        if (LCU_DEBUG) console.log('[LCU] <<', method, urlPath, 'status=' + res.statusCode, 'len=' + data.length);
         if (LCU_DEBUG && data) console.log('[LCU] body', data.substring(0, 1200));
         if (res.statusCode === 401 || res.statusCode === 403) {
           const err = new Error('LCU 认证失败');
@@ -361,24 +363,27 @@ function liveRequest(urlPath) {
       res.on('data', c => { data += decoder.write(c); });
       res.on('end', () => {
         data += decoder.end();
-        // 与 rawRequest 对齐: 便于排查对局数据问题 (liveRequest 走单独 https 跳过 rawRequest 日志)
-        console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=' + res.statusCode, 'len=' + data.length);
+        // 与 rawRequest 对齐 (仅调试模式): liveRequest 被渲染层亚秒级轮询,
+        // 无条件打印会在整局游戏中持续产生日志开销。
+        if (LCU_DEBUG) console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=' + res.statusCode, 'len=' + data.length);
         if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
         try {
           const obj = JSON.parse(data);
           // 调试: 标识数组/对象 + 长度, 必要时打印首项字段名, 便于排查 playerlist/allPlayers 返回 1 的根因
-          if (Array.isArray(obj)) {
-            console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=200 arrayLen=' + obj.length + (obj.length ? ' firstKeys=' + Object.keys(obj[0] || {}).slice(0, 12).join(',') : ''));
-          } else if (obj && typeof obj === 'object') {
-            console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=200 objectKeys=' + Object.keys(obj).slice(0, 12).join(',') + (obj.allPlayers ? ' allPlayersLen=' + (Array.isArray(obj.allPlayers) ? obj.allPlayers.length : '?') : ''));
-          } else {
-            console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=200 type=' + typeof obj);
+          if (LCU_DEBUG) {
+            if (Array.isArray(obj)) {
+              console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=200 arrayLen=' + obj.length + (obj.length ? ' firstKeys=' + Object.keys(obj[0] || {}).slice(0, 12).join(',') : ''));
+            } else if (obj && typeof obj === 'object') {
+              console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=200 objectKeys=' + Object.keys(obj).slice(0, 12).join(',') + (obj.allPlayers ? ' allPlayersLen=' + (Array.isArray(obj.allPlayers) ? obj.allPlayers.length : '?') : ''));
+            } else {
+              console.log('[LCU-LCD] <<', 'GET', urlPath, 'status=200 type=' + typeof obj);
+            }
           }
           resolve(obj);
         } catch (e) { reject(e); }
       });
     });
-    req.on('error', () => { reject(new Error('对局数据接口不可用(未在游戏中)')); });
+    req.on('error', e => { reject(new Error('对局数据接口不可用(未在游戏中): ' + (e?.message || e))); });
     req.setTimeout(5000, () => { req.destroy(); reject(new Error('对局数据请求超时')); });
   });
 }
@@ -391,7 +396,7 @@ async function fixLCUWindow() {
     '$h=[Win32Fix]::FindWindow("RiotWindowClass",$null)',
     'if($h -ne [IntPtr]::Zero){$vs=[System.Windows.Forms.SystemInformation]::VirtualScreen;$x=[int](($vs.Width-1280)/2);$y=[int](($vs.Height-720)/2);[Win32Fix]::SetWindowPos($h,[IntPtr]::Zero,$x,$y,1280,720,0x0040)|Out-Null;Write-Output "OK"}else{Write-Output "NOT_FOUND"}'
   ].join('; ');
-  const out = await execCmd(`powershell -NoProfile -Command "${script}"`, 12000);
+  const out = await execCmd(`"${POWERSHELL}" -NoProfile -Command "${script}"`, 12000);
   return out.includes('OK');
 }
 

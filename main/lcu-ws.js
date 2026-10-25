@@ -34,7 +34,9 @@ const FORWARD_URIS = [
   '/lol-matchmaking/v1/ready-check',
   '/lol-lobby/v2/lobby',
   '/lol-end-of-game/v1/eog-stats-block',
-  '/lol-summoner/v1/current-summoner'
+  '/lol-summoner/v1/current-summoner',
+  // 好友助手: 上线提醒需要好友列表事件流
+  '/lol-chat/v1/friends'
 ];
 
 function attach(win) { mainWindow = win; }

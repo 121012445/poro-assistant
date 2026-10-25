@@ -28,8 +28,8 @@ function removeBlacklistByName(name) {
 function renderBlacklist() {
   const el = document.getElementById('blacklistDisplay');
   if (!el) return;
-  el.innerHTML = blacklist.length === 0 ? '<span style="color:#666;">空</span>' :
-    blacklist.map((b, i) => `<span style="display:inline-flex;align-items:center;gap:2px;background:#3a2020;padding:2px 6px;border-radius:4px;margin:2px;color:#f88;">
+  el.innerHTML = blacklist.length === 0 ? '<span style="color:var(--text-muted);">空</span>' :
+    blacklist.map((b, i) => `<span style="display:inline-flex;align-items:center;gap:2px;background:color-mix(in srgb, var(--negative) 12%, transparent);padding:2px 6px;border-radius:4px;margin:2px;color:var(--negative);">
       ${escapeHtml(b.name)} <span onclick="removeBlacklist(${i})" style="cursor:pointer;">×</span>
     </span>`).join('');
 }
@@ -40,7 +40,7 @@ function checkBlacklist(players) {
   }
   if (matched.length) {
     showToast('⚠️ 黑名单玩家: ' + matched.join(', '), 'negative');
-    toolMsg(`<span style="color:#f44;">⚠️ 黑名单玩家: ${escapeHtml(matched.join(', '))}</span>`);
+    toolMsg(`<span style="color:var(--negative);">⚠️ 黑名单玩家: ${escapeHtml(matched.join(', '))}</span>`);
     return true;
   }
   return false;

@@ -6,6 +6,20 @@ const MAX_CONFIG_BYTES = 2 * 1024 * 1024;
 
 function snapshotPath(userData) { return path.join(userData, 'gs_full_lock.json'); }
 function backupPath(userData) { return path.join(userData, 'gs_full_backup.json'); }
+// configDir 单独持久化一份: 快照损坏时 clear() 仍能找到游戏目录并解除只读,
+// 否则配置文件会永久只读且再无解锁线索。
+function lockDirPath(userData) { return path.join(userData, 'gs_full_lock_dir.json'); }
+
+function saveLockDir(userData, configDir) {
+  try { atomicWrite(lockDirPath(userData), JSON.stringify({ version: 1, configDir })); } catch (e) {}
+}
+
+function loadLockDir(userData) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(lockDirPath(userData), 'utf8'));
+    return raw && raw.configDir ? String(raw.configDir) : '';
+  } catch (e) { return ''; }
+}
 
 function setFilesReadOnly(configDir, readOnly) {
   for (const name of GAME_SETTING_FILES) {
@@ -33,8 +47,8 @@ function atomicWrite(filePath, content) {
   const temp = filePath + '.poro-tmp';
   if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o666);
   fs.writeFileSync(temp, content, 'utf8');
-  fs.copyFileSync(temp, filePath);
-  fs.unlinkSync(temp);
+  // rename 是原子操作; 之前的 copy+unlink 在两步之间崩溃会留下半个目标文件
+  fs.renameSync(temp, filePath);
   const now = new Date();
   fs.utimesSync(filePath, now, now);
 }
@@ -152,6 +166,7 @@ function capture(configDir, userData) {
   const files = readConfigFiles(configDir);
   const snapshot = { version: 1, capturedAt: new Date().toISOString(), configDir, files };
   atomicWrite(snapshotPath(userData), JSON.stringify(snapshot));
+  saveLockDir(userData, configDir);
   setFilesReadOnly(configDir, true);
   return { ok: true, fileCount: GAME_SETTING_FILES.length, settingCount: countSettings(files), configDir };
 }
@@ -215,11 +230,13 @@ function status(userData) {
 }
 
 function clear(userData) {
-  try {
-    const snapshot = loadSnapshot(userData);
-    if (snapshot?.configDir) setFilesReadOnly(snapshot.configDir, false);
-  } catch (error) { /* 损坏的旧快照不能阻止用户解除锁定 */ }
+  let configDir = '';
+  try { configDir = loadSnapshot(userData)?.configDir || ''; } catch (error) { /* 损坏的旧快照不能阻止用户解除锁定 */ }
+  if (!configDir) configDir = loadLockDir(userData);
+  if (configDir) setFilesReadOnly(configDir, false);
+  // 解锁成功后才允许删快照; 反过来 (先删后解锁失败) 会把只读状态永久留在磁盘上。
   try { fs.unlinkSync(snapshotPath(userData)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  try { fs.unlinkSync(lockDirPath(userData)); } catch (error) {}
   return { ok: true };
 }
 

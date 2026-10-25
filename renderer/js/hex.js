@@ -1190,7 +1190,7 @@ function renderOpggGameDetail(norm, container) {
         <span class="ak-tgold">${(tg / 1000).toFixed(2)} k</span>
         <span class="ak-tobj">${objIcons}</span>
       </div>
-      <div style="display:flex;gap:4px;padding:4px 8px;font-size:10px;color:#888;border-bottom:1px solid #333;">
+      <div style="display:flex;gap:4px;padding:4px 8px;font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border);">
         <div style="width:32px;"></div>
         <div style="flex:1;">玩家</div>
         <div style="min-width:60px;text-align:center;">评分</div>

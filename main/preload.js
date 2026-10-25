@@ -77,6 +77,15 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getAiConfig: () => ipcRenderer.invoke('ai:getConfig'),
   saveAiConfig: (config) => ipcRenderer.invoke('ai:saveConfig', config),
   aiChat: (messages) => ipcRenderer.invoke('ai:chat', messages),
+  // 外服聊天翻译: 文本翻译 + 游戏内浮窗数据通道
+  translateText: (texts, target) => ipcRenderer.invoke('translate:text', texts, target),
+  gameTranslatePush: (payload) => ipcRenderer.invoke('game-translate:push', payload),
+  onGameTranslateData: (cb) => { ipcRenderer.on('game-translate:data', (e, d) => cb(d)); },
+  // 对局战报浮窗 (F9 呼出): 主窗口推数据 / 浮窗收数据
+  gameLivePush: (payload) => ipcRenderer.invoke('game-live:push', payload),
+  onGameLiveData: (cb) => { ipcRenderer.on('game-live:data', (e, d) => cb(d)); },
+  // 周报分享卡: 主进程离屏渲染并保存 PNG
+  saveShareCard: (html, width, height) => ipcRenderer.invoke('share-card:save', html, width, height),
   // 设置 (托盘/自启)
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setAutoLaunch: (on) => ipcRenderer.invoke('settings:autoLaunch', on),

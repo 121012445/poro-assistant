@@ -172,9 +172,11 @@ function buildTimelineData(frames, pidTeam) {
         else if (mt === 'ELDER_DRAGON') objectives.elder.push({ t: tMin, team: killerTeam });
         else if (mt === 'RIFTHERALD') objectives.herald.push({ t: tMin, team: killerTeam });
       } else if (ev.type === 'BUILDING_KILL') {
+        // killerTeamId 是摧毁方(与上面 ELITE_MONSTER_KILL 的口径一致),
+        // 不能取反 —— 否则蓝方拆的塔会记到红方头上, "蓝:红" 显示颠倒。
         const kt = ev.killerTeamId || pidTeam[ev.killerId] || 0;
-        if (ev.buildingType === 'TOWER_BUILDING') { if (kt) objectives.towers[kt === 100 ? 200 : 100]++; }
-        else if (ev.buildingType === 'INHIBITOR_BUILDING') { if (kt) objectives.inhibitors[kt === 100 ? 200 : 100]++; }
+        if (ev.buildingType === 'TOWER_BUILDING') { if (kt) objectives.towers[kt]++; }
+        else if (ev.buildingType === 'INHIBITOR_BUILDING') { if (kt) objectives.inhibitors[kt]++; }
       }
     }
   }

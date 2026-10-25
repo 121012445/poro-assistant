@@ -212,7 +212,7 @@ body::before { content: none; }
 /* ============================ 按钮 ============================ */
 /* 两级层次：主操作实心强调色（一屏最多一个），其余一律中性描边。
    原先所有按钮都是"透明底 + 蓝描边"，看起来又空又软，没有主次。 */
-button:not(.win-btn):not(.item),
+button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt),
 .btn-secondary,
 .role-btn {
   appearance: none;
@@ -224,14 +224,14 @@ button:not(.win-btn):not(.item),
   font-weight: 500;
   line-height: 1.15;
   color: var(--text-primary);
-  background: var(--bg-card);
+  background: transparent;
   border: 1px solid var(--border-strong);
   box-shadow: none;
   cursor: pointer;
   user-select: none;
   transition: background .14s ease, border-color .14s ease, color .14s ease, box-shadow .14s ease;
 }
-button:not(.win-btn):not(.item):hover,
+button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt):hover,
 .btn-secondary:hover,
 .role-btn:hover {
   background: var(--bg-hover);
@@ -240,7 +240,7 @@ button:not(.win-btn):not(.item):hover,
   transform: none;
   filter: none;
 }
-button:not(.win-btn):not(.item):active,
+button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt):active,
 .btn-secondary:active,
 .role-btn:active { background: #ebebee; transform: none; }
 
@@ -277,13 +277,13 @@ button:not(.win-btn):not(.item):active,
 .bl-item-remove { color: var(--negative); border-color: #f2c9c9; background: var(--bg-card); }
 .bl-item-remove:hover { color: #b91c1c; background: #fef2f2; border-color: #f0a0a0; transform: none; }
 
-button:not(.win-btn):not(.item):focus-visible,
+button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt):focus-visible,
 .btn-primary:focus-visible, .btn-secondary:focus-visible, .back-to-me:focus-visible,
 .role-btn:focus-visible, .bl-item-remove:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-button:not(.win-btn):not(.item):disabled,
+button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt):disabled,
 .btn-primary:disabled, .btn-secondary:disabled, .back-to-me:disabled,
 .role-btn:disabled, .bl-item-remove:disabled {
   cursor: not-allowed;
@@ -425,15 +425,14 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 /* ---- 工具卡 ---- */
 .tool-card {
   position: relative;
-  min-height: 148px;
-  padding: 18px;
+  padding: 12px 14px;
   border-radius: var(--radius);
   transition: border-color .14s ease;
 }
 .tool-card:hover { transform: none; border-color: var(--border-hover); box-shadow: none; }
 .tool-card::before { content: none; }
 .tool-card h3 { color: var(--heading-ink); font-size: var(--fs-md); font-weight: 600; }
-.tool-card p { color: var(--text-muted); font-size: var(--fs-sm); }
+.tool-card > p { color: var(--text-muted); font-size: 11px; }
 
 /* ---- 开关：开启态用品牌色，不用荧光绿（绿只在语义位置出现） ---- */
 .switch { width: 42px; height: 24px; }
@@ -564,14 +563,14 @@ body.dark input:focus, body.dark select:focus, body.dark textarea:focus {
   border-color: var(--accent);
 }
 
-body.dark button:not(.win-btn):not(.item),
+body.dark button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt),
 body.dark .btn-secondary, body.dark .role-btn {
   color: var(--text-primary);
   background: var(--bg-secondary);
   border-color: var(--border-strong);
   box-shadow: none;
 }
-body.dark button:not(.win-btn):not(.item):hover,
+body.dark button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle):not(.theme-picker-btn):not(.theme-opt):hover,
 body.dark .btn-secondary:hover, body.dark .role-btn:hover {
   background: var(--bg-hover);
   border-color: var(--border-hover);
@@ -625,6 +624,14 @@ body.dark .ako-loss .ako-result, body.dark .ak-loss .ak-result { color: #f87171;
 body.dark .ako-insight-healing { color: #4ecdc4; background: rgba(78, 205, 196, .12); border-color: rgba(78, 205, 196, .3); }
 body.dark .ako-insight-low { color: #e0b76a; background: rgba(224, 183, 106, .12); border-color: rgba(224, 183, 106, .3); }
 body.dark .ako-insight-efficiency { color: #4ade80; background: rgba(74, 222, 128, .12); border-color: rgba(74, 222, 128, .3); }
+/* 补齐其余语义徽标的深色覆盖 (原先只有上面 3 个, 其余在深色下仍是浅底) */
+body.dark .ako-insight-positive { color: #4ade80; background: rgba(74, 222, 128, .12); border-color: rgba(74, 222, 128, .3); }
+body.dark .ako-insight-accent { color: #7ab8f5; background: rgba(122, 184, 245, .12); border-color: rgba(122, 184, 245, .3); }
+body.dark .ako-insight-warning { color: #fbbf5c; background: rgba(251, 191, 92, .12); border-color: rgba(251, 191, 92, .3); }
+body.dark .ako-insight-muted { color: #9aa8b8; background: rgba(154, 168, 184, .12); border-color: rgba(154, 168, 184, .3); }
+body.dark .ako-insight-damage { color: #f38ba0; background: rgba(243, 139, 160, .12); border-color: rgba(243, 139, 160, .3); }
+body.dark .ako-insight-vision { color: #b4a7f2; background: rgba(180, 167, 242, .12); border-color: rgba(180, 167, 242, .3); }
+body.dark .ako-insight-team { color: #4fd1c5; background: rgba(79, 209, 197, .12); border-color: rgba(79, 209, 197, .3); }
 body.dark .modal-overlay { background: rgba(0, 0, 0, .58); }
 body.dark .modal-content { border-color: var(--border); }
 body.dark .modal-close { background: var(--bg-secondary); color: var(--text-muted); }

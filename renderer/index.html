@@ -5,16 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026101103">
-<link rel="stylesheet" href="css/extras.css?v=2026101103">
-<link rel="stylesheet" href="css/dark.css?v=2026101103">
-<link rel="stylesheet" href="css/premium.css?v=2026101103">
+<link rel="stylesheet" href="css/style.css?v=2026102400">
+<link rel="stylesheet" href="css/extras.css?v=2026102400">
+<link rel="stylesheet" href="css/dark.css?v=2026102400">
+<link rel="stylesheet" href="css/premium.css?v=2026102400">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026102400">
 </head>
 <body>
 
 <!-- 窗口拖拽区 -->
 <div class="window-bar" id="windowBar">
   <div class="window-title">Poro</div>
+  <button class="nav-toggle" id="navToggle" onclick="toggleNavCollapsed()" title="收起/展开导航栏">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
   <div class="window-controls">
     <button class="win-btn win-min" onclick="lolAPI.minimize()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -69,7 +73,9 @@
       <span class="status-dot" id="lcuDot"></span><span id="lcuStatusText">LCU 检测中...</span>
     </div>
     <div class="sidebar-extras">
-      <div class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换深色/浅色主题"><svg class="pi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg></div>
+      <button class="theme-picker-btn" id="themePickerBtn" onclick="toggleThemePicker(event)" title="主题">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>
+      </button>
       <!-- 版本号由 app.js 从主进程读取后填入, 不要在这里写死版本 -->
       <div class="version" id="versionText">v--</div>
     </div>
@@ -265,6 +271,46 @@
         </div>
       </div>
       <div class="tool-card">
+        <h3>外服聊天翻译</h3>
+        <p>对局中自动把聊天区的外语消息翻译成中文, 悬浮显示在聊天区上方 (点击穿透, 不挡操作)。翻译优先走「AI 复盘设置」里配置的接口, 未配置时使用免费机翻。</p>
+        <div class="tool-row">
+          <span id="gameTranslateState" class="tool-state">已关闭</span>
+          <label class="switch"><input type="checkbox" id="gameTranslateToggle" onchange="toggleGameTranslate(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <select id="translateTarget" class="tool-select" onchange="setTranslateTarget(this.value)">
+            <option value="en">发送翻译成: 英语</option>
+            <option value="ja">发送翻译成: 日语</option>
+            <option value="ko">发送翻译成: 韩语</option>
+            <option value="es">发送翻译成: 西班牙语</option>
+            <option value="pt">发送翻译成: 葡萄牙语</option>
+            <option value="ru">发送翻译成: 俄语</option>
+          </select>
+        </div>
+        <div class="tool-row">
+          <input type="text" id="translateSendInput" class="tool-input" placeholder="输入中文, 翻译后预填到游戏聊天框" style="flex:1" onkeydown="if(event.key==='Enter')translateAndPrefill()">
+          <button class="btn-primary" onclick="translateAndPrefill()">翻译并预填</button>
+        </div>
+        <p class="tool-warn">发送遵循「预填后由你确认」: 翻译结果填进游戏输入框, 你按回车才发出。合规模式下发送不可用, 接收展示不受影响。</p>
+      </div>
+      <div class="tool-card">
+        <h3>好友助手</h3>
+        <p>关注的玩家上线时弹系统通知 (游戏中也能收到)。名单留空 = 提醒所有好友。</p>
+        <div class="tool-row">
+          <span id="friendNotifyState" class="tool-state">已关闭</span>
+          <label class="switch"><input type="checkbox" id="friendNotifyToggle" onchange="toggleFriendNotify(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <input type="text" id="friendNotifyList" class="tool-input" placeholder="关注名单 (逗号分隔, 留空=全部好友)" style="flex:1">
+          <button class="btn-secondary" onclick="saveFriendNotifyList()">保存名单</button>
+        </div>
+        <div class="tool-row" style="margin-top:10px;">
+          <span class="tool-state" style="flex:none;">常一起玩 (点击邀请进房):</span>
+          <button class="btn-secondary" onclick="inviteAllDuos()" style="font-size:11px;">全部邀请</button>
+        </div>
+        <div id="duoInviteChips" class="duo-chips"></div>
+      </div>
+      <div class="tool-card">
         <h3>KDA简报</h3>
         <p>对局中按 F7 / F8（或点击按钮）获取己方/敌方近期 KDA，并自动发送到所有人频道。</p>
         <div class="tool-row">
@@ -414,7 +460,7 @@
           </div>
         </div>
       </div>
-      <div class="tool-card span-all">
+      <div class="tool-card">
         <h3>数据备份与恢复</h3>
         <p>导出设置、玩家档案、黑名单和识别偏好。备份不包含 AI API Key；导入前会验证文件格式。</p>
         <div class="tool-row">
@@ -502,38 +548,63 @@
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
 <div id="benchAlert" class="bench-alert"></div>
-<script src="js/utils.js?v=2026101103"></script>
-<script src="js/local-cache.js?v=2026101103"></script>
-<script src="js/icons.js?v=2026101103"></script>
-<script src="js/data-model.js?v=2026101103"></script>
-<script src="js/session-state.js?v=2026101103"></script>
-<script src="js/performance.js?v=2026101103"></script>
-<script src="js/diagnostics.js?v=2026101103"></script>
-<script src="js/balance.js?v=2026101103"></script>
-<script src="js/behavior-tags.js?v=2026101103"></script>
-<script src="js/bench.js?v=2026101103"></script>
-<script src="js/champions.js?v=2026101103"></script>
-<script src="js/progress-report.js?v=2026101103"></script>
-<script src="js/home.js?v=2026101103"></script>
-<script src="js/review.js?v=2026101103"></script>
-<script src="js/theme.js?v=2026101103"></script>
-<script src="js/hex.js?v=2026101103"></script>
-<script src="js/history.js?v=2026101103"></script>
-<script src="js/live.js?v=2026101103"></script>
-<script src="js/compliance.js?v=2026101103"></script>
-<script src="js/blacklist.js?v=2026101103"></script>
-<script src="js/social.js?v=2026101103"></script>
-<script src="js/chat.js?v=2026101103"></script>
-<script src="js/autobp.js?v=2026101103"></script>
-<script src="js/lcu-events.js?v=2026101103"></script>
-<script src="js/opgg-loadout.js?v=2026101103"></script>
-<script src="js/update.js?v=2026101103"></script>
-<script src="js/autoflow.js?v=2026101103"></script>
-<script src="js/chat-status.js?v=2026101103"></script>
-<script src="js/settings.js?v=2026101103"></script>
-<script src="js/persist.js?v=2026101103"></script>
-<script src="js/autoreturn.js?v=2026101103"></script>
-<script src="js/sona-extra.js?v=2026101103"></script>
-<script src="js/app.js?v=2026101103"></script>
+
+<!-- 周报分享卡 -->
+<div class="modal-overlay" id="weeklyModal" onclick="if(event.target===this)closeWeeklyModal()">
+  <div class="modal-content" style="width:fit-content;max-width:560px;padding:12px 12px 14px;">
+    <button class="modal-close" onclick="closeWeeklyModal()" title="关闭"></button>
+    <div id="weeklyCard"></div>
+    <div class="tool-row" style="margin-top:12px;justify-content:flex-end;gap:8px;">
+      <button class="btn-secondary" onclick="closeWeeklyModal()">关闭</button>
+      <button class="btn-primary" onclick="saveWeeklyReportImage()">保存为图片</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- 主题选择弹出面板 -->
+<div class="theme-popover" id="themePopover" hidden>
+  <button class="theme-opt" data-v="c" onclick="pickTheme('c')"><span class="theme-dot t-c"></span>浅蓝 <i>默认</i></button>
+  <button class="theme-opt" data-v="a" onclick="pickTheme('a')"><span class="theme-dot t-a"></span>雾紫</button>
+  <button class="theme-opt" data-v="b" onclick="pickTheme('b')"><span class="theme-dot t-b"></span>暗色玻璃</button>
+  <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
+</div>
+
+<script src="js/utils.js?v=2026102400"></script>
+<script src="js/local-cache.js?v=2026102400"></script>
+<script src="js/icons.js?v=2026102400"></script>
+<script src="js/data-model.js?v=2026102400"></script>
+<script src="js/session-state.js?v=2026102400"></script>
+<script src="js/performance.js?v=2026102400"></script>
+<script src="js/diagnostics.js?v=2026102400"></script>
+<script src="js/balance.js?v=2026102400"></script>
+<script src="js/behavior-tags.js?v=2026102400"></script>
+<script src="js/bench.js?v=2026102400"></script>
+<script src="js/champions.js?v=2026102400"></script>
+<script src="js/progress-report.js?v=2026102400"></script>
+<script src="js/home.js?v=2026102400"></script>
+<script src="js/review.js?v=2026102400"></script>
+<script src="js/theme.js?v=2026102400"></script>
+<script src="js/hex.js?v=2026102400"></script>
+<script src="js/history.js?v=2026102400"></script>
+<script src="js/live.js?v=2026102400"></script>
+<script src="js/weekly.js?v=2026102400"></script>
+<script src="js/friends.js?v=2026102400"></script>
+<script src="js/compliance.js?v=2026102400"></script>
+<script src="js/blacklist.js?v=2026102400"></script>
+<script src="js/social.js?v=2026102400"></script>
+<script src="js/chat.js?v=2026102400"></script>
+<script src="js/translate.js?v=2026102400"></script>
+<script src="js/autobp.js?v=2026102400"></script>
+<script src="js/lcu-events.js?v=2026102400"></script>
+<script src="js/opgg-loadout.js?v=2026102400"></script>
+<script src="js/update.js?v=2026102400"></script>
+<script src="js/autoflow.js?v=2026102400"></script>
+<script src="js/chat-status.js?v=2026102400"></script>
+<script src="js/settings.js?v=2026102400"></script>
+<script src="js/persist.js?v=2026102400"></script>
+<script src="js/autoreturn.js?v=2026102400"></script>
+<script src="js/sona-extra.js?v=2026102400"></script>
+<script src="js/app.js?v=2026102400"></script>
 </body>
 </html>
