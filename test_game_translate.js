@@ -351,6 +351,41 @@ function msg(id, body, fromId) {
     const lines = await e.run('gtParseOcrChatLines')('00:18 [队伍] 雨未散 (惩戒之箭): hello everyone 00:2');
     ok('OCR 正文尾部的半截时间戳被剥掉', lines.length === 1 && lines[0].body === 'hello everyone', lines);
   }
+  {
+    // 1.5.52 真实报障 (19:13 局 [GT OCR] 原文): Windows OCR 把 "00:17" 读成 "丽 ： 17"
+    // —— 靠时间戳断行必然整条丢; 靠频道方括号才认得出这两条。
+    const e = makeEnv({});
+    const raw = '输 入 / he | p 获 取 命 令 列 表 00 ： 05 傲 之 追 猎 者 已 经 选 择 了 位 置 ： 中 路 '
+      + '丽 ： 17 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 heIIO everyone ， '
+      + '00 ： 31 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： hi';
+    const lines = await e.run('gtParseOcrChatLines')(raw);
+    const bodies = lines.map(l => l.body);
+    ok('OCR 时间戳被读成"丽 ： 17"也能认出聊天', bodies.length === 2 && bodies[0] === 'heIIO everyone' && bodies[1] === 'hi', bodies);
+    ok('OCR 上一条的时间戳不粘在本条正文里', !bodies.some(b => /\d\s*[:：]\s*\d/.test(b)), bodies);
+  }
+  {
+    // 1.5.52: 同一句话被 OCR 读成三个版本 (hello / heIIO / heII0), 只能翻一次。
+    // 时间戳同时被读成 "00 ： 17" / "ÖO ： 17" / "当 7", 所以去重不能依赖它。
+    const e = makeEnv({});
+    let raw = '00 ： 17 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： hello everyone';
+    e.ctx.lolAPI.gameTranslateOcrChat = async () => raw;
+    await e.run('gtOcrScan')(); await flushAsync();
+    raw = 'ÖO ： 17 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： heIIO everyone';
+    e.advance(4000);
+    await e.run('gtOcrScan')(); await flushAsync();
+    raw = '当 7 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： heII0 everyone';
+    e.advance(4000);
+    await e.run('gtOcrScan')(); await flushAsync();
+    const texts = e.translated.flatMap(t => t.texts || []);
+    ok('OCR 模糊去重: 同一句话的多个版本只翻一次', texts.length === 1, texts);
+  }
+  {
+    // 商店面板 / 界面文字没有频道标记 → 整段不进翻译管线
+    const e = makeEnv({});
+    e.ctx.lolAPI.gameTranslateOcrChat = async () => '为 50 免 费 75 300 900 推 荐 Q 点 击 此 处 进 行 搜 索 女 守 初 始 0 400 基 础 250 史 诗 775 传 说 450';
+    await e.run('gtOcrScan')(); await flushAsync();
+    ok('OCR 商店面板文字不进翻译', e.translated.length === 0, e.translated);
+  }
 
   console.log('— 会话房间解析 —');
   {

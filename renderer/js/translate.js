@@ -32,10 +32,10 @@ let _gtPhaseInAt = 0;            // 本局进局时间 (OCR 通道延迟启动�
 let _gtOcrNextAt = 0;            // 下次聊天框 OCR 的时间
 let _gtOcrTotal = 0;             // OCR 通道累计送进翻译管线的行数 (诊断用)
 let _gtOcrSkipLogAt = 0;         // 上次打"OCR 全被过滤"日志的时间 (限频)
-// OCR 消息去重: 键 = "频道|时间戳", 值 = { body, sent }。
-// 1.5.50 之前按**文本**去重 —— OCR 每轮抖动都会产生新文本, 于是同一条消息
-// 每轮都被当成新消息 (18:31 局: 一条 congratulations 产生了 4 个版本)。
-const gtOcrSeen = new Map();
+// OCR 消息去重: 最近读到的消息 [{ norm, body, sent, at }]。
+// 1.5.50 按文本精确去重 (抖动就变新消息); 1.5.51 按频道+时间戳 (时间戳读不准);
+// 1.5.52 改为**归一化后模糊比对** —— 见 gtOcrSame。
+let gtOcrRecent = [];
 let _gtSkipEmpty = 0, _gtSkipEcho = 0, _gtSkipMineOff = 0, _gtSkipNoMatch = 0;
 let _gtSkipHist = 0;             // 跳过的"进局前的我方历史消息"条数
 let _gtSkipLogAt = 0;            // 上次打跳过统计日志的时间 (限频)
@@ -173,7 +173,7 @@ function gameTranslateOnPhase(phase) {
     _gtFreshTotal = 0;
     _gtPhaseInAt = Date.now();
     _gtOcrNextAt = Date.now() + 30000;   // 进局 30s 后才考虑 OCR (LCU 通道先给机会)
-    gtOcrSeen.clear();
+    gtOcrRecent = [];
     _gtOcrTotal = 0;
     _gtOcrSkipLogAt = 0;
     _gtSkipEmpty = 0; _gtSkipEcho = 0; _gtSkipMineOff = 0; _gtSkipNoMatch = 0; _gtSkipHist = 0;
@@ -416,9 +416,13 @@ async function gtScan() {
 //      产生一条翻译。
 // 注意: GT_OCR_NOISE_RE 不能带 /i —— "Esc" 靠大小写区分, 否则 "escape" 会被误杀
 const GT_OCR_NOISE_RE = /打字|回车|发给队友|滚轮|拖动|双击|取消|发送|行情|买币|Esc/;
-// 时间戳容忍 OCR 插入的空格: 实测输出是 "00 ： 18" (数字与冒号两侧都有空格),
-// 而 1.5.50 的正则要求 \d{1,2}[:：]\d{2} 紧邻 —— 头部从未匹配, 断行从未生效。
-const GT_OCR_HEADER_RE = /(?<!\d)(\d{1,2})\s*[:：]\s*(\d{2})\s*[)）]?\s*(?:\[\s*([^\[\]]{1,10}?)\s*\]|【\s*([^【】]{1,10}?)\s*】)/g;
+// 1.5.52: 聊天行的唯一可靠锚点是**频道方括号**, 不是时间戳。
+// 19:13 局实测 (同一帧喂 3 种裁剪/2x~5x 放大): Windows OCR 把 "00:17" 读成
+// "ÖO ： 17" / "当 7" / "丽 ： 17" / "中 ： 17", 放大到 5x 也读不对 ——
+// 靠时间戳断行/去重天生不成立。而 "[ 队 伍 ]" 每轮都在 (最差剩 "伍 ]")。
+// 允许缺左括号: 只留 "[队伍全体] + 右括号" 也算一个聊天头。
+const GT_OCR_CHANNEL_RE = /(?:[\[【]\s*([^\[\]【】]{1,8}?)\s*[\]】]|([队伍全体])\s*[\]】])/g;
+const GT_OCR_TS_ANY_RE = /(\d{1,2})\s*[:：]\s*(\d{2})/g;
 const GT_OCR_ZH_RE = /[\u4e00-\u9fff]/;
 // 合法的"一个词"消息: 只有一两个词的消息不能因为"像残片"就被丢掉
 const GT_OCR_SHORT_OK = new Set([
@@ -466,60 +470,104 @@ function gtOcrNeedsConfirm(body) {
 function gtOcrStripBody(seg) {
   let s = String(seg || '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
-  s = s.replace(/^[\]】)）\s]+/, '').trim();
+  s = s.replace(/^[\]】)）:：\s]+/, '').trim();
   // "玩家名 (英雄名): 内容" 前缀剥除; 前缀以数字结尾时不剥 (防把 "15:30" 当分隔符)
   const m = s.match(/^(.{1,40}?)[:：]\s*(.+)$/);
   if (m && m[2].trim() && !/\d\s*$/.test(m[1])) s = m[2].trim();
+  // OCR 经常把 "）：" 整个吞掉, 中文名字/英雄名残渣就粘在正文前面
+  // ("雨 未 散 （ 傲 之 追 猎 者 heIIO everyone")。正文必须是纯外文,
+  // 所以从第一个拉丁字母处切 —— 切完还剩中文就整条丢。
+  if (GT_OCR_ZH_RE.test(s)) {
+    const i = s.search(/[A-Za-z]/);
+    if (i > 0) s = s.slice(i).trim();
+  }
   // 行尾残留的"半个聊天头" (裁剪边缘切断): "hello everyone 00:2"
   s = s.replace(/\s+\d{1,2}[:：]\d{0,1}$/, '').trim();
-  s = s.replace(/[\[\]【】]+$/g, '').trim();
-  // 下一条聊天头的左括号会被切成上一段的尾巴 ("... best ad (")
   s = s.replace(/\s+[\[\]【】()（）]+$/g, '').trim();
+  s = s.replace(/[\s，,、。;；:：·]+$/g, '').trim();
+  s = s.replace(/^[^A-Za-z]+/, '').trim();
   return gtOcrBodyOk(s) ? s : '';
 }
 
-// 返回 [{ ts, channel, body }] —— ts/channel 是去重键, 缺一不可。
-// 没有完整聊天头的文字不会出现在结果里 (它们不是"谁说的哪句话")。
-// 先按行切: OCR 偶尔会给换行, 一条聊天永远在一行内 —— 不按行切的话,
-// 上一条消息的正文会把下面无关的界面文字一起吞进去 ("luck game nice escape mid")。
+// 返回 [{ ts, channel, body }]。ts 只是附加信息 (OCR 读不准), channel 是锚点。
+// 先按行切: 一条聊天永远在一行内 —— 不按行切的话上一条消息的正文会把下面
+// 无关的界面文字一起吞进去。
 function gtParseOcrChatLines(raw) {
   _gtOcrDropped = [];
   const text = gtNormalizeOcrText(raw);
   const out = [];
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
-    const heads = [];
-    GT_OCR_HEADER_RE.lastIndex = 0;
+    const marks = [];
+    GT_OCR_CHANNEL_RE.lastIndex = 0;
     let m;
-    while ((m = GT_OCR_HEADER_RE.exec(line))) {
-      heads.push({
-        start: m.index,
-        end: m.index + m[0].length,
-        ts: String(Number(m[1])).padStart(2, '0') + ':' + m[2],
-        channel: String(m[3] || m[4] || '').replace(/\s+/g, '')
-      });
+    while ((m = GT_OCR_CHANNEL_RE.exec(line))) {
+      marks.push({ start: m.index, end: m.index + m[0].length, channel: String(m[1] || m[2] || '').replace(/\s+/g, '') });
     }
-    if (!heads.length) {
-      if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无聊天头) ' + line.trim().slice(0, 40));
+    if (!marks.length) {
+      if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无频道标记) ' + line.trim().slice(0, 40));
       continue;
     }
-    if (heads[0].start > 0 && _gtOcrDropped.length < 4) {
-      _gtOcrDropped.push('(头部前杂音) ' + line.slice(0, heads[0].start).trim().slice(0, 40));
+    // 第一个频道标记之前是界面文字 ("输入 /help 获取命令列表"、选人播报), 丢掉
+    if (marks[0].start > 0 && _gtOcrDropped.length < 4) {
+      _gtOcrDropped.push('(头部前杂音) ' + line.slice(0, marks[0].start).trim().slice(0, 40));
     }
-    for (let i = 0; i < heads.length; i++) {
-      const h = heads[i];
-      const segEnd = i + 1 < heads.length ? heads[i + 1].start : line.length;
-      const body = gtOcrStripBody(line.slice(h.end, segEnd));
+    for (let i = 0; i < marks.length; i++) {
+      const h = marks[i];
+      const segEnd = i + 1 < marks.length ? marks[i + 1].start : line.length;
+      let seg = line.slice(h.end, segEnd);
+      // 下一条消息的时间戳排在它的频道标记**前面**, 所以会粘在本条正文尾部
+      // ("heIIO everyone ， 00:31")。只有"后面还有消息"时才能这样剥 ——
+      // 最后一条的尾部可能是正文里真实的时间 ("dragon at 15:30")。
+      if (i + 1 < marks.length) seg = seg.replace(/\s*\d{1,2}\s*[:：]\s*\d{1,2}\s*[，,。.、]?\s*$/, '');
+      const body = gtOcrStripBody(seg);
       if (!body) {
-        if (_gtOcrDropped.length < 4) {
-          _gtOcrDropped.push('(' + h.ts + h.channel + ') ' + line.slice(h.end, segEnd).trim().slice(0, 40));
-        }
+        if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(' + h.channel + ') ' + seg.trim().slice(0, 40));
         continue;
       }
-      out.push({ ts: h.ts, channel: h.channel, body });
+      // ts 只用于日志/诊断: 取频道标记**之前最近**的一个时间戳 (OCR 常读错, 不可作键)
+      const before = line.slice(0, h.start);
+      let ts = '', tm;
+      GT_OCR_TS_ANY_RE.lastIndex = 0;
+      while ((tm = GT_OCR_TS_ANY_RE.exec(before))) ts = String(Number(tm[1])).padStart(2, '0') + ':' + tm[2];
+      out.push({ ts, channel: h.channel, body });
     }
   }
   return out;
+}
+
+// ===== OCR 消息去重: 模糊比对, 不依赖时间戳 =====
+// 归一化后只留字母数字: "heIIO everyone" → "heiioeveryone", "hello everyone" → "helloeveryone"
+function gtOcrNorm(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]/g, '')
+    // OCR 会把字母读成形近数字 ("heII0 everyone" 其实就是 "hello everyone"),
+    // 比对前先折叠, 否则同一句话会被当成两条
+    .replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's');
+}
+function gtOcrDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let prev = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// 两条归一化文本是否是"同一条消息的不同 OCR 版本"
+function gtOcrSame(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const short = a.length <= b.length ? a : b;
+  const long = short === a ? b : a;
+  if (short.length >= 3 && long.includes(short)) return true;   // 残片 / 更完整的版本
+  if (long.length - short.length > Math.max(2, long.length * 0.35)) return false;
+  return 1 - gtOcrDistance(a, b) / long.length >= 0.8;
 }
 
 async function gtOcrScan() {
@@ -533,43 +581,39 @@ async function gtOcrScan() {
       const body = item.body;
       // 系统播报 (击杀/streak 类) 不处理
       if (GT_SYS_BODY_RE.test(body) || !gtLooksForeign(body)) continue;
-      const key = item.channel + '|' + item.ts;
-      const rec = gtOcrSeen.get(key);
+      const norm = gtOcrNorm(body);
+      if (norm.length < 2) continue;
+      // 同一条消息的多个 OCR 版本: 模糊比对 (时间戳读不准, 不能当键)
+      let rec = null;
+      for (const r of gtOcrRecent) { if (gtOcrSame(r.norm, norm)) { rec = r; break; } }
       if (!rec) {
-        if (gtOcrNeedsConfirm(body)) { gtOcrSeen.set(key, { body, sent: false, at: Date.now() }); held++; continue; }
-        gtOcrSeen.set(key, { body, sent: true, at: Date.now() });
+        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ norm, body, sent: false, at: Date.now() }); held++; continue; }
+        gtOcrRecent.push({ norm, body, sent: true, at: Date.now() });
         gtQueue.push({ name: '聊天', body });
         _gtOcrTotal++; fresh++;
         continue;
       }
-      // 同一频道同一时间戳 = 同一条消息。已经发过就不再发 —— 这是幻影消息的根治点。
+      // 已经发过 = 同一条消息的另一个版本, 不再发 —— 这是幻影消息的根治点。
       if (rec.sent) { dup++; continue; }
-      // 上一轮是"待确认"的单字词: 这一轮读到同样内容 (或更完整的版本) 才发出
-      if (body === rec.body || body.includes(rec.body)) {
-        rec.body = body; rec.sent = true;
+      // 上一轮是"待确认"的单字词: 这轮读到更完整的版本就用更完整的发出
+      if (norm.includes(rec.norm) || gtOcrSame(rec.norm, norm)) {
+        rec.norm = norm; rec.body = body; rec.sent = true;
         gtQueue.push({ name: '聊天', body });
         _gtOcrTotal++; fresh++;
-      } else if (rec.body.includes(body)) {
-        dup++;   // 这轮读得更残, 忽略
       } else {
-        rec.body = body; rec.sent = true;   // 抖动变体: 取最新的一版
-        gtQueue.push({ name: '聊天', body });
-        _gtOcrTotal++; fresh++;
+        dup++;   // 这轮读得更残, 忽略
       }
     }
     // 待确认的单字词一直没被第二轮读到 (消息已经滚出聊天框) 时不能永远悬着:
     // 15 秒后按读到的那一版发出去, 否则这条消息就静默消失了。
     const nowTs = Date.now();
-    for (const rec of gtOcrSeen.values()) {
+    for (const rec of gtOcrRecent) {
       if (rec.sent || !rec.at || nowTs - rec.at < 15000) continue;
       rec.sent = true;
       gtQueue.push({ name: '聊天', body: rec.body });
       _gtOcrTotal++; fresh++;
     }
-    if (gtOcrSeen.size > 400) {
-      let drop = gtOcrSeen.size - 250;
-      for (const k of gtOcrSeen.keys()) { if (drop-- <= 0) break; gtOcrSeen.delete(k); }
-    }
+    if (gtOcrRecent.length > 80) gtOcrRecent.splice(0, gtOcrRecent.length - 60);
     if (fresh) {
       try { lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ' dup=' + dup + ')'); } catch (e) {}
       gtFlush();
