@@ -434,6 +434,40 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 .tool-card h3 { color: var(--heading-ink); font-size: var(--fs-md); font-weight: 600; }
 .tool-card > p { color: var(--text-muted); font-size: 11px; }
 
+/* ---- 工具箱改成「一行一个设置」 ----
+   原来 26 张卡片铺成 4 列瀑布流: 高度参差 (90px 到 320px), 每张卡里塞 5~6 行说明,
+   视线在卡片之间跳来跳去, 扫不出重点。改成 Akari 设置页那种行式布局:
+   左栏标题 + 一句说明, 右栏控件, 行与行之间一条细线, 分区标题带下划线。
+   说明默认压两行, 悬停展开全文 (不额外占高度)。 */
+#page-tools .tools-grid { display: block; max-width: 900px; }
+#page-tools .tools-section { display: block; margin: 26px 0 0; padding: 0 0 8px; font-size: 12.5px; font-weight: 700; letter-spacing: .02em; color: var(--text-primary); border-bottom: 1px solid var(--border-strong); }
+#page-tools .tools-section::after { content: none; }
+#page-tools .tools-section:first-child { margin-top: 2px; }
+
+#page-tools .tool-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(210px, 290px); column-gap: 26px; align-items: start; padding: 11px 0 12px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0; background: none; }
+#page-tools .tool-card:hover { border-color: var(--border); }
+#page-tools .tool-info { min-width: 0; }
+#page-tools .tool-info h3 { margin: 0 0 3px; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+/* 说明压两行: 用 max-height 而不是 -webkit-line-clamp —— 后者在这个字号下行高取整会把第二行切掉半截。 */
+#page-tools .tool-info p { margin: 0 0 2px; font-size: 11px; line-height: 17px; color: var(--text-muted); max-height: 34px; overflow: hidden; }
+#page-tools .tool-info p:hover { max-height: none; }
+#page-tools .tool-info p.tool-warn { font-size: 10px; color: color-mix(in srgb, var(--warning) 62%, var(--text-muted)); }
+#page-tools .tool-info p.tool-state { font-size: 10px; }
+
+#page-tools .tool-ctl { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+#page-tools .tool-ctl .tool-row { justify-content: flex-end; }
+#page-tools .tool-ctl .tool-row + .tool-row { margin-top: 0; }
+#page-tools .tool-ctl .tool-state { flex: 0 1 auto; text-align: right; font-size: 11px; }
+#page-tools .tool-ctl .tool-select, #page-tools .tool-ctl .tool-input { flex: 1 1 auto; min-width: 0; }
+#page-tools .tool-wide { grid-column: 1 / -1; margin-top: 10px; min-width: 0; }
+/* 单个复选框行 (不是 .tool-row 里的) 也要贴右, 否则会撑满整列、勾选框跑到左端 */
+#page-tools .tool-ctl .switch-row { align-self: flex-end; margin-left: auto; }
+/* 右栏里成组的复选框竖排, 否则三个选项会挤成两行、右对齐后参差不齐 */
+#page-tools .tool-ctl .opgg-loadout-options { flex-direction: column; align-items: flex-end; gap: 3px; }
+/* 深色下细线要提亮一档, 否则整页糊成一块、分不出行 */
+body.dark #page-tools .tool-card { border-bottom-color: rgba(255, 255, 255, .075); }
+body.dark #page-tools .tools-section { border-bottom-color: rgba(255, 255, 255, .17); }
+
 /* ---- 开关：开启态用品牌色，不用荧光绿（绿只在语义位置出现） ---- */
 .switch { width: 42px; height: 24px; }
 .switch .slider { background: #cfcfd6; box-shadow: none; border-radius: 999px; }

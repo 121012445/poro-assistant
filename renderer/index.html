@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026110503">
-<link rel="stylesheet" href="css/extras.css?v=2026110503">
-<link rel="stylesheet" href="css/dark.css?v=2026110503">
-<link rel="stylesheet" href="css/premium.css?v=2026110503">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026110503">
+<link rel="stylesheet" href="css/style.css?v=2026110504">
+<link rel="stylesheet" href="css/extras.css?v=2026110504">
+<link rel="stylesheet" href="css/dark.css?v=2026110504">
+<link rel="stylesheet" href="css/premium.css?v=2026110504">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026110504">
 </head>
 <body>
 
@@ -202,362 +202,518 @@
     </div>
     <div class="tools-grid">
       <div class="tools-section">自动化</div>
-      <div class="tool-card">
-        <h3>自动接受对局</h3>
-        <p>检测到匹配弹窗时自动接受。设置会保存, 重启后自动恢复。</p>
-        <div class="tool-row">
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>自动接受对局</h3>
+          <p>检测到匹配弹窗时自动接受。设置会保存, 重启后自动恢复。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="readyCheckState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="autoAcceptToggle" onchange="toggleAutoAccept(this.checked)"><span class="slider"></span></label>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>自动 BP (禁/选)</h3>
-        <p>自动禁用/选择英雄，按优先级列表执行。支持排位和匹配模式。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>自动 BP (禁/选)</h3>
+          <p>自动禁用/选择英雄，按优先级列表执行。支持排位和匹配模式。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="autoBPStatus" class="tool-state">未开启</span>
           <label class="switch"><input type="checkbox" id="autoBPToggle" onchange="toggleAutoBP(this.checked)"><span class="slider"></span></label>
           <button class="btn-secondary" onclick="showAutoBPConfig()" style="font-size:11px;">配置英雄</button>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>自动符文与出装</h3>
-        <p>锁定英雄后自动配置。优先恢复你保存过的符文记忆，否则按 OP.GG 当前模式的推荐 (峡谷按分路，大乱斗/海斗/无限火力不分路)；OP.GG 不可用时退回原轮换规则。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>自动符文与出装</h3>
+          <p>锁定英雄后自动配置。优先恢复你保存过的符文记忆，否则按 OP.GG 当前模式的推荐 (峡谷按分路，大乱斗/海斗/无限火力不分路)；OP.GG 不可用时退回原轮换规则。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="autoRuneStatus" class="tool-state">未开启</span>
           <label class="switch"><input type="checkbox" id="autoRuneToggle" onchange="toggleAutoRune(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row opgg-loadout-options">
+          </div>
+          <div class="tool-row opgg-loadout-options">
           <label><input type="checkbox" id="opggLoadout_runes" checked onchange="setOpggLoadoutOption('runes', this.checked)"> 按 OP.GG 设置符文</label>
           <label><input type="checkbox" id="opggLoadout_spells" onchange="setOpggLoadoutOption('spells', this.checked)"> 召唤师技能</label>
           <label><input type="checkbox" id="opggLoadout_items" checked onchange="setOpggLoadoutOption('items', this.checked)"> 写入装备方案</label>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>对局结束自动点赞</h3>
-        <p>结算时从本局真人队友（不含自己和人机）里随机选一位、随机选一种称赞。若你已手动点过或没有可用票数则不动作；同一局只点一次。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>对局结束自动点赞</h3>
+          <p>结算时从本局真人队友（不含自己和人机）里随机选一位、随机选一种称赞。若你已手动点过或没有可用票数则不动作；同一局只点一次。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span class="tool-state">随机延迟后执行</span>
           <label class="switch"><input type="checkbox" id="autoHonorToggle" onchange="toggleAutoHonor(this.checked)"><span class="slider"></span></label>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>掉线自动重连</h3>
-        <p>对局中掉线、客户端出现「重新连接」时自动点击重连。失败最多重试 4 次，之后提示你手动处理。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>掉线自动重连</h3>
+          <p>对局中掉线、客户端出现「重新连接」时自动点击重连。失败最多重试 4 次，之后提示你手动处理。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span class="tool-state">掉线时触发</span>
           <label class="switch"><input type="checkbox" id="autoReconnectToggle" onchange="toggleAutoReconnect(this.checked)"><span class="slider"></span></label>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>对局结束自动化</h3>
-        <p>结算后自动创建同模式房间（开黑车队需重新邀请），可选立即自动排队。人机/训练模式同样生效。</p>
-        <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>对局结束自动化</h3>
+          <p>结算后自动创建同模式房间（开黑车队需重新邀请），可选立即自动排队。人机/训练模式同样生效。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:6px;">
           <label class="switch-row"><input type="checkbox" id="autoReturnLobbyToggle" onchange="toggleAutoReturnLobby(this.checked)"> 结束后自动返回房间</label>
           <label class="switch-row" id="autoReturnQueueRow" style="padding-left:22px;display:none;"><input type="checkbox" id="autoReturnQueueToggle" onchange="toggleAutoReturnQueue(this.checked)"> 返回后自动开始排队</label>
+          </div>
         </div>
       </div>
+    
       <div class="tools-section">选人与对局辅助</div>
-      <div class="tool-card">
-        <h3>备战区助手（大乱斗 / 海斗）</h3>
-        <p>列出<b>当前能换到的英雄</b>，点一下就发起，<b>不做本地等待</b>：<b>备选</b>（抽卡池）里的英雄开局就固定、从来没有冷却，点了就是瞬换；<b>备战席</b>里的英雄绝大多数也能立即换到 —— 只有<b>刚被骰子重随进备战席</b>的那一个带 3 秒保护期（官方 14.13 起，防队友抢板凳）。助手一律先出手问服务器，被拒了才把它当作保护期、精确等到结束自动再换。<b>你不需要盯着倒计时，也不需要反复点。</b>开启开关后还会弹出倒计时提醒。</p>
-        <p class="tool-warn">⚠ 那 3 秒保护期由服务器判定，本助手无法也不尝试缩短它，只是把"等"和"重试"从你身上挪走；按钮只列出服务器当前允许你选择的英雄。使用第三方辅助工具仍可能违反游戏规则，请自行评估账号风险。</p>
-        <div class="tool-row">
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>备战区助手（大乱斗 / 海斗）</h3>
+          <p>列出<b>当前能换到的英雄</b>，点一下就发起，<b>不做本地等待</b>：<b>备选</b>（抽卡池）里的英雄开局就固定、从来没有冷却，点了就是瞬换；<b>备战席</b>里的英雄绝大多数也能立即换到 —— 只有<b>刚被骰子重随进备战席</b>的那一个带 3 秒保护期（官方 14.13 起，防队友抢板凳）。助手一律先出手问服务器，被拒了才把它当作保护期、精确等到结束自动再换。<b>你不需要盯着倒计时，也不需要反复点。</b>开启开关后还会弹出倒计时提醒。</p>
+          <p class="tool-warn">⚠ 那 3 秒保护期由服务器判定，本助手无法也不尝试缩短它，只是把"等"和"重试"从你身上挪走；按钮只列出服务器当前允许你选择的英雄。使用第三方辅助工具仍可能违反游戏规则，请自行评估账号风险。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="benchAlertState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="benchAlertToggle" onchange="toggleBenchAlert(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
-          <span class="tool-state">选人浮窗（浮在客户端旁边，免切窗口换英雄）</span>
+          </div>
+          <div class="tool-row">
+          <span class="tool-state">选人浮窗（免切窗口换英雄）</span>
           <label class="switch"><input type="checkbox" id="benchOverlayToggle" onchange="toggleBenchOverlay(this.checked)"><span class="slider"></span></label>
+          </div>
         </div>
-        <div id="benchSwapBtns" class="bench-swap-btns"></div>
-        <div id="benchSwapState" class="tool-state bench-swap-state"></div>
-        <div id="benchDiag" class="tool-state bench-diag"></div>
+        <div class="tool-wide">
+          <div id="benchSwapBtns" class="bench-swap-btns"></div>
+          <div id="benchSwapState" class="tool-state bench-swap-state"></div>
+          <div id="benchDiag" class="tool-state bench-diag"></div>
+        </div>
       </div>
-      <div class="tool-card">
-        <h3>选人保底（防超时随机）</h3>
-        <p>轮到你选人时，如果你还没悬停任何英雄，助手替你<b>先悬停一个</b>，避免倒计时结束时被随机分配。补的只是<b>悬停</b>，<b>不会锁定</b>，你之后随时能换。</p>
-        <p class="tool-state">英雄来源：优先用「自动 BP」里配置的出战英雄池；池子为空时按你客户端里的英雄熟练度取前 10，不配置也能用。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>选人保底（防超时随机）</h3>
+          <p>轮到你选人时，如果你还没悬停任何英雄，助手替你<b>先悬停一个</b>，避免倒计时结束时被随机分配。补的只是<b>悬停</b>，<b>不会锁定</b>，你之后随时能换。</p>
+          <p class="tool-state">英雄来源：优先用「自动 BP」里配置的出战英雄池；池子为空时按你客户端里的英雄熟练度取前 10，不配置也能用。</p>
+          <p class="tool-warn">⚠ 补位只写你本机客户端，不发聊天、不改队友。开启「超时锁定」后助手会替你把悬停的英雄锁死，请确认池子里的顺序是你愿意接受的结果。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="pickGuardState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="pickGuardToggle" onchange="togglePickGuard(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <select id="pickGuardLock" class="tool-select" onchange="setPickGuardLock(this.value)">
-            <option value="0">超时锁定: 关（只补悬停，推荐）</option>
-            <option value="5">超时锁定: 剩余 5 秒</option>
-            <option value="8">超时锁定: 剩余 8 秒</option>
-            <option value="12">超时锁定: 剩余 12 秒</option>
+          <option value="0">超时锁定: 关（只补悬停，推荐）</option>
+          <option value="5">超时锁定: 剩余 5 秒</option>
+          <option value="8">超时锁定: 剩余 8 秒</option>
+          <option value="12">超时锁定: 剩余 12 秒</option>
           </select>
+          </div>
         </div>
-        <p class="tool-warn">⚠ 补位只写你本机客户端，不发聊天、不改队友。开启「超时锁定」后助手会替你把悬停的英雄锁死，请确认池子里的顺序是你愿意接受的结果。</p>
       </div>
-      <div class="tool-card">
-        <h3>组队提示</h3>
-        <p>汇总本局玩家近 30 场同队记录；共同出现至少 3 次时标记为疑似开黑，并在选人聊天中提示。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>组队提示</h3>
+          <p>汇总本局玩家近 30 场同队记录；共同出现至少 3 次时标记为疑似开黑，并在选人聊天中提示。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="premadeNotifyState" class="tool-state">已开启</span>
           <label class="switch"><input type="checkbox" id="premadeNotifyToggle" checked onchange="togglePremadeNotify(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <label class="switch-row"><input type="checkbox" id="sideAnnounceToggle" onchange="toggleSideAnnounce(this.checked)"> 选人时向队伍聊天发送红蓝方提示</label>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>解说模式</h3>
-        <p>实时解说：击杀阵亡、多杀、推塔、大小龙、团灭、五分钟小结。默认在线语音，只发播报文本，连不上自动回退本机音色；音色可选柔和（默认，降调并削掉刺耳高频）/ 原声 / 深沉。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>解说模式</h3>
+          <p>实时解说：击杀阵亡、多杀、推塔、大小龙、团灭、五分钟小结。默认在线语音，只发播报文本，连不上自动回退本机音色；音色可选柔和（默认，降调并削掉刺耳高频）/ 原声 / 深沉。</p>
+          <p id="commentaryHint" class="tool-state" style="margin-top:6px;">未开启</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="commentaryState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="commentaryToggle" onchange="toggleCommentary(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <select id="commentaryTone" class="tool-select" onchange="setCommentaryOption('tone', this.value)">
-            <option value="caster">风格: 解说</option>
-            <option value="coach">风格: 教练</option>
-            <option value="tough">风格: 毒舌</option>
+          <option value="caster">风格: 解说</option>
+          <option value="coach">风格: 教练</option>
+          <option value="tough">风格: 毒舌</option>
           </select>
           <select id="commentaryRate" class="tool-select" onchange="setCommentaryOption('rate', this.value)">
-            <option value="0.85">语速: 慢</option>
-            <option value="1">语速: 正常</option>
-            <option value="1.15">语速: 快</option>
+          <option value="0.85">语速: 慢</option>
+          <option value="1">语速: 正常</option>
+          <option value="1.15">语速: 快</option>
           </select>
-        </div>
-        <div class="tool-row" style="gap:8px;">
+          </div>
+          <div class="tool-row" style="gap:8px;">
           <select id="commentaryEngine" class="tool-select" onchange="setCommentaryOption('engine', this.value)">
-            <option value="online">语音: 在线 (更自然)</option>
-            <option value="local">语音: 本机 (离线)</option>
+          <option value="online">语音: 在线 (更自然)</option>
+          <option value="local">语音: 本机 (离线)</option>
           </select>
           <select id="commentaryVoice" class="tool-select" onchange="setCommentaryOption('voice', this.value)"></select>
-        </div>
-        <div class="tool-row" style="gap:8px;">
+          </div>
+          <div class="tool-row" style="gap:8px;">
           <select id="commentaryStyle" class="tool-select" onchange="setCommentaryOption('style', this.value)">
-            <option value="soft">音色: 柔和 (推荐)</option>
-            <option value="clear">音色: 原声</option>
-            <option value="deep">音色: 深沉</option>
+          <option value="soft">音色: 柔和 (推荐)</option>
+          <option value="clear">音色: 原声</option>
+          <option value="deep">音色: 深沉</option>
           </select>
           <button class="btn-secondary" onclick="testCommentaryVoice()" style="font-size:12px;">试听</button>
-        </div>
-        <div class="tool-row" style="gap:8px;">
+          </div>
+          <div class="tool-row" style="gap:8px;">
           <span class="tool-state">音量</span>
           <input type="range" id="commentaryVolume" min="0" max="100" step="5" value="90" oninput="setCommentaryOption('volume', this.value)" style="flex:1">
-        </div>
-        <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
+          </div>
+          <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvPhase" checked onchange="setCommentaryEvent('phase', this.checked)"> 阶段</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvKill" checked onchange="setCommentaryEvent('kill', this.checked)"> 击杀</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvObjective" checked onchange="setCommentaryEvent('objective', this.checked)"> 目标物</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvSwing" checked onchange="setCommentaryEvent('swing', this.checked)"> 局势</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvSummary" checked onchange="setCommentaryEvent('summary', this.checked)"> 五分钟小结</label>
+          </div>
         </div>
-        <p id="commentaryHint" class="tool-state" style="margin-top:6px;">未开启</p>
       </div>
-      <div class="tool-card">
-        <h3>对局提示</h3>
-        <p>对局中播报三类局面信息: 对面成装进度、你所在对位的经济差、十分钟补刀。语音共用「解说模式」的音色和语速, 但开关互相独立 —— 只开这张卡也会出声。经济按装备原价加补刀折金估算, 只用于双方相对比较; 位置无法确定时不做对位比较, 也不会给出数字。</p>
-        <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>对局提示</h3>
+          <p>对局中播报三类局面信息: 对面成装进度、你所在对位的经济差、十分钟补刀。语音共用「解说模式」的音色和语速, 但开关互相独立 —— 只开这张卡也会出声。经济按装备原价加补刀折金估算, 只用于双方相对比较; 位置无法确定时不做对位比较, 也不会给出数字。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipItemSpike" onchange="setLiveTip('itemSpike', this.checked)"> 对面成装</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipMatchup" onchange="setLiveTip('matchup', this.checked)"> 对位经济</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipCreep10" onchange="setLiveTip('creep10', this.checked)"> 十分钟补刀</label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <label class="switch-row"><input type="checkbox" id="liveBoardToggle" checked onchange="toggleLiveBoard(this.checked)"> F9 战报浮窗里显示本局经济与对位</label>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>外服聊天翻译</h3>
-        <p>对局中双向翻译：队友的外语翻成中文贴在聊天区上方（点击穿透不挡操作）；<b>你在游戏里打的中文</b>会自动翻成外语补发一条给队友，<b>你打的英文</b>也会翻成中文显示出来，确认自己那句话在对面眼里是什么意思。</p>
-        <p class="tool-state" style="line-height:1.6;">短句走内置 LoL 术语表（上路差距=top gap、大龙=baron、没闪=no ss）；长句走「AI 复盘设置」的接口，没配就用免费机翻。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>外服聊天翻译</h3>
+          <p>对局中双向翻译：队友的外语翻成中文贴在聊天区上方（点击穿透不挡操作）；<b>你在游戏里打的中文</b>会自动翻成外语补发一条给队友，<b>你打的英文</b>也会翻成中文显示出来，确认自己那句话在对面眼里是什么意思。</p>
+          <p class="tool-state" style="line-height:1.6;">短句走内置 LoL 术语表（上路差距=top gap、大龙=baron、没闪=no ss）；长句走「AI 复盘设置」的接口，没配就用免费机翻。</p>
+          <p class="tool-warn">自动补发会以你的名义发出第二条消息 (原文 + 译文各一条)：两条之间至少隔 1.5 秒，同一句 5 秒内不重发，每局最多 40 条；击杀播报之类的系统消息永远不会被翻译或补发。译文里若还残留中文, 助手不会发, 免得队友看到半截乱码。合规模式下发送全部不可用, 接收展示不受影响。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="gameTranslateState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="gameTranslateToggle" onchange="toggleGameTranslate(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <label class="switch-row"><input type="checkbox" id="gtAutoMineToggle" checked onchange="toggleGtAutoMine(this.checked)"><span>我在游戏里打的<b>中文</b>自动翻成外语，补发一条给队友（不用切窗口）</span></label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <select id="translateTarget" class="tool-select" onchange="setTranslateTarget(this.value)">
-            <option value="en">发送翻译成: 英语</option>
-            <option value="ja">发送翻译成: 日语</option>
-            <option value="ko">发送翻译成: 韩语</option>
-            <option value="es">发送翻译成: 西班牙语</option>
-            <option value="pt">发送翻译成: 葡萄牙语</option>
-            <option value="ru">发送翻译成: 俄语</option>
+          <option value="en">发送翻译成: 英语</option>
+          <option value="ja">发送翻译成: 日语</option>
+          <option value="ko">发送翻译成: 韩语</option>
+          <option value="es">发送翻译成: 西班牙语</option>
+          <option value="pt">发送翻译成: 葡萄牙语</option>
+          <option value="ru">发送翻译成: 俄语</option>
           </select>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <input type="text" id="translateSendInput" class="tool-input" placeholder="在 Poro 里打中文, 直接发到游戏聊天" style="flex:1" onkeydown="if(event.key==='Enter')translateAndSend()">
           <button class="btn-primary" onclick="translateAndSend()">翻译并发送</button>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <button class="btn-secondary" onclick="testTranslate()" style="font-size:11px;" title="用输入框里的内容试译一次，不需要在对局中">试译</button>
           <button class="btn-secondary" onclick="gtDiagnose()" style="font-size:11px;" title="检查能否读到对局聊天房间">检查通道</button>
           <button class="btn-secondary" onclick="translateAndPrefill()" style="font-size:11px;" title="只预填到游戏输入框，你按回车才发出">只预填</button>
+          </div>
         </div>
-        <div id="translateTestOut" class="tool-state"></div>
-        <div id="gtReadState" class="tool-state"></div>
-        <p class="tool-warn">自动补发会以你的名义发出第二条消息 (原文 + 译文各一条)：两条之间至少隔 1.5 秒，同一句 5 秒内不重发，每局最多 40 条；击杀播报之类的系统消息永远不会被翻译或补发。译文里若还残留中文, 助手不会发, 免得队友看到半截乱码。合规模式下发送全部不可用, 接收展示不受影响。</p>
+        <div class="tool-wide">
+          <div id="translateTestOut" class="tool-state"></div>
+          <div id="gtReadState" class="tool-state"></div>
+        </div>
       </div>
-      <div class="tool-card">
-        <h3>好友助手</h3>
-        <p>关注的玩家上线时弹系统通知 (游戏中也能收到)。名单留空 = 提醒所有好友。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>好友助手</h3>
+          <p>关注的玩家上线时弹系统通知 (游戏中也能收到)。名单留空 = 提醒所有好友。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="friendNotifyState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="friendNotifyToggle" onchange="toggleFriendNotify(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <input type="text" id="friendNotifyList" class="tool-input" placeholder="关注名单 (逗号分隔, 留空=全部好友)" style="flex:1">
           <button class="btn-secondary" onclick="saveFriendNotifyList()">保存名单</button>
-        </div>
-        <div class="tool-row" style="margin-top:10px;">
+          </div>
+          <div class="tool-row" style="margin-top:10px;">
           <span class="tool-state" style="flex:none;">常一起玩 (点击邀请进房):</span>
           <button class="btn-secondary" onclick="inviteAllDuos()" style="font-size:11px;">全部邀请</button>
-        </div>
-        <div id="duoInviteChips" class="duo-chips"></div>
-      </div>
-      <div class="tool-card">
-        <h3>自定义热键</h3>
-        <p>对局功能键位随你改：点击按钮后按下想要的新组合即可。字母/数字必须搭配 Ctrl、Alt 或 Shift；F1-F12、Home/End/PageUp/PageDown/Insert/Delete 可以单独用。改完即时生效，与游戏自带键位冲突时游戏行为优先。</p>
-        <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:7px;">
-          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
-            <span id="hkLabel_f6" style="flex:1;font-size:12px;">强化识别 (海克斯三选一重扫)</span>
-            <button class="btn-secondary" id="hk_f6" onclick="hkStartRecord('f6')" style="min-width:120px;font-size:12px;">F6</button>
-          </div>
-          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
-            <span id="hkLabel_f7" style="flex:1;font-size:12px;">KDA 简报 · 己方</span>
-            <button class="btn-secondary" id="hk_f7" onclick="hkStartRecord('f7')" style="min-width:120px;font-size:12px;">F7</button>
-          </div>
-          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
-            <span id="hkLabel_f8" style="flex:1;font-size:12px;">KDA 简报 · 敌方</span>
-            <button class="btn-secondary" id="hk_f8" onclick="hkStartRecord('f8')" style="min-width:120px;font-size:12px;">F8</button>
-          </div>
-          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
-            <span id="hkLabel_f9" style="flex:1;font-size:12px;">对局战报浮窗开关</span>
-            <button class="btn-secondary" id="hk_f9" onclick="hkStartRecord('f9')" style="min-width:120px;font-size:12px;">F9</button>
-          </div>
-          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
-            <span id="hkLabel_f10" style="flex:1;font-size:12px;">聊天弹幕 · 打字输入</span>
-            <button class="btn-secondary" id="hk_f10" onclick="hkStartRecord('f10')" style="min-width:120px;font-size:12px;">Ctrl+F10</button>
           </div>
         </div>
-        <div id="hkState" class="tool-state"></div>
+        <div class="tool-wide">
+          <div id="duoInviteChips" class="duo-chips"></div>
+        </div>
       </div>
-      <div class="tool-card">
-        <h3>KDA简报</h3>
-        <p>对局中按 F7 / F8（或点击按钮）获取己方/敌方近期 KDA，并自动发送到所有人频道。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>自定义热键</h3>
+          <p>对局功能键位随你改：点击按钮后按下想要的新组合即可。字母/数字必须搭配 Ctrl、Alt 或 Shift；F1-F12、Home/End/PageUp/PageDown/Insert/Delete 可以单独用。改完即时生效，与游戏自带键位冲突时游戏行为优先。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:7px;">
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+          <span id="hkLabel_f6" style="flex:1;font-size:12px;">强化识别 (海克斯三选一重扫)</span>
+          <button class="btn-secondary" id="hk_f6" onclick="hkStartRecord('f6')" style="min-width:120px;font-size:12px;">F6</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+          <span id="hkLabel_f7" style="flex:1;font-size:12px;">KDA 简报 · 己方</span>
+          <button class="btn-secondary" id="hk_f7" onclick="hkStartRecord('f7')" style="min-width:120px;font-size:12px;">F7</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+          <span id="hkLabel_f8" style="flex:1;font-size:12px;">KDA 简报 · 敌方</span>
+          <button class="btn-secondary" id="hk_f8" onclick="hkStartRecord('f8')" style="min-width:120px;font-size:12px;">F8</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+          <span id="hkLabel_f9" style="flex:1;font-size:12px;">对局战报浮窗开关</span>
+          <button class="btn-secondary" id="hk_f9" onclick="hkStartRecord('f9')" style="min-width:120px;font-size:12px;">F9</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+          <span id="hkLabel_f10" style="flex:1;font-size:12px;">聊天弹幕 · 打字输入</span>
+          <button class="btn-secondary" id="hk_f10" onclick="hkStartRecord('f10')" style="min-width:120px;font-size:12px;">Ctrl+F10</button>
+          </div>
+          </div>
+        </div>
+        <div class="tool-wide">
+          <div id="hkState" class="tool-state"></div>
+        </div>
+      </div>
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>KDA简报</h3>
+          <p>对局中按 F7 / F8（或点击按钮）获取己方/敌方近期 KDA，并自动发送到所有人频道。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <button class="btn-secondary" onclick="sendKDABriefing(true)" style="font-size:11px;">发送己方</button>
           <button class="btn-secondary" onclick="sendKDABriefing(false)" style="font-size:11px;">发送敌方</button>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>回放观看</h3>
-        <p>输入 Game ID（对局详情卡上方可复制）请求下载回放，完成后在客户端「生涯-回放」观看。</p>
-        <div class="tool-row">
-          <input type="text" id="replayGameId" placeholder="Game ID (纯数字)" class="tool-input" style="flex:1">
-          <button class="btn-primary" onclick="watchReplay()">观看回放</button>
-        </div>
-      </div>
-      <div class="tool-card">
-        <h3>观战召唤师</h3>
-        <p>输入完整 名字#Tag 启动观战 (官方功能)。国服客户端的观战查询接口已停用, 观战密钥只能从好友列表获取, 因此仅支持观战<b>好友列表中正在对局</b>的好友; 对局开始数分钟后官方才开放接入; 客户端有未退出的房间时会询问是否自动退出。</p>
-        <div class="tool-row">
-          <input type="text" id="spectateName" placeholder="召唤师名称 (名字#Tag)" class="tool-input">
-          <button class="btn-primary" onclick="startSpectate()">观战</button>
-        </div>
-      </div>
-      <div class="tools-section">账号与外观</div>
-      <div class="tool-card">
-        <h3>领取奖励</h3>
-        <p>一键领取活动通行证与任务奖励；想挑着领时展开下方列表逐项勾选。</p>
-        <div class="tool-row">
-          <button class="btn-primary" onclick="claimAllRewards()">一键全部领取</button>
-          <button class="btn-secondary" onclick="toggleRewardPicker(this)" style="font-size:11px;">选择性领取 ▾</button>
-        </div>
-        <div id="selectableRewardWrap" hidden>
-          <div id="selectableRewardList" class="sel-reward-list"></div>
-          <div class="tool-row">
-            <button class="btn-secondary" onclick="loadSelectableRewards()" style="font-size:11px;">扫描</button>
-            <button class="btn-primary" onclick="claimSelectedRewards()" style="font-size:11px;">领取勾选项</button>
           </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>生涯背景设置</h3>
-        <p>选择英雄和皮肤，修改个人生涯页面背景。</p>
-        <div class="tool-row">
-          <input type="text" id="bgChamp" placeholder="搜索英雄 (支持中文/英文/拼音)..." class="tool-input" style="flex:2; width:100%" oninput="filterBgChampions()" onfocus="filterBgChampions()" onblur="setTimeout(()=>bgChampHide(),200)">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>回放观看</h3>
+          <p>输入 Game ID（对局详情卡上方可复制）请求下载回放，完成后在客户端「生涯-回放」观看。</p>
         </div>
-        <div id="bgChampDropdown" class="bg-champ-list"></div>
-        <div class="tool-row" style="margin-top:6px;">
+        <div class="tool-ctl">
+          <div class="tool-row">
+          <input type="text" id="replayGameId" placeholder="Game ID (纯数字)" class="tool-input" style="flex:1">
+          <button class="btn-primary" onclick="watchReplay()">观看回放</button>
+          </div>
+        </div>
+      </div>
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>观战召唤师</h3>
+          <p>输入完整 名字#Tag 启动观战 (官方功能)。国服客户端的观战查询接口已停用, 观战密钥只能从好友列表获取, 因此仅支持观战<b>好友列表中正在对局</b>的好友; 对局开始数分钟后官方才开放接入; 客户端有未退出的房间时会询问是否自动退出。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
+          <input type="text" id="spectateName" placeholder="召唤师名称 (名字#Tag)" class="tool-input">
+          <button class="btn-primary" onclick="startSpectate()">观战</button>
+          </div>
+        </div>
+      </div>
+    
+      <div class="tools-section">账号与外观</div>
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>领取奖励</h3>
+          <p>一键领取活动通行证与任务奖励；想挑着领时展开下方列表逐项勾选。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
+          <button class="btn-primary" onclick="claimAllRewards()">一键全部领取</button>
+          <button class="btn-secondary" onclick="toggleRewardPicker(this)" style="font-size:11px;">选择性领取 ▾</button>
+          </div>
+        </div>
+        <div class="tool-wide">
+          <div id="selectableRewardWrap" hidden>
+          <div id="selectableRewardList" class="sel-reward-list"></div>
+          <div class="tool-row">
+          <button class="btn-secondary" onclick="loadSelectableRewards()" style="font-size:11px;">扫描</button>
+          <button class="btn-primary" onclick="claimSelectedRewards()" style="font-size:11px;">领取勾选项</button>
+          </div>
+          </div>
+        </div>
+      </div>
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>生涯背景设置</h3>
+          <p>选择英雄和皮肤，修改个人生涯页面背景。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
+          <input type="text" id="bgChamp" placeholder="搜索英雄 (支持中文/英文/拼音)..." class="tool-input" style="flex:2; width:100%" oninput="filterBgChampions()" onfocus="filterBgChampions()" onblur="setTimeout(()=>bgChampHide(),200)">
+          </div>
+          <div class="tool-row" style="margin-top:6px;">
           <select id="bgSkin" class="tool-select" style="flex:1;"><option>先选择英雄</option></select>
           <button class="btn-primary" onclick="setProfileBg()">应用背景</button>
+          </div>
+        </div>
+        <div class="tool-wide">
+          <div id="bgChampDropdown" class="bg-champ-list"></div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>一键卸下勋章</h3>
-        <p>单镐下旗帜上的勋章头像框和挑战代币 (恢复为默认无框样式)。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>一键卸下勋章</h3>
+          <p>单镐下旗帜上的勋章头像框和挑战代币 (恢复为默认无框样式)。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <button class="btn-secondary" onclick="removeAllRegalia()">一键卸下</button>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>在线状态与个性签名</h3>
-        <p>改变好友列表里别人看到的你：在线、手机在线、离开、勿扰或隐身。客户端进入或离开对局时会把状态改回去，勾选「锁定」后会自动改回你选的状态。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>在线状态与个性签名</h3>
+          <p>改变好友列表里别人看到的你：在线、手机在线、离开、勿扰或隐身。客户端进入或离开对局时会把状态改回去，勾选「锁定」后会自动改回你选的状态。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <select id="chatAvailability" class="tool-input" onchange="onChatAvailabilityChange(this)"></select>
           <label class="opgg-loadout-options"><input type="checkbox" id="chatLockToggle" onchange="toggleChatLock(this.checked)"> 锁定</label>
-        </div>
-        <div class="tool-row">
+          </div>
+          <div class="tool-row">
           <input type="text" id="chatStatusMessage" class="tool-input" placeholder="个性签名（留空即清空）" style="flex:1">
           <button class="btn-secondary" onclick="applyChatStatusMessage()">设置签名</button>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>伪造排位段位</h3>
-        <p>修改好友列表中自己卡片显示的段位 (仅展示效果)。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>伪造排位段位</h3>
+          <p>修改好友列表中自己卡片显示的段位 (仅展示效果)。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <select id="fakeTier" class="tool-select">
-            <option value="CHALLENGER">王者</option>
-            <option value="GRANDMASTER">宗师</option>
-            <option value="MASTER">大师</option>
-            <option value="DIAMOND">钻石</option>
-            <option value="EMERALD">绿宝石</option>
-            <option value="PLATINUM">铂金</option>
-            <option value="GOLD">黄金</option>
-            <option value="SILVER">白银</option>
-            <option value="BRONZE">青铜</option>
-            <option value="IRON">黑铁</option>
+          <option value="CHALLENGER">王者</option>
+          <option value="GRANDMASTER">宗师</option>
+          <option value="MASTER">大师</option>
+          <option value="DIAMOND">钻石</option>
+          <option value="EMERALD">绿宝石</option>
+          <option value="PLATINUM">铂金</option>
+          <option value="GOLD">黄金</option>
+          <option value="SILVER">白银</option>
+          <option value="BRONZE">青铜</option>
+          <option value="IRON">黑铁</option>
           </select>
           <select id="fakeDiv" class="tool-select">
-            <option value="I">I</option>
-            <option value="II">II</option>
-            <option value="III">III</option>
-            <option value="IV">IV</option>
+          <option value="I">I</option>
+          <option value="II">II</option>
+          <option value="III">III</option>
+          <option value="IV">IV</option>
           </select>
           <button class="btn-primary" onclick="fakeRank()">修改</button>
+          </div>
         </div>
       </div>
+    
       <div class="tools-section">客户端维护</div>
-      <div class="tool-card">
-        <h3>修复 LCU 窗口</h3>
-        <p>客户端窗口异常 (过大/过小/移出屏幕) 时，一键恢复为 1280x720 居中。</p>
-        <div class="tool-row">
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>修复 LCU 窗口</h3>
+          <p>客户端窗口异常 (过大/过小/移出屏幕) 时，一键恢复为 1280x720 居中。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <button class="btn-primary" onclick="fixWindow()">立即修复</button>
+          </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>锁定游戏设置</h3>
-        <p>完整保存客户端设置、画面、界面和快捷键（game.cfg / input.ini / PersistedSettings.json），进入选人/对局时按字段恢复。镜头启动模式可单独指定。</p>
-        <div class="tool-row">
+    
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>锁定游戏设置</h3>
+          <p>完整保存客户端设置、画面、界面和快捷键（game.cfg / input.ini / PersistedSettings.json），进入选人/对局时按字段恢复。镜头启动模式可单独指定。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <label class="switch"><input type="checkbox" id="gsLockToggle" onchange="toggleGsLock(this.checked)"><span class="slider"></span></label>
           <span class="tool-state" id="gsLockStatus">未锁定</span>
-        </div>
-        <div class="tool-row" style="margin-top:8px;">
+          </div>
+          <div class="tool-row" style="margin-top:8px;">
           <select id="gsCameraMode" class="tool-select" onchange="setGsCameraMode(this.value)">
-            <option value="">镜头启动：不控制</option>
-            <option value="0">镜头启动：自由镜头</option>
-            <option value="1">镜头启动：锁定镜头</option>
+          <option value="">镜头启动：不控制</option>
+          <option value="0">镜头启动：自由镜头</option>
+          <option value="1">镜头启动：锁定镜头</option>
           </select>
+          </div>
         </div>
       </div>
+    
       <div class="tools-section">设置与数据</div>
       <div class="tool-card span-all">
         <h3>软件更新 <span id="updateBadge" class="update-badge" hidden>有新版本</span></h3>
@@ -565,14 +721,20 @@
         <div class="tool-row"><button id="updateCheckBtn" class="btn-secondary" onclick="checkForUpdate(false)">检查更新</button></div>
         <div id="updateBody" class="update-body"></div>
       </div>
-      <div class="tool-card">
-        <h3>合规模式（默认关闭）</h3>
-        <p>开启后进入<b>只读模式</b>：自动化与对客户端的写入操作全部停用。Poro 不注入游戏进程、不读取游戏内存；关闭前请自行确认所在服务器规则。</p>
-        <div class="tool-row">
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>合规模式（默认关闭）</h3>
+          <p>开启后进入<b>只读模式</b>：自动化与对客户端的写入操作全部停用。Poro 不注入游戏进程、不读取游戏内存；关闭前请自行确认所在服务器规则。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <span id="complianceState" class="tool-state">未开启</span>
           <label class="switch"><input type="checkbox" id="complianceToggle" onchange="toggleCompliance(this.checked)"><span class="slider"></span></label>
+          </div>
         </div>
       </div>
+    
       <div class="tool-card span-all">
         <h3>AI 复盘设置</h3>
         <p>配置 OpenAI 兼容接口后，可在对局详情里使用 AI 复盘。密钥通过系统安全存储保存在本机；使用复盘时，所选对局数据会发送给你配置的服务商。</p>
@@ -599,13 +761,19 @@
           </div>
         </div>
       </div>
-      <div class="tool-card">
-        <h3>数据备份与恢复</h3>
-        <p>导出设置、玩家档案、黑名单和识别偏好。备份不包含 AI API Key；导入前会验证文件格式。</p>
-        <div class="tool-row">
+      
+<div class="tool-card">
+        <div class="tool-info">
+          <h3>数据备份与恢复</h3>
+          <p>导出设置、玩家档案、黑名单和识别偏好。备份不包含 AI API Key；导入前会验证文件格式。</p>
+        </div>
+        <div class="tool-ctl">
+          <div class="tool-row">
           <button class="btn-secondary" onclick="exportPoroBackup()">导出备份</button>          <button class="btn-secondary" onclick="importPoroBackup()">导入备份</button>
+          </div>
         </div>
       </div>
+    
       <div class="tool-card span-all">
         <h3>诊断中心</h3>
         <p>显示当前客户端、账号、区服、对局代际与最近脱敏日志。复制内容不包含完整 PUUID、令牌或用户目录；主动导出的诊断包最多附带最近三张强化卡区域裁图。</p>
@@ -709,51 +877,51 @@
   <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
 </div>
 
-<script src="js/utils.js?v=2026110503"></script>
-<script src="js/local-cache.js?v=2026110503"></script>
-<script src="js/icons.js?v=2026110503"></script>
-<script src="js/data-model.js?v=2026110503"></script>
-<script src="js/session-state.js?v=2026110503"></script>
-<script src="js/performance.js?v=2026110503"></script>
-<script src="js/diagnostics.js?v=2026110503"></script>
-<script src="js/balance.js?v=2026110503"></script>
-<script src="js/behavior-tags.js?v=2026110503"></script>
-<script src="js/bench.js?v=2026110503"></script>
-<script src="js/champions.js?v=2026110503"></script>
-<script src="js/progress-report.js?v=2026110503"></script>
-<script src="js/home.js?v=2026110503"></script>
-<script src="js/ai-markdown.js?v=2026110503"></script>
-<script src="js/review.js?v=2026110503"></script>
-<script src="js/theme.js?v=2026110503"></script>
-<script src="js/hex.js?v=2026110503"></script>
-<script src="js/history.js?v=2026110503"></script>
-<script src="js/enemy-intel.js?v=2026110503"></script>
-<script src="js/growth-model.js?v=2026110503"></script>
-<script src="js/growth.js?v=2026110503"></script>
-<script src="js/battle-card.js?v=2026110503"></script>
-<script src="js/live.js?v=2026110503"></script>
-<script src="js/weekly.js?v=2026110503"></script>
-<script src="js/friends.js?v=2026110503"></script>
-<script src="js/compliance.js?v=2026110503"></script>
-<script src="js/blacklist.js?v=2026110503"></script>
-<script src="js/social.js?v=2026110503"></script>
-<script src="js/chat.js?v=2026110503"></script>
-<script src="js/translate.js?v=2026110503"></script>
-<script src="js/autobp.js?v=2026110503"></script>
-<script src="js/pick-guard.js?v=2026110503"></script>
-<script src="js/lcu-events.js?v=2026110503"></script>
-<script src="js/opgg-loadout.js?v=2026110503"></script>
-<script src="js/update.js?v=2026110503"></script>
-<script src="js/autoflow.js?v=2026110503"></script>
-<script src="js/chat-status.js?v=2026110503"></script>
-<script src="js/settings.js?v=2026110503"></script>
-<script src="js/persist.js?v=2026110503"></script>
-<script src="js/hotkeys.js?v=2026110503"></script>
-<script src="js/live-metrics.js?v=2026110503"></script>
-<script src="js/commentary-script.js?v=2026110503"></script>
-<script src="js/commentary.js?v=2026110503"></script>
-<script src="js/autoreturn.js?v=2026110503"></script>
-<script src="js/sona-extra.js?v=2026110503"></script>
-<script src="js/app.js?v=2026110503"></script>
+<script src="js/utils.js?v=2026110504"></script>
+<script src="js/local-cache.js?v=2026110504"></script>
+<script src="js/icons.js?v=2026110504"></script>
+<script src="js/data-model.js?v=2026110504"></script>
+<script src="js/session-state.js?v=2026110504"></script>
+<script src="js/performance.js?v=2026110504"></script>
+<script src="js/diagnostics.js?v=2026110504"></script>
+<script src="js/balance.js?v=2026110504"></script>
+<script src="js/behavior-tags.js?v=2026110504"></script>
+<script src="js/bench.js?v=2026110504"></script>
+<script src="js/champions.js?v=2026110504"></script>
+<script src="js/progress-report.js?v=2026110504"></script>
+<script src="js/home.js?v=2026110504"></script>
+<script src="js/ai-markdown.js?v=2026110504"></script>
+<script src="js/review.js?v=2026110504"></script>
+<script src="js/theme.js?v=2026110504"></script>
+<script src="js/hex.js?v=2026110504"></script>
+<script src="js/history.js?v=2026110504"></script>
+<script src="js/enemy-intel.js?v=2026110504"></script>
+<script src="js/growth-model.js?v=2026110504"></script>
+<script src="js/growth.js?v=2026110504"></script>
+<script src="js/battle-card.js?v=2026110504"></script>
+<script src="js/live.js?v=2026110504"></script>
+<script src="js/weekly.js?v=2026110504"></script>
+<script src="js/friends.js?v=2026110504"></script>
+<script src="js/compliance.js?v=2026110504"></script>
+<script src="js/blacklist.js?v=2026110504"></script>
+<script src="js/social.js?v=2026110504"></script>
+<script src="js/chat.js?v=2026110504"></script>
+<script src="js/translate.js?v=2026110504"></script>
+<script src="js/autobp.js?v=2026110504"></script>
+<script src="js/pick-guard.js?v=2026110504"></script>
+<script src="js/lcu-events.js?v=2026110504"></script>
+<script src="js/opgg-loadout.js?v=2026110504"></script>
+<script src="js/update.js?v=2026110504"></script>
+<script src="js/autoflow.js?v=2026110504"></script>
+<script src="js/chat-status.js?v=2026110504"></script>
+<script src="js/settings.js?v=2026110504"></script>
+<script src="js/persist.js?v=2026110504"></script>
+<script src="js/hotkeys.js?v=2026110504"></script>
+<script src="js/live-metrics.js?v=2026110504"></script>
+<script src="js/commentary-script.js?v=2026110504"></script>
+<script src="js/commentary.js?v=2026110504"></script>
+<script src="js/autoreturn.js?v=2026110504"></script>
+<script src="js/sona-extra.js?v=2026110504"></script>
+<script src="js/app.js?v=2026110504"></script>
 </body>
 </html>
