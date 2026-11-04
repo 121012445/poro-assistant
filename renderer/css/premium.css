@@ -692,6 +692,16 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 /* 展开后不再有"被裁断"的问题, 底部渐隐必须撤掉, 否则会压暗最后一场 */
 #page-live.live-expanded .lp-row::after { content: none; }
 
+/* 实时对局页头部压缩: 22px 大标题 (+20px 下边距) 和作战计划折叠条 (40px 高 + 14px 外边距)
+   合计约 109px, 但它们只是「当前在哪一页」和「这局建议」两类背景信息 —— 真正要看的
+   是下面两队十个人的战绩。压成一行小标题 + 一行折叠条后, 每张卡多出约 24px, 正好多露一场。
+   只作用于 #page-live, 其它页面的标题层级不动。 */
+#page-live .page-header { margin-bottom: 8px; gap: 10px; align-items: center; }
+#page-live .page-header h2 { font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--text-secondary); }
+#page-live .page-header .btn-secondary { font-size: 10px; line-height: 1; padding: 4px 8px; }
+#page-live .live-decision { margin: 0 0 6px; }
+#page-live .live-decision summary { min-height: 24px; padding: 2px 8px; }
+
 /* 队内占比标签的深色版本: 浅色底 + 深字在深色主题下会糊成一块, 换成半透明底 + 提亮的字 */
 body.dark .lp-metric-dmg { color: #f08a7e; background: rgba(224, 90, 74, .16); }
 body.dark .lp-metric-tank { color: #63c6d4; background: rgba(42, 167, 184, .16); }

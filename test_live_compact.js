@@ -181,8 +181,10 @@ const body = makeEl('liveGameArea');
   const box = v => { const t = String(v).trim().split(/\s+/).map(n); return t.length === 1 ? [t[0], t[0]] : [t[0], t[1] ?? t[0]]; };   // [上下, 左右]
 
   const barH = 44, mainPadTop = 24, mainPadBottom = 32;
-  const headerH = 20 * 1.6 + 20;                                   // h2 20px * line-height 1.6 + margin-bottom 20
-  const decisionH = n(val('.live-decision summary', 'min-height')) + 2 + n(val('.live-decision', 'margin').split(/\s+/)[2]);
+  // 1.5.60 起实时页头部压缩成一行小标题 + 一行作战计划条 (只作用于 #page-live), 这里跟着读新规则:
+  // 标题 13px * 行高 1.6 + 8px 下边距; 折叠条 24px 内容 + 2px 边框 + 6px 下边距。
+  const headerH = n(val('#page-live .page-header h2', 'font-size')) * 1.6 + n(val('#page-live .page-header', 'margin-bottom'));
+  const decisionH = n(val('#page-live .live-decision summary', 'min-height')) + 2 + n(val('#page-live .live-decision', 'margin').split(/\s+/)[2]);
   const [wrapPadTop, , wrapPadBottom] = val('.lp-wrap', 'padding').split(/\s+/).map(n);
   const wrapGap = n(val('.lp-wrap', 'gap'));
   const teamPad = box(val('.lp-team', 'padding'))[0];
