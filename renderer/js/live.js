@@ -556,14 +556,17 @@ function toggleLiveRecentExpanded(force) {
   syncLiveExpandButton();
 }
 
+// 单场战绩: [英雄][模式][胜/负][KDA]。整行按胜负染色 (胜=蓝、负=红),
+// 左边 2px 色条 + 背景微染, 一屏 10 行时靠颜色就能扫出胜负分布。
 function recentIcon(r) {
   const rc = champOfLive(r.champId);
   const isWin = r.win === true || r.win === 'Win';
-  const modeLabel = r.mode ? `<span class="ri-mode">${escapeHtml(r.mode)}</span>` : '';
-  return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}" title="${escapeHtml(r.mode || '')} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}">
+  const mode = r.mode || '对局';
+  return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}" title="${escapeHtml(mode)} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}">
     <img src="${rc ? champImg(rc.id) : placeholder('?')}" ${rc ? champIconAttrs(rc.id, rc.name) : `onerror="this.src='${placeholder('?')}'"`}>
-    <span class="ri-copy">${modeLabel}<span class="ri-result">${isWin ? '胜' : '负'}</span></span>
-    <span class="ri-kda">${r.k} / ${r.d} / ${r.a}</span>
+    <span class="ri-mode">${escapeHtml(mode)}</span>
+    <span class="ri-result">${isWin ? '胜' : '负'}</span>
+    <span class="ri-kda">${r.k}/${r.d}/${r.a}</span>
   </div>`;
 }
 
@@ -582,6 +585,11 @@ function flashPreferenceHtml(pref) {
   return `<span class="lp-flash${pref.inconsistent ? ' mixed' : ''}" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
 }
 
+// 概览行的 KDA 用「大数字 + 小标签」，与胜率形成一对主指标。
+// 首次渲染与局部刷新 (updateLivePlayerRow) 必须共用这一个结构，否则刷新会把排版冲掉。
+function liveKdaHtml(kda) {
+  return `<b>${escapeHtml(String(kda))}</b><em>KDA</em>`;
+}
 function updateLivePlayerRow(p, idx) {
   const key = livePlayerKey(p);
   const rows = [...document.querySelectorAll('.lp-row')];
@@ -608,7 +616,7 @@ function updateLivePlayerRow(p, idx) {
     winRateEl.classList.toggle('positive', winRate != null && winRate >= 50);
   }
   if (recordEl) recordEl.textContent = liveRecordText(p.recent.length, wins, '暂无近期战绩');
-  if (kdaEl) kdaEl.textContent = `KDA ${kda}`;
+  if (kdaEl) kdaEl.innerHTML = liveKdaHtml(kda);
 }
 
 // 选人期对手情报: 复用已拉到的近期战绩, 聚合出"对手在玩什么"和一条 ban 建议。
@@ -654,45 +662,53 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const kda = p.recent.length ? ((totK + totA) / Math.max(1, totD)).toFixed(1) : '--';
     const name = p.name || nameCache[p.puuid] || '未知';
     const isSelf = selfPuuid && p.puuid === selfPuuid;
-    const tag = isSelf ? ' <span style="color:var(--data-gold,#e0b76a);font-size:10px">★ 自己</span>' : '';
+    const tag = isSelf ? '<span class="lp-self-tag">自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
-    const premadeTag = premadeGroupId ? `<span class="lp-premade" title="开黑组 ${premadeGroupId}">${poroIcon('users')}组${premadeGroupId}</span>` : '';
-    const marksHtml = !isSelf && p.puuid ? `<span style="cursor:pointer;font-size:9px;color:var(--text-muted);margin-left:4px;" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
+    const premadeTag = premadeGroupId ? `<span class="lp-premade" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
+    const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
+    const pills = `${premadeTag}${riskHtml}${behaviorTagsHtml(p.behaviorSamples)}`;
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
-          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${premadeTag}${balanceHtml}${marksHtml}</div>
+          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
           <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
         </div>
       </div>
       <div class="lp-overview">
         <span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span>
         <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
-        <span class="lp-kda">KDA ${kda}</span>
+        <span class="lp-kda">${liveKdaHtml(kda)}</span>
       </div>
-      <div class="lp-profile-line"><span class="lp-source-label">系统画像</span>${riskHtml}${behaviorTagsHtml(p.behaviorSamples)}</div>
+      <div class="lp-profile-line">${pills || '<span class="lp-pill-empty">无行为提示</span>'}</div>
       <div class="lp-recent">${recentHtml}</div>
     </div>`;
   };
   const isBlue = p => p.team === 100 || p.team === "100";
   const isRed = p => p.team === 200 || p.team === "200";
   const blue = data.filter(isBlue), red = data.filter(isRed), unknown = data.filter(p => !isBlue(p) && !isRed(p));
+  // 空位占位: 数据没到 / 人数不足时也保持 5 列形状，避免半屏空白看起来像页面坏了
+  const emptySlot = () => '<div class="lp-row lp-empty"><span>等待数据</span></div>';
   const teamPanel = (list, label, cls) => {
     const matches = list.reduce((sum, p) => sum + p.recent.length, 0);
     const wins = list.reduce((sum, p) => sum + p.recent.filter(r => r.win === true || r.win === 'Win').length, 0);
     const kills = list.reduce((sum, p) => sum + p.recent.reduce((n, r) => n + r.k, 0), 0);
     const deaths = list.reduce((sum, p) => sum + p.recent.reduce((n, r) => n + r.d, 0), 0);
     const assists = list.reduce((sum, p) => sum + p.recent.reduce((n, r) => n + r.a, 0), 0);
-    const summary = matches ? `<span>近期胜率 ${Math.round(wins / matches * 100)}% · KDA ${((kills + assists) / Math.max(1, deaths)).toFixed(2)}</span>` : '<span>战绩加载中</span>';
+    const rate = matches ? Math.round(wins / matches * 100) : null;
+    const kda = matches ? ((kills + assists) / Math.max(1, deaths)).toFixed(2) : null;
+    const summary = matches
+      ? `<span class="lp-team-rate${rate >= 50 ? ' positive' : ''}">${rate}%</span><span class="lp-team-kda">KDA <b>${kda}</b></span>`
+      : '<span class="lp-team-kda">战绩加载中</span>';
+    const slots = Math.max(0, 5 - list.length);
     return `<section class="lp-team ${cls}">
-      <div class="lp-team-head"><strong>${label}</strong><span>${list.length} 名玩家</span>${summary}</div>
-      <div class="lp-team-grid">${list.map(playerRow).join('')}</div>
+      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}<span class="lp-team-count">${list.length} 名玩家</span></div>
+      <div class="lp-team-grid">${list.map(playerRow).join('')}${Array.from({ length: slots }, emptySlot).join('')}</div>
     </section>`;
   };
   body.innerHTML = `

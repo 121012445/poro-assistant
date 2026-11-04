@@ -12,14 +12,20 @@ assert.ok(live.includes('class="lp-overview"'), '玩家卡应显示近期胜率�
 assert.ok(live.includes('<details class="live-decision">'), '本局作战计划应默认收起，避免压缩双方战绩');
 assert.ok(live.includes('class="ld-summary-plan"'), '收起状态仍应显示一句核心打法');
 assert.match(css, /\.lp-team-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s, '宽屏每队应横排 5 张玩家卡');
-assert.match(css, /\.lp-champ\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px;/s, '玩家英雄头像应压缩到 36px');
-assert.match(css, /\.ri-card img\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;/s, '近期战绩英雄图标应压缩到 22px');
+assert.match(css, /\.lp-champ\s*\{[^}]*width:\s*38px;[^}]*height:\s*38px;/s, '玩家英雄头像应为 38px (再大就挤掉战绩行)');
+assert.match(css, /\.ri-card img\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;/s, '近期战绩英雄图标应为 20px');
+// 队头 = 阵营色点 + 队名 + 近期胜率 + 全队 KDA; 人数不足时用占位卡撑住 5 列, 不留半屏空白
+assert.ok(live.includes('class="lp-team-dot"') && live.includes('class="lp-team-rate'), '队头应显示阵营色点与近期胜率');
+assert.ok(live.includes('lp-empty') && live.includes('Array.from({ length: slots }, emptySlot)'), '人数不足时应用占位卡补齐 5 列');
+assert.match(css, /\.lp-row:has\(\.ri-card:nth-child\(7\)\)::after/, '战绩溢出时底部应有渐隐提示, 而不是露出被裁断的半行');
+assert.match(css, /\.ri-win\s*\{[^}]*background:[^}]*\}/s, '胜局行应整行染色');
+assert.match(css, /\.ri-loss\s*\{[^}]*background:[^}]*\}/s, '败局行应整行染色');
 assert.match(live, /function recentLimit\(\)\s*\{\s*return 10;\s*\}/,
   '每张玩家卡应提供最近 10 场战绩');
 assert.match(css, /\.lp-wrap\s*\{[^}]*flex:\s*1;[^}]*overflow:\s*hidden;/s, '两支队伍应共同压缩在实时页可视高度内');
 assert.match(css, /\.lp-team\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;/s, '两支队伍应各占实时页一半高度');
 assert.match(css, /\.lp-recent\s*\{[^}]*overflow-y:\s*auto;/s, '最近 10 场应在玩家卡内部独立滚动');
-assert.match(css, /\.ri-card\s*\{[^}]*flex:\s*0 0 26px;/s, '滚动区内每场战绩应保持稳定高度');
+assert.match(css, /\.ri-card\s*\{[^}]*flex:\s*0 0 27px;/s, '滚动区内每场战绩应保持稳定高度');
 assert.match(css, /\.lp-row\s*\{[^}]*background:\s*var\(--bg-card\)/s, '玩家卡应沿用 Poro 的主题卡片色');
 assert.ok(css.includes('var(--shadow-soft)'), '实时队伍面板应沿用 Poro 的柔和阴影');
 assert.ok(!/grid-template-columns:\s*repeat\([1234],/.test(css.slice(css.indexOf('/* 实时对局：双方上下排列'))), '实时页不得在窄窗口把五人拆成多行');

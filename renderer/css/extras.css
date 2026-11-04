@@ -157,7 +157,6 @@
 
 /* 玩家记忆：系统画像与人工标记使用不同视觉语义。 */
 .pm-inline { display:inline-flex; margin-left:4px; padding:2px 6px; border:1px solid color-mix(in srgb,var(--memory-color) 55%,transparent); border-radius:999px; background:color-mix(in srgb,var(--memory-color) 13%,transparent); color:color-mix(in srgb,var(--memory-color) 75%,var(--text-primary)); font-size:9px; font-weight:700; vertical-align:middle; }
-.lp-profile-line { display:flex; align-items:center; gap:5px; min-height:20px; padding:0 2px; }
 .lp-source-label { color:var(--text-muted); font-size:9px; }
 .lp-risk { display:inline-flex; align-items:center; gap:5px; padding:2px 6px; border-radius:999px; background:color-mix(in srgb,var(--bg-secondary) 70%,transparent); color:var(--text-secondary); font-size:9px; font-weight:700; }
 .lp-risk small { opacity:.8; font-size: 9px; }

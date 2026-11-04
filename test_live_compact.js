@@ -81,6 +81,10 @@ const body = makeEl('liveGameArea');
   assert.strictEqual(run("liveRecordText(0, 0, '暂无近期战绩')"), '暂无近期战绩');
   assert.strictEqual(run("liveRecordText(7, 7, 'x')"), '近7场 7胜0负', '不足 10 场时按实际场数显示');
   assert.ok(/recordEl\.textContent = liveRecordText\(/.test(liveSrc), '局部刷新应复用 liveRecordText');
+  // KDA 是「大数字 + 小标签」两段结构, 首次渲染与局部刷新必须共用 liveKdaHtml, 否则刷新会把排版冲掉
+  assert.ok(/<span class="lp-kda"><b>[^<]*<\/b><em>KDA<\/em><\/span>/.test(out), '概览行的 KDA 应为 数字+标签 结构');
+  assert.ok(/kdaEl\.innerHTML = liveKdaHtml\(kda\)/.test(liveSrc), '局部刷新应复用 liveKdaHtml');
+  assert.strictEqual((liveSrc.match(/liveKdaHtml\(/g) || []).length, 3, 'liveKdaHtml 应只有 1 处定义 + 2 处调用');
   assert.ok(!/row\.querySelector\('\.lp-stats'\)/.test(liveSrc), '局部刷新不应再查找已删除的 .lp-stats');
 
   // ---------- ③ 展开/收起 ----------
@@ -140,20 +144,24 @@ const body = makeEl('liveGameArea');
     return any ? [...props].map(([k, v]) => k + ': ' + v).join('; ') : null;
   };
   const px = (decl, prop) => { const m = new RegExp('(?:^|[;\\s])' + prop + '\\s*:\\s*([^;]+)').exec(decl || ''); return m ? m[1].trim() : null; };
-  const compact = rule(premium.slice(premium.indexOf('实时对局：紧凑布局')), '.lp-team-head');
-  assert.ok(compact, '应有紧凑布局样式块');
-  assert.strictEqual(px(compact, 'min-height'), '30px', '队伍标题栏应为 30px');
-  const block = premium.slice(premium.indexOf('实时对局：紧凑布局'));
-  assert.strictEqual(px(rule(block, '.lp-row'), 'padding'), '8px');
-  assert.strictEqual(px(rule(block, '.lp-champ'), 'width'), '36px');
-  assert.strictEqual(px(rule(block, '#liveExpandBtn'), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高页头');
-  assert.strictEqual(px(rule(block, '#liveExpandBtn'), 'height'), '28px');
-  assert.ok(/#liveExpandBtn\[hidden\]\s*\{\s*display:\s*none/.test(block), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
-  assert.ok(!/\bcolor\s*:|\bbackground\s*:/.test(block.slice(0, block.indexOf('#page-live.live-expanded'))), '紧凑块不应改颜色，保证深色主题规则照常生效');
+  const compact = rule(premium.slice(premium.indexOf('实时对局：紧凑布局')), '#liveExpandBtn');
+  assert.ok(compact, '应有实时对局的页头按钮样式块');
+  // 1.5.57 起实时对局的尺寸/配色由 style.css 的「实时对局」区块统一负责 (按 Akari 版式重排),
+  // premium.css 只保留作战计划面板与展开按钮 —— 两处同时定义尺寸会互相覆盖, 这里守住这个分工。
+  const block = style.slice(style.indexOf('============================ 实时对局 ============================'));
+  assert.ok(block.length > 1000, 'style.css 应有实时对局样式块');
+  assert.strictEqual(px(rule(block, '.lp-team-head'), 'min-height'), '28px', '队伍标题栏应为 28px');
+  assert.strictEqual(px(rule(block, '.lp-row'), 'padding'), '6px 8px');
+  assert.strictEqual(px(rule(block, '.lp-champ'), 'width'), '38px');
+  const btnBlock = premium.slice(premium.indexOf('实时对局：紧凑布局'));
+  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高页头');
+  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'height'), '28px');
+  assert.ok(/#liveExpandBtn\[hidden\]\s*\{\s*display:\s*none/.test(btnBlock), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
+  assert.ok(!/\bcolor\s*:|\bbackground\s*:/.test(btnBlock.slice(0, btnBlock.indexOf('#page-live.live-expanded'))), '紧凑块不应改颜色，保证深色主题规则照常生效');
 
   // 展开模式: 去掉"一屏内"的约束
   for (const [sel, prop, val] of [['.lp-wrap', 'overflow', 'visible'], ['.lp-recent', 'overflow', 'visible'], ['.lp-row', 'height', 'auto'], ['.lp-recent', 'flex', '0 0 auto']]) {
-    assert.strictEqual(px(rule(block, '#page-live.live-expanded ' + sel), prop), val, `展开模式 ${sel} 的 ${prop} 应为 ${val}`);
+    assert.strictEqual(px(rule(btnBlock, '#page-live.live-expanded ' + sel), prop), val, `展开模式 ${sel} 的 ${prop} 应为 ${val}`);
   }
   // 默认模式的"一屏内 + 卡内滚动"原有约定不能被破坏
   assert.match(style, /\.lp-wrap\s*\{[^}]*overflow:\s*hidden;/s);
@@ -184,17 +192,18 @@ const body = makeEl('liveGameArea');
   const avail = winH - barH - mainPadTop - mainPadBottom - headerH - decisionH - (wrapPadTop + wrapPadBottom);
   const teamH = (avail - wrapGap) / 2;
   const cardH = teamH - (2 + 2 * teamPad) - teamHead - gridPt;
-  const cardInner = cardH - (3 + 2 * rowPad);                      // 上边框 2 + 下边框 1 + 上下内边距
+  const cardInner = cardH - (2 + 2 * rowPad);                      // 左右各 1px 边框 + 上下内边距
   const [ovTop, , ovBottom] = val('.lp-overview', 'margin').split(/\s+/).map(n);
   const ovPadV = box(val('.lp-overview', 'padding'))[0];
   const ovLine = parseFloat(val('.lp-overview', 'line-height')) * n(val('.lp-winrate', 'font-size'));
-  const overviewH = ovTop + ovBottom + 2 + 2 * ovPadV + ovLine;    // 含 1px 上下边框
+  const overviewH = ovTop + ovBottom + 2 * ovPadV + ovLine;        // 1.5.57 起概览行改为无边框底色块
   const headRowH = n(val('.lp-champ', 'width'));
   const profileH = n(val('.lp-profile-line', 'min-height')) + n(val('.lp-profile-line', 'margin-bottom'));
   const recentH = cardInner - headRowH - overviewH - profileH;
-  const visible = Math.floor((recentH + 2) / 28);
+  const rowPitch = n(val('.ri-card', 'flex').split(/\s+/)[2]) + n(val('.lp-recent', 'gap'));   // 每场战绩的行距
+  const visible = Math.floor((recentH + 2) / rowPitch);
 
-  assert.ok(recentH >= 130, `1200x800 下战绩区应 ≥130px (改动前约 60px), 实际 ${recentH.toFixed(0)}px`);
+  assert.ok(recentH >= 138, `1200x800 下战绩区应 ≥138px (5 场 = 143px, 留 5px 容差), 实际 ${recentH.toFixed(0)}px`);
   assert.ok(visible >= 5, `1200x800 下 10 场至少应露出 5 场 (改动前 2 场), 实际 ${visible} 场`);
 
   console.log(`实时对局紧凑布局测试通过 (1200x800 战绩区约 ${recentH.toFixed(0)}px, 露出 ${visible} 场)`);

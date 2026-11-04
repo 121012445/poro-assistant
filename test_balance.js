@@ -87,7 +87,7 @@ const sample = {
   const live = read('renderer/js/live.js');
   assert.ok(/liveBalanceMode = isBalanceMode\(session\?\.gameData\?\.queue\?\.id/.test(live), '实时页应按队列判断是否显示');
   assert.ok(/const balanceHtml = \(liveBalanceMode \? balanceBadgeHtml\(p\.championId\) : ''\)/.test(live), '平衡徽标只在大乱斗类模式生成 (排位不显示)');
-  assert.ok(live.includes('${premadeTag}${balanceHtml}${marksHtml}'), '徽标应渲染在玩家名字行');
+  assert.ok(live.includes('${tag}${balanceHtml}${marksHtml}'), '徽标应渲染在玩家名字行');
   const bench = read('renderer/js/bench.js');
   assert.ok(/'<\/span>' \+ balanceBadgeHtml\(it\.id\)/.test(bench), '备战区换英雄按钮上应显示平衡徽标');
   assert.ok(/const key = [^\n]*aramBalance\.loadedAt/.test(bench), '平衡数据加载完成后备战区按钮要能重绘 (加载时间在重绘键里)');

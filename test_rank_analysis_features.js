@@ -37,7 +37,9 @@ assert(social.includes('const ENCOUNTERS_VER = 5'));
 // 同一局 p:→g: 换键不能算两局（历史迁移函数同样要在）
 assert(social.includes('function migrateEncounterGameKeys'));
 assert(social.includes("prev.startsWith('p:') && key.startsWith('g:')"));
-assert(live.includes('系统画像'));
+// 1.5.57: 实时页的画像标签去掉了「系统画像」文字前缀 (标签本身已说明), 改为断言画像徽标本身
+assert(live.includes('lp-risk-${risk.level}'));
+assert(live.includes('系统自动画像'));
 assert(live.includes('addEncounter(p.puuid, p.name, _currentGameKey)'));
 assert(!live.includes('_encounterTrackedFor !== _currentGameKey'));
 assert(live.includes('players.map(p => p.puuid).filter(Boolean).sort()'));

@@ -491,18 +491,13 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 .ako-champ, .rk-champ { border-radius: var(--radius-xs); }
 .ako-expand { background: var(--bg-secondary); }
 
-/* ============================ 对局页 ============================ */
-.lp-wrap { gap: 10px; }
-.lp-team { padding: 8px; border-radius: var(--radius); background: var(--bg-card); }
-.lp-team-head { min-height: 36px; padding: 7px 12px; border-radius: var(--radius-xs); font-weight: 500; }
-.lp-blue .lp-team-head { color: var(--data-blue); background: var(--accent-soft); }
-.lp-red .lp-team-head { color: var(--negative); background: #fef2f2; }
-.lp-team-grid { gap: 6px; padding-top: 6px; }
-.lp-row { padding: 9px; border-radius: var(--radius-sm); box-shadow: none; border: 1px solid var(--border); }
-.lp-row:hover { border-color: var(--border-hover); box-shadow: none; }
-.lp-champ { width: 38px; height: 38px; }
-.lp-overview { padding: 5px 7px; background: var(--bg-secondary); border-color: var(--border); }
-.lp-self { background: #fffbeb !important; border-color: #f5d78a !important; box-shadow: none !important; }
+/* ============================ 对局页 ============================
+   实时对局的尺寸/配色已统一由 style.css 的「实时对局」区块负责 (1.5.57 按 Akari 版式重排)。
+   这里只保留与主题令牌无关、无法下放到基础样式的两条。 */
+.lp-row:hover { border-color: var(--border-hover); }
+.lp-champ { background: var(--bg-secondary); }
+/* 标签行不得折行: 它的高度是"卡内战绩区高度预算"的一部分 (见 style.css 实时对局区块) */
+.lp-profile-line { flex-wrap: nowrap; overflow: hidden; }
 
 /* ============================ 强化资料页 ============================ */
 .hex-context { border-radius: var(--radius); }
@@ -612,12 +607,13 @@ body.dark .mode-table th, body.dark .champ-table-header {
 body.dark .mode-table td, body.dark .champ-row { color: var(--text-primary); border-bottom-color: var(--border); }
 body.dark .mode-table tr:hover, body.dark .champ-row:hover, body.dark .hex-row:hover { background: var(--bg-hover); }
 body.dark .champ-table-wrap { background: var(--bg-card); border-color: var(--border); }
+/* 深色下的队头/卡片配色: 用低透明度色块而不是浅色渐变, 避免深底上"发脏" */
 body.dark .lp-blue .lp-team-head { color: var(--data-blue); background: rgba(77, 142, 247, .14); }
 body.dark .lp-red .lp-team-head { color: #f87171; background: rgba(248, 113, 113, .13); }
-body.dark .lp-row { background: var(--bg-card); border-color: var(--border); box-shadow: none; }
-body.dark .lp-red .lp-row { border-color: var(--border); }
-body.dark .lp-overview { background: var(--bg-secondary); border-color: var(--border); }
-body.dark .lp-self { background: rgba(224, 183, 106, .12) !important; border-color: rgba(224, 183, 106, .38) !important; }
+body.dark .lp-row { background: var(--bg-card); }
+body.dark .lp-overview { background: var(--bg-secondary); }
+body.dark .lp-self { background: rgba(224, 183, 106, .10); border-color: rgba(224, 183, 106, .38); }
+body.dark .lp-self-tag { color: #f3d489; background: rgba(224, 183, 106, .18); }
 body.dark .ako-expand { background: var(--bg-secondary); }
 body.dark .ako-win .ako-result, body.dark .ak-win .ak-result { color: var(--data-blue); }
 body.dark .ako-loss .ako-result, body.dark .ak-loss .ak-result { color: #f87171; }
@@ -675,21 +671,12 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 }
 
 /* ============================ 实时对局：紧凑布局 ============================
-   问题: 红蓝两队被压在一屏内，页头 + 标题条 + 作战计划 + 队伍标题栏 + 每张卡里的头像/概览/画像
-   占掉大部分高度，1200x800 下每人的战绩区只剩约 60px (10 场只露出 2 场)，小窗口下直接为 0。
-   做法: 去掉独占一行的标题条；卡内"近 N 场"并进概览行；各处间距收紧。
-   这里只收紧尺寸/间距，不改颜色 (深色主题规则照常生效)。 */
-.live-decision { margin: 0 0 6px; }
-.live-decision summary { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
-.lp-wrap { gap: 8px; padding: 2px 0 4px; }
-.lp-team { padding: 6px; }
-.lp-team-head { min-height: 30px; padding: 4px 12px; }
-.lp-team-grid { padding-top: 4px; }
-.lp-row { padding: 8px; }
-.lp-champ { width: 36px; height: 36px; }
-.lp-overview { margin: 4px 0 3px; padding: 3px 6px; line-height: 1.2; }
-.lp-winrate { font-size: 13px; }
-.lp-profile-line { margin-bottom: 3px; }
+   尺寸预算 (队伍上下各占一半、卡内战绩独立滚动) 由 style.css 的「实时对局」区块定义，
+   这里只放两件基础样式管不到的事:
+   ① 作战计划面板与页头按钮的高度 (全局按钮最小高度 38px 会把页头撑高);
+   ② 「展开全部战绩」的展开态 —— 去掉"一屏内"的约束。 */
+.live-decision { margin: 0 0 4px; }
+.live-decision summary { min-height: 30px; padding-top: 3px; padding-bottom: 3px; }
 
 /* 页头右侧的「展开全部战绩」: 全局按钮最小高度是 38px，会把页头撑高、整页下移，这里限定高度 */
 #liveExpandBtn { margin-left: auto; min-height: 0; height: 28px; padding: 0 12px; font-size: var(--fs-sm); }
@@ -701,6 +688,8 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 #page-live.live-expanded .lp-team-grid { flex: 0 0 auto; }
 #page-live.live-expanded .lp-row { height: auto; }
 #page-live.live-expanded .lp-recent { flex: 0 0 auto; overflow: visible; }
+/* 展开后不再有"被裁断"的问题, 底部渐隐必须撤掉, 否则会压暗最后一场 */
+#page-live.live-expanded .lp-row::after { content: none; }
 
 /* 大乱斗平衡性调整徽标 (balance.js): 颜色走主题变量, 深色主题自动适配 */
 .lp-balance { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; border: 1px solid currentColor; }
