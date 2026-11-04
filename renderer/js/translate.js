@@ -407,16 +407,19 @@ function gtParseOcrChatLines(raw) {
   for (let line of String(raw || '').split(/\r?\n/)) {
     line = line.replace(/\s+/g, ' ').trim();
     if (!line) continue;
-    // 行首时间戳 "00:02" / "0:02"
-    line = line.replace(/^[01]?\d:[0-5]\d\s*/, '');
+    // 行首时间戳 "00:02" / "0:02" / "(08:24)" (1.5.49: 游戏日志带括号)
+    line = line.replace(/^\(?[01]?\d:[0-5]\d\)?\s*/, '');
     // 频道标记 [All]/[全部]/[队伍]/[全体]/[野怪]... 与成对括号段
     line = line.replace(/\[[^\[\]]{1,8}\]/g, ' ').replace(/【[^【】]{1,8}】/g, ' ');
     line = line.replace(/\s+/g, ' ').trim();
     if (!line) continue;
     if (GT_OCR_NOISE_RE.test(line)) continue;
-    // "召唤师名: 内容" 前缀 (冒号前不超过 14 个字符且不含空格才算名字)
-    const m = line.match(/^([^\s:：]{1,14})[:：]\s*(.+)$/);
-    if (m && m[2].trim()) line = m[2].trim();
+    // 1.5.49: "玩家名 (英雄名): 内容" 前缀必须剥掉再进管线 —— 中文玩家名/
+    // 英雄名留在行内会被 GT_ZH_RE (含中文即丢) 把队友外语消息整行误杀。
+    // 前缀允许空格与括号 (英雄名), 但**以数字结尾的前缀不剥** (防
+    // "dragon at 15:30" 被当成名字截断成 "30")。
+    const m = line.match(/^(.{1,32}?)[:：]\s*(.+)$/);
+    if (m && m[2].trim() && !/\d\s*$/.test(m[1])) line = m[2].trim();
     if (line) out.push(line);
   }
   return out;

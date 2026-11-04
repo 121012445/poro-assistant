@@ -254,6 +254,17 @@ function msg(id, body, fromId) {
     ok('OCR 行数正确', lines.length === 3, lines);
   }
   {
+    // 1.5.49: 真实游戏日志格式 —— 括号时间戳 + 中文玩家名(英雄名)前缀,
+    // 前缀不剥会被 GT_ZH_RE 把队友外语消息整行误杀
+    const e = makeEnv({});
+    const raw = '(08:24) [队伍] 雨未散 (战争女神): bang is world\'s best ad\n'
+      + '(00:03) [队伍] Faker (发条魔灵): IG is awesome.\n'
+      + 'dragon at 15:30';
+    const lines = await e.run('gtParseOcrChatLines')(raw);
+    ok('OCR 括号时间戳+中文名(英雄)前缀剥除', lines[0] === 'bang is world\'s best ad' && lines[1] === 'IG is awesome.', lines);
+    ok('OCR 数字结尾前缀不剥 (防时间截断)', lines[2] === 'dragon at 15:30', lines);
+  }
+  {
     // 1.5.48: 浮窗提示条/后台应用杂音行整行丢弃 (17:31 局 OCR 日志实证)
     const e = makeEnv({});
     const raw = 'Ctrl+F10 打字 - 回车发给队友 · 可拖动/滚轮回看 · Esc 取消\n'

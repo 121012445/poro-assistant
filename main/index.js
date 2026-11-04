@@ -1257,14 +1257,15 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
       }
     }
     const size = screenshot.getSize();
-    // 聊天框固定在左上 (1.5.46 误定为左下 y40-58%, 用户截图实证 LoL 对局聊天
-    // 在左上角): x 0~36%, y 7~27% (1080p 下约 0-690 x 75-290, 覆盖最多 8-9 行
-    // 渐隐聊天; y<7% 是击杀数/金币/计时条, 不纳入)
+    // 聊天框在左侧一列, 位置随消息量/日志展开状态变化 (截图实证):
+    // 少量新消息在左上 y~14%, 长日志列表在 y 37-56% —— 裁整个左列
+    // x 0~30%, y 5~60% (1440p 下 0-768 x 72-864), 两种布局全覆盖。
+    // 游戏内浮动文字 (中文名/伤害数字) 由渲染层过滤器处理。
     const chatRect = {
       x: 0,
-      y: Math.round(size.height * 0.07),
-      width: Math.min(size.width, Math.round(size.width * 0.36)),
-      height: Math.round(size.height * 0.20)
+      y: Math.round(size.height * 0.05),
+      width: Math.min(size.width, Math.round(size.width * 0.30)),
+      height: Math.round(size.height * 0.55)
     };
     let crop = screenshot.crop(chatRect);
     if (crop.isEmpty()) return null;
