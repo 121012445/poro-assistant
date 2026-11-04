@@ -250,8 +250,9 @@ function msg(id, body, fromId) {
   {
     const e = makeEnv({});
     const lines = await e.run('gtParseOcrChatLines')('00:02 [All] Rain: Good Luck\n0:05 雨未散：连败衰神\n\n00:08 killing spree');
-    ok('OCR 行剥时间戳与频道标记', lines[0] === 'Good Luck' && lines[1] === '连败衰神', lines);
-    ok('OCR 行数正确', lines.length === 3, lines);
+    // 1.5.50: 纯中文消息在解析层就丢弃 (无外文片段可出)
+    ok('OCR 行剥时间戳与频道标记', lines[0] === 'Good Luck' && lines[1] === 'killing spree', lines);
+    ok('OCR 行数正确 (中文消息已丢)', lines.length === 2, lines);
   }
   {
     // 1.5.49: 真实游戏日志格式 —— 括号时间戳 + 中文玩家名(英雄名)前缀,
@@ -273,10 +274,10 @@ function msg(id, body, fromId) {
       + 'nice escape mid';
     const lines = await e.run('gtParseOcrChatLines')(raw);
     ok('OCR 杂音行 (浮窗提示/混杂行情) 丢弃', lines.length === 2 && lines[0] === 'luck game' && lines[1] === 'nice escape mid', lines);
-    // "WorkBuddy 新建任务..." 这类含中文的杂音行在解析层保留 (无关键词),
-    // 由 gtOcrScan 的 GT_ZH_RE (含中文即丢) 在管线层挡住
+    // 1.5.50: "WorkBuddy..." 混杂行在解析层抽取外文片段, 无聊天头部证据时
+    // 只收多词片段 —— 单词 "WorkBuddy" 被丢弃, "luck game" 保留
     const lines2 = await e.run('gtParseOcrChatLines')('WorkBuddy 新建任务 专家 连接器 资料库\nluck game');
-    ok('OCR 纯中文杂音行留待管线层过滤', lines2.length === 2, lines2);
+    ok('OCR 混杂杂音单词被丢 (无头部证据)', lines2.length === 1 && lines2[0] === 'luck game', lines2);
     const e2 = makeEnv({});
     e2.ctx.lolAPI.gameTranslateOcrChat = async () => 'WorkBuddy 新建任务 专家 连接器 资料库\n00:03 [All] Rain: luck game';
     await e2.run('gtOcrScan')();
@@ -291,6 +292,23 @@ function msg(id, body, fromId) {
     ok('OCR 外语行进翻译管线', e.translated.some(t => t.target === 'zh-CN'), e.translated);
     ok('OCR 中文行不处理 (无法判定身份)', !e.translated.some(t => t.target === 'en'), e.translated);
     ok('OCR 行不补发', e.sent.length === 0, e.sent);
+  }
+  {
+    // 1.5.50: 真实日志夹具 —— OCR 把多条聊天+系统文本合并成一大行,
+    // 含大量中文残渣, 需从中抽取出外文消息
+    const e = makeEnv({});
+    const raw = '输 4 获 取 命 令 列 表 0 0 \' 戒 乏 箭 已 经 选 择 了 位 置 ： 上 路 阝 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： 大 家 好 00 8 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： hello everyone';
+    const lines = await e.run('gtParseOcrChatLines')(raw);
+    ok('OCR 合并混杂行抽取外文片段', lines.includes('hello everyone'), lines);
+    const raw2 = '已 经 选 择 了 位 置 ： 上 路 雨 未 散 （ 惩 戒 之 箭 ） ： good luck have fun';
+    const lines2 = await e.run('gtParseOcrChatLines')(raw2);
+    ok('OCR 中文系统前缀合并行也能抽出', lines2.includes('good luck have fun'), lines2);
+    // 端到端: 混杂行进翻译管线
+    const e2 = makeEnv({});
+    e2.ctx.lolAPI.gameTranslateOcrChat = async () => raw;
+    await e2.run('gtOcrScan')();
+    await flushAsync();
+    ok('OCR 混杂行端到端进翻译', e2.translated.some(t => (t.texts || []).includes('hello everyone')), e2.translated);
   }
 
   console.log('— 会话房间解析 —');

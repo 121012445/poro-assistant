@@ -1278,8 +1278,10 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     let text = '';
     try { text = String(await requestAugmentOcr(imagePath) || ''); }
     finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
-    // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到
-    const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} len=${text.length} text=${text.replace(/\s+/g, ' ').trim().substring(0, 120)}`;
+    // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到;
+    // 换行用 ⏎ 标记保留 —— OCR 是否把多条聊天合并成一行直接影响解析
+    const diagText = text.replace(/\r?\n/g, ' ⏎ ').replace(/[ \t]+/g, ' ').trim().substring(0, 160);
+    const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} len=${text.length} text=${diagText}`;
     if (periodicLog.shouldLog('gt-chat', diagLine)) logErr(diagLine);
     return text;
   } catch (err) {

@@ -396,33 +396,50 @@ async function gtScan() {
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
 }
 
-// OCR 输出行解析: 剥时间戳/频道标记/玩家名前缀, 输出待判定文本 (可单测)
-// 1.5.48: 浮窗提示条/后台应用杂音行整行丢弃 —— 整屏回退路径下这些文字会
-// 混进 OCR 结果 (17:31 局实证), 纯中文行本就被 GT_ZH_RE 挡住, 这里拦的是
-// 中英混杂的行 (如 "行情 SNXXUSDT ... game")。
+// OCR 输出解析 (可单测)。1.5.48 杂音行过滤; 1.5.49 中文名(英雄)前缀剥除;
+// 1.5.50: OCR 会把多条聊天+系统文本合并成一大行且无换行 (18:12 局日志实证),
+// 行内中文残渣会让整行被"含中文即丢"误杀。改为:
+// ① 按 "时间戳+频道" 头部强制断行; ② 含中文的行只抽取其中的外文片段,
+// 无聊天头部证据的混杂行只收多词片段 (防 WorkBuddy/人名单词误报)。
 // 注意: 不能带 /i —— "Esc" 带大小写匹配, 否则 "escape" 这类正常英文聊天会被误杀
 const GT_OCR_NOISE_RE = /打字|回车|发给队友|滚轮|拖动|双击|取消|发送|行情|买币|Esc/;
+const GT_OCR_HEADER_RE = /(\(?\d{1,2}[:：]\d{2}\)?\s*(?:\[[^\[\]]{1,8}\]|【[^【】]{1,8}】))/g;
+const GT_OCR_LATIN_RUN_RE = /[A-Za-z][A-Za-z0-9'’\-.,!?()\/ ]{2,}/g;
+const GT_OCR_ZH_RE = /[\u4e00-\u9fff]/;
+function gtOcrLatinRuns(text, strict) {
+  const runs = [];
+  for (const m of String(text).matchAll(GT_OCR_LATIN_RUN_RE)) {
+    const run = m[0].replace(/\s+/g, ' ')
+      .replace(/^[\s.,!?;:()\/\-]+|[\s.,!?;:()\/\-]+$/g, '').trim();
+    if (run.length < 4 || !/[A-Za-z]{2}/.test(run)) continue;
+    if (strict && !/\s/.test(run)) continue;
+    runs.push(run);
+  }
+  return runs;
+}
 function gtParseOcrChatLines(raw) {
   const out = [];
-  for (let line of String(raw || '').split(/\r?\n/)) {
+  const segmented = String(raw || '').replace(GT_OCR_HEADER_RE, '\n$1');
+  for (let line of segmented.split(/\r?\n/)) {
     line = line.replace(/\s+/g, ' ').trim();
     if (!line) continue;
-    // 行首时间戳 "00:02" / "0:02" / "(08:24)" (1.5.49: 游戏日志带括号)
-    line = line.replace(/^\(?[01]?\d:[0-5]\d\)?\s*/, '');
-    // 频道标记 [All]/[全部]/[队伍]/[全体]/[野怪]... 与成对括号段
+    let chat = false; // 聊天头部证据: 时间戳 / 频道标记 / 名字冒号
+    // 行首时间戳 "00:02" / "0:02" / "(08:24)"
+    const ts = line.match(/^\(?[01]?\d[:：][0-5]\d\)?\s*/);
+    if (ts) { chat = true; line = line.slice(ts[0].length); }
+    if (/\[[^\[\]]{1,8}\]|【[^【】]{1,8}】/.test(line)) chat = true;
     line = line.replace(/\[[^\[\]]{1,8}\]/g, ' ').replace(/【[^【】]{1,8}】/g, ' ');
     line = line.replace(/\s+/g, ' ').trim();
     if (!line) continue;
     if (GT_OCR_NOISE_RE.test(line)) continue;
-    // 1.5.49: "玩家名 (英雄名): 内容" 前缀必须剥掉再进管线 —— 中文玩家名/
-    // 英雄名留在行内会被 GT_ZH_RE (含中文即丢) 把队友外语消息整行误杀。
-    // 前缀允许空格与括号 (英雄名), 但**以数字结尾的前缀不剥** (防
-    // "dragon at 15:30" 被当成名字截断成 "30")。
+    // "玩家名 (英雄名): 内容" 前缀剥除 (允许空格/括号), 数字结尾前缀不剥
     const m = line.match(/^(.{1,32}?)[:：]\s*(.+)$/);
-    if (m && m[2].trim() && !/\d\s*$/.test(m[1])) line = m[2].trim();
-    if (line) out.push(line);
+    if (m && m[2].trim() && !/\d\s*$/.test(m[1])) { chat = true; line = m[2].trim(); }
+    if (!line) continue;
+    if (!GT_OCR_ZH_RE.test(line)) out.push(line);
+    else out.push(...gtOcrLatinRuns(line, !chat));
   }
-  return out;
+  return out.filter(s => s && s.length >= 2);
 }
 
 async function gtOcrScan() {
@@ -435,10 +452,9 @@ async function gtOcrScan() {
       if (gtOcrSeen.has(body)) continue;
       gtOcrSeen.add(body);
       if (gtOcrSeen.size > 400) gtOcrSeen.clear();
-      // 系统播报 (击杀/streak 类) 与中文行 (OCR 无身份信息, 无法判定是谁发的,
-      // 一律不处理 —— 自己发的中文走浮窗输入框, 不走 OCR 回环)
+      // 系统播报 (击杀/streak 类) 不处理; 中文残渣已在解析层剥除/抽取,
+      // 纯中文消息在解析层就无外文片段可出, 不会走到这里
       if (GT_SYS_BODY_RE.test(body)) continue;
-      if (GT_ZH_RE.test(body)) continue;
       if (!gtLooksForeign(body)) continue;
       gtQueue.push({ name: '聊天', body });
       _gtOcrTotal++; fresh++;
