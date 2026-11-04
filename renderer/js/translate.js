@@ -421,7 +421,12 @@ const GT_OCR_NOISE_RE = /打字|回车|发给队友|滚轮|拖动|双击|取消|
 // "ÖO ： 17" / "当 7" / "丽 ： 17" / "中 ： 17", 放大到 5x 也读不对 ——
 // 靠时间戳断行/去重天生不成立。而 "[ 队 伍 ]" 每轮都在 (最差剩 "伍 ]")。
 // 允许缺左括号: 只留 "[队伍全体] + 右括号" 也算一个聊天头。
-const GT_OCR_CHANNEL_RE = /(?:[\[【「『〔]\s*([^\[\]【】「」『』〔〕]{1,8}?)\s*[\]】」』〕]|([队伍全体])\s*[\]】」])/g;
+// 1.5.54: 第三种写法 —— **右括号整个丢了**。真实帧里出现过
+// "[ 队 囿 雨 末 散 （ 傲 之 追 猎 者 ） 《 he everyone" (伍→囿, 且没有 ]),
+// 前两种都匹配不上, 整条消息凭空消失。既然 1.5.54 起 OCR 已经是**一行一条**,
+// 锚点放宽到"左括号 + 队伍全体"是安全的: 每行最多产出一条消息, 不会像
+// 1.5.50 那样从一行里抽出多个残片。
+const GT_OCR_CHANNEL_RE = /(?:[\[【「『〔]\s*([^\[\]【】「」『』〔〕]{1,8}?)\s*[\]】」』〕]|([队伍全体])\s*[\]】」]|[\[【「『〔]\s*([队伍全体])\s*[\]】」』〕]?)/g;
 const GT_OCR_TS_ANY_RE = /(\d{1,2})\s*[:：]\s*(\d{2})/g;
 const GT_OCR_ZH_RE = /[\u4e00-\u9fff]/;
 // 合法的"一个词"消息: 只有一两个词的消息不能因为"像残片"就被丢掉
@@ -502,7 +507,7 @@ function gtParseOcrChatLines(raw) {
     GT_OCR_CHANNEL_RE.lastIndex = 0;
     let m;
     while ((m = GT_OCR_CHANNEL_RE.exec(line))) {
-      marks.push({ start: m.index, end: m.index + m[0].length, channel: String(m[1] || m[2] || '').replace(/\s+/g, '') });
+      marks.push({ start: m.index, end: m.index + m[0].length, channel: String(m[1] || m[2] || m[3] || '').replace(/\s+/g, '') });
     }
     if (!marks.length) {
       if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无频道标记) ' + line.trim().slice(0, 40));
@@ -567,6 +572,11 @@ function gtOcrSame(a, b) {
   const short = a.length <= b.length ? a : b;
   const long = short === a ? b : a;
   if (short.length >= 3 && long.includes(short)) return true;   // 残片 / 更完整的版本
+  // 1.5.54: 长句上差 ≤3 个字符基本就是同一条消息的两次识别 —— 真实帧里
+  // "he everyone" 与下一轮的 "hello everyone" 只差 3 个字母, 相似度 0.77 卡在
+  // 阈值下, 于是同一句被翻了两遍。短句不敢这么放宽: "gg" 和 "ggwp" 也只差 2 个
+  // 字符, 一放宽就会把两条真消息并成一条。
+  if (long.length >= 8 && gtOcrDistance(a, b) <= 3) return true;
   if (long.length - short.length > Math.max(2, long.length * 0.35)) return false;
   return 1 - gtOcrDistance(a, b) / long.length >= 0.8;
 }

@@ -44,7 +44,15 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
       $decoder = Await-WinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
       $bitmap = Await-WinRt ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
       $result = Await-WinRt ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-      [Console]::Out.WriteLine('OK' + "`t" + [Convert]::ToBase64String($utf8.GetBytes($result.Text)))
+      # 必须按 OcrLine 逐行输出: OcrResult.Text 把多行用**空格**拼成一整行 (实测
+      # 9 条聊天 → 一条 200 字的乱串), 下游拿不到任何行结构。OcrResult.Lines 保留
+      # 真实分行 (每行有独立 y 坐标), 用 LF 拼回去即可。
+      # 同一份输出还有 augment 识别在用, 那边的 normalizeOcrText 会把 \n 一起剥掉, 不受影响。
+      $lineTexts = @()
+      foreach ($ln in $result.Lines) { if ($ln.Text) { $lineTexts += $ln.Text } }
+      if (-not $lineTexts.Count) { $lineTexts = @($result.Text) }
+      $joined = $lineTexts -join "`n"
+      [Console]::Out.WriteLine('OK' + "`t" + [Convert]::ToBase64String($utf8.GetBytes($joined)))
       [Console]::Out.Flush()
     } finally { $stream.Dispose() }
   } catch {

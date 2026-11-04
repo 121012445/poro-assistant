@@ -346,6 +346,52 @@ function msg(id, body, fromId) {
     ok('OCR 待确认的单词升级为完整版', texts.length === 1 && texts[0] === 'congratulations', texts);
   }
   {
+    // 1.5.54 真实报障夹具 (19:39 局, 用户截图): 改成按 OcrLine 逐行输出后, 一帧 9 行。
+    // 修复前 OcrResult.Text 把 9 行用**空格**拼成一整行, 解析器 drop 3 条 / dup=0 /
+    // held=0, 一条都认不出来 —— 这就是"装完 1.5.53 还是什么都不翻"的原因。
+    const e = makeEnv({});
+    const raw = [
+      '翁 入 / he 丨 p 获 取 命 令 列 表',
+      '00 ： 05 傲 之 追 猖 者 已 择 了 位 《 中 路',
+      '90 ： 釕 [ 队 囿 雨 末 散 （ 傲 之 追 猎 者 ） 《 he everyone',
+      'OÖ ： 31 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 却 ： hi',
+      '01 ： 32 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 冫 过 ok ， “',
+      '11 ： 04 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 } ； goodluck',
+      '1 ： 20 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： goodluck',
+      '5 ： 39 [ 队 伍 ] 雨 未 散 （ 傲 之 造 猎 者 ） ： congradulations',
+      '25 ： [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 ： hi everyone itm from shenzhen'
+    ].join('\n');
+    const bodies = (await e.run('gtParseOcrChatLines')(raw)).map(l => l.body);
+    ok('OCR 逐行输出: 9 行里抽出 6 条真实消息', bodies.length === 6, bodies);
+    ok('OCR 逐行输出: 正文不再粘玩家名', bodies[0] === 'he everyone' && bodies[1] === 'hi', bodies);
+    ok('OCR 逐行输出: 右括号丢失的行 ("[ 队 囿 ") 仍能认出', bodies.includes('he everyone'), bodies);
+    ok('OCR 逐行输出: 最长一行不被裁剪切断', bodies.includes('hi everyone itm from shenzhen'), bodies);
+    ok('OCR 逐行输出: /help 提示与选人播报不进管线',
+      !bodies.some(b => /help|获 取|中 路/i.test(b)), bodies);
+  }
+  {
+    // worker 契约: 必须按 OcrLine 逐行输出。OcrResult.Text 会用空格把多行拼成一行,
+    // 一旦有人改回去, 聊天 OCR 会静默退化成"一条都认不出"(不报错, 只是没反应)。
+    const ps = fs.readFileSync(path.join(__dirname, 'main/native/PoroOcrWorker.ps1'), 'utf8');
+    ok('OCR worker 按行输出 ($result.Lines + LF 拼接)',
+      /\$result\.Lines/.test(ps) && /-join "`n"/.test(ps), 'worker 里找不到逐行输出');
+    ok('OCR worker 不再直接输出 $result.Text', !/GetBytes\(\$result\.Text\)/.test(ps));
+  }
+  {
+    // 1.5.54: 同一句在相邻两轮被读成 "he everyone" / "hello everyone" (差 3 个字母,
+    // 相似度只有 0.77) —— 放宽前会翻两遍。短句不能跟着放宽。
+    const e = makeEnv({});
+    const same = await e.run('gtOcrSame');
+    ok('OCR 长句差 3 个字母视为同一条 (he everyone ≈ hello everyone)',
+      same('heeveryone', 'helloeveryone') === true);
+    ok('OCR 短句差 2 个字母不合并 (gg ≠ ggwp)', same('gg', 'ggwp') === false);
+    // 已知取舍: 包含判定会把握手式前缀并掉 ("good" ⊂ "goodluck")。这条是 1.5.52
+    // 用来合并 "ulations"/"congratulations" 的同一机制, 收紧它会退回幻影消息,
+    // 因此保留 —— 这里只把行为钉住, 免得以后有人以为是 bug 改坏。
+    ok('OCR 包含判定保留 (good ⊂ goodluck 视为同一条, 已知取舍)',
+      same('good', 'goodluck') === true);
+  }
+  {
     // 1.5.51: 裁剪边缘切断的"半个聊天头"不能留在正文里
     const e = makeEnv({});
     const lines = await e.run('gtParseOcrChatLines')('00:18 [队伍] 雨未散 (惩戒之箭): hello everyone 00:2');

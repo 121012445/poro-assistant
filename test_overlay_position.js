@@ -114,10 +114,18 @@ console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判�
   const size = { width: 2560, height: 1440 };
 
   const plain = chatOcrCrop(size, null);
-  assert.deepStrictEqual(plain, { x: 0, y: 648, width: 563, height: 245 },
-    '基础裁剪区: 聊天列 22% 宽、y 45%~62% (实测聊天记录就在这条带里)');
+  assert.deepStrictEqual(plain, { x: 0, y: 576, width: 640, height: 252 },
+    '基础裁剪区: 聊天列 25% 宽、y 40%~57.5% (26 分钟对局真实帧实测)');
   assert.ok(plain.width < size.width * 0.30, '宽度必须收回到聊天列, 不能还是左三分之一');
   assert.ok(plain.height < size.height * 0.30, '高度必须收回到聊天带, 不能还是 57% 高');
+  // 1.5.54: 上一版 0.22 宽把 "hi everyone i'm from shenzhen" 截成 "shenzhe",
+  // 0.45 的起点把 9 行列表的上面 3 行切掉了。这两条必须守住。
+  assert.ok(plain.width >= size.width * 0.23,
+    '宽度必须覆盖最长真实聊天行 (实测右端到 23%), 否则末尾单词被切断');
+  assert.ok(plain.y <= size.height * 0.407,
+    '起点必须在 9 行列表的首行 (40.7%) 之上, 否则最早的几条消息读不到');
+  assert.ok(plain.y + plain.height >= size.height * 0.54,
+    '下沿必须盖住聊天列表底部 (53.7%), 否则最新消息读不到');
 
   // 浮窗压在裁剪区下沿 -> 抬高下沿避开
   const overlapped = chatOcrCrop(size, { x: 16, y: 800, width: 370, height: 300 });
