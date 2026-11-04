@@ -1197,6 +1197,67 @@ ipcMain.handle('game-translate:target', async (e, target) => {
   return true;
 });
 
+// 1.5.46 GT 聊天框 OCR: 国服对局聊天不进 LCU 会话 (conv dump 实证, 走游戏进程
+// 自己的通道), LCU 扫描永远读不到队友发言。兜底方案: 截游戏窗口左下聊天框
+// 区域 → Windows OCR → 文本行交回渲染层进翻译管线。复用 augment 的截图与
+// OCR worker; 截不到 (全屏独占/游戏未运行) 返回 null, 渲染层按失败静默。
+ipcMain.handle('game-translate:ocr-chat', async (e) => {
+  try {
+    if (process.platform !== 'win32' || !augmentOcr.isAvailable()) return null;
+    const gameRect = winRect.getLeagueGameRect();
+    if (!gameRect || !gameRect.width || !gameRect.height) return null;
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 2560, height: 1440 },
+      fetchWindowIcons: false
+    });
+    if (!sources.length) return null;
+    let display = null;
+    try { display = electronScreen.getDisplayMatching(gameRect); } catch (e2) {}
+    const displayId = display ? String(display.id) : '';
+    const source = sources.find(x => String(x.display_id || '') === displayId) || sources[0];
+    let screenshot = source.thumbnail;
+    if (!screenshot || screenshot.isEmpty()) return null;
+    // 从屏幕截图裁出游戏窗口
+    if (display?.bounds) {
+      const size = screenshot.getSize();
+      const sx = size.width / Math.max(1, display.bounds.width);
+      const sy = size.height / Math.max(1, display.bounds.height);
+      const crop = {
+        x: Math.max(0, Math.round((gameRect.x - display.bounds.x) * sx)),
+        y: Math.max(0, Math.round((gameRect.y - display.bounds.y) * sy)),
+        width: Math.min(size.width, Math.max(1, Math.round(gameRect.width * sx))),
+        height: Math.min(size.height, Math.max(1, Math.round(gameRect.height * sy)))
+      };
+      crop.width = Math.min(crop.width, size.width - crop.x);
+      crop.height = Math.min(crop.height, size.height - crop.y);
+      if (crop.width > 300 && crop.height > 200) screenshot = screenshot.crop(crop);
+    }
+    const size = screenshot.getSize();
+    // 聊天框固定在左下: x 0~34%, y 40~58% (1080p 下约 0-650 x 430-625, 覆盖最近 5-6 行)
+    const chatRect = {
+      x: 0,
+      y: Math.round(size.height * 0.40),
+      width: Math.min(size.width, Math.round(size.width * 0.34)),
+      height: Math.round(size.height * 0.18)
+    };
+    let crop = screenshot.crop(chatRect);
+    if (crop.isEmpty()) return null;
+    const cs = crop.getSize();
+    // 小字放大 2 倍再识别, 显著提升命中率 (与 augment 卡面同款做法)
+    const ocrImage = crop.resize({ width: cs.width * 2, height: cs.height * 2, quality: 'best' });
+    const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}.png`);
+    fs.writeFileSync(imagePath, ocrImage.toPNG());
+    let text = '';
+    try { text = String(await requestAugmentOcr(imagePath) || ''); }
+    finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
+    return text;
+  } catch (err) {
+    return null;
+  }
+});
+
 
 
 function augmentOcrWorkerPath() {

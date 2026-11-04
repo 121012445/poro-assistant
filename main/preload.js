@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   gameTranslateExitInput: () => ipcRenderer.invoke('game-translate:exit-input'),
   gameTranslateResetPos: () => ipcRenderer.invoke('game-translate:reset-pos'),
   gameTranslateSetTarget: (target) => ipcRenderer.invoke('game-translate:target', target),
+  // GT 聊天框 OCR (国服对局聊天不进 LCU 的兜底数据源): 返回 OCR 文本或 null
+  gameTranslateOcrChat: () => ipcRenderer.invoke('game-translate:ocr-chat'),
   onGameTranslateInput: (cb) => { ipcRenderer.on('game-translate:input', (e, d) => cb(d)); },
   // 自定义热键: 设置 (main 校验并即时生效) / 读取当前绑定
   hotkeySet: (action, combo) => ipcRenderer.invoke('hotkey:set', { action, combo }),

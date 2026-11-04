@@ -27,7 +27,7 @@ function makeEnv(opts = {}) {
     clearTimeout: () => {},
     setInterval: () => 0,
     clearInterval: () => {},
-    Date: { now: () => clock.t },
+    Date: { now: () => clock.t, parse: Date.parse },
     storeGet: k => (store[k] === undefined ? '' : store[k]),
     storeSet: (k, v) => { store[k] = v; },
     showToast: () => {},
@@ -103,6 +103,15 @@ function msg(id, body, fromId) {
   }
 
   console.log('— 我自己发的消息 —');
+  {
+    // 1.5.46: 进局前的"我发过的"历史消息绝不补发 (如"连败衰神"每局开局复读)
+    const oldTs = new Date(1700000000000 - 60000).toISOString();
+    const e = makeEnv({ messages: [Object.assign(msg('1', '连败衰神', 'me-id'), { timestamp: oldTs })] });
+    await e.run('gameTranslateOnPhase')('InProgress');   // 设置进局时间
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('进局前的我方历史消息不补发', e.sent.length === 0 && e.translated.length === 0, e.sent);
+  }
   {
     const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')] });
     await e.run('gtScan')();
@@ -235,6 +244,23 @@ function msg(id, body, fromId) {
     const e = makeEnv({ messages: msgs });
     for (let i = 0; i < 60; i++) { e.advance(2000); await e.run('gtScan')(); await flushAsync(); }
     ok('每局补发有上限', e.sent.length <= 40 && e.sent.length >= 1, e.sent.length);
+  }
+
+  console.log('— OCR 聊天框通道 (1.5.46) —');
+  {
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')('00:02 [All] Rain: Good Luck\n0:05 雨未散：连败衰神\n\n00:08 killing spree');
+    ok('OCR 行剥时间戳与频道标记', lines[0] === 'Good Luck' && lines[1] === '连败衰神', lines);
+    ok('OCR 行数正确', lines.length === 3, lines);
+  }
+  {
+    const e = makeEnv({});
+    e.ctx.lolAPI.gameTranslateOcrChat = async () => '00:02 [All] Rain: Good Luck\n0:05 雨未散：连败衰神';
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    ok('OCR 外语行进翻译管线', e.translated.some(t => t.target === 'zh-CN'), e.translated);
+    ok('OCR 中文行不处理 (无法判定身份)', !e.translated.some(t => t.target === 'en'), e.translated);
+    ok('OCR 行不补发', e.sent.length === 0, e.sent);
   }
 
   console.log('— 会话房间解析 —');

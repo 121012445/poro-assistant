@@ -28,7 +28,12 @@ let _gtCidLogAt = 0;             // 上次打房间解析日志的时间 (限频
 let _gtConvDumped = false;       // 本局是否已 dump 过会话清单
 let _gtHistRead = 0;             // 本局 firstScan 读到的历史消息条数 (非新消息, 展示用区分)
 let _gtFreshTotal = 0;           // 本局读到的新消息条数 (真实进入翻译管线的)
+let _gtPhaseInAt = 0;            // 本局进局时间 (OCR 通道延迟启动用)
+let _gtOcrNextAt = 0;            // 下次聊天框 OCR 的时间
+let _gtOcrTotal = 0;             // OCR 通道累计送进翻译管线的行数 (诊断用)
+const gtOcrSeen = new Set();     // OCR 行去重 (文本规范化后)
 let _gtSkipEmpty = 0, _gtSkipEcho = 0, _gtSkipMineOff = 0, _gtSkipNoMatch = 0;
+let _gtSkipHist = 0;             // 跳过的"进局前的我方历史消息"条数
 let _gtSkipLogAt = 0;            // 上次打跳过统计日志的时间 (限频)
 // 阶段闸门: bench.js 的兜底轮询每 12 秒都会调一次 handleGameflowPhase('InProgress'),
 // 早先每次调用都重置 gtSeen → 同一批消息被当成新消息反复翻译、反复补发 = 无限刷屏 (1.5.32 实测)。
@@ -162,7 +167,10 @@ function gameTranslateOnPhase(phase) {
     _gtConvDumped = false;
     _gtHistRead = 0;
     _gtFreshTotal = 0;
-    _gtSkipEmpty = 0; _gtSkipEcho = 0; _gtSkipMineOff = 0; _gtSkipNoMatch = 0;
+    _gtPhaseInAt = Date.now();
+    _gtOcrNextAt = Date.now() + 30000;   // 进局 30s 后才考虑 OCR (LCU 通道先给机会)
+    gtOcrSeen.clear();
+    _gtSkipEmpty = 0; _gtSkipEcho = 0; _gtSkipMineOff = 0; _gtSkipNoMatch = 0; _gtSkipHist = 0;
     _gtSkipLogAt = 0;
     // chat.js 的选人房间 cid 跨局残留会让扫描/补发永远盯着死房间 (1.5.42 实测:
     // rooms empty 从进局刷到结束, 真对局房间被 strict 挡死) —— 每局开始作废重取
@@ -313,6 +321,14 @@ async function gtScan() {
         //   打中文 → 翻成目标语言补发一条给队友（gtAutoMine 可关）
         //   打英文 → 翻成中文放进浮窗，确认自己刚才那句在外服语境里是什么意思
         if (mine) {
+          // 1.5.46: 历史存量里的"我发过的"绝不补发不显示 —— 用户上午发过的话
+          // (如"连败衰神")留在旧会话里, 每局进局 firstScan 都会读到, 若当成新
+          // 发言就会自动翻成英文补发给全体 (用户感知: 每局开局自动发一句)。
+          // 判据用消息时间戳 < 进局时间 (而非 firstScan 标记, 否则会吞掉进局后
+          // 立刻发出的第一条); LCU 无 timestamp 的消息按新消息处理。
+          let mTs = 0;
+          try { mTs = m.timestamp ? (Date.parse(m.timestamp) || 0) : 0; } catch (e) {}
+          if (mine && mTs > 0 && _gtPhaseInAt > 0 && mTs < _gtPhaseInAt - 5000) { _gtSkipHist++; continue; }
           if (gtEchoed.has(body)) { _gtSkipEcho++; continue; }   // 我们自己补发出去的译文
           if (GT_ZH_RE.test(body)) {
             if (!gtAutoMine) { _gtSkipMineOff++; continue; }
@@ -360,17 +376,69 @@ async function gtScan() {
     }
     // 1.5.44: 读到了消息但一条都没进翻译队列时, 必须留下"为什么被跳过"的痕迹,
     // 否则"没读到"和"读到了全被过滤"无法区分 (1.5.43 下午排障时缺的就是这块)
-    const skipped = _gtSkipEmpty + _gtSysSkipped + _gtSkipEcho + _gtSkipMineOff + _gtSkipNoMatch;
+    const skipped = _gtSkipEmpty + _gtSysSkipped + _gtSkipEcho + _gtSkipMineOff + _gtSkipNoMatch + _gtSkipHist;
     if (skipped && Date.now() - (_gtSkipLogAt || 0) > 20000) {
       _gtSkipLogAt = Date.now();
       try {
         lolAPI.debugLog('[GT] skip stats: empty=' + _gtSkipEmpty + ' sys=' + _gtSysSkipped
           + ' echo=' + _gtSkipEcho + ' mineOff=' + _gtSkipMineOff + ' noMatch=' + _gtSkipNoMatch
+          + ' hist=' + _gtSkipHist
           + ' myId=' + (gtMyChatId ? 'ok' : '-') + ' myName=' + (gtMyName || '-'));
       } catch (e) {}
     }
     if (fresh) gtFlush();
+    // 1.5.46 OCR 兜底通道: 国服对局聊天不进 LCU (conv dump 实证), 进局 30s 后
+    // LCU 仍零新消息 → 每 4s OCR 一次游戏左下聊天框。LCU 恢复有数据则自动停。
+    if (gtInGame() && !_gtFreshTotal && Date.now() - _gtPhaseInAt > 30000 && Date.now() >= _gtOcrNextAt) {
+      _gtOcrNextAt = Date.now() + 4000;
+      gtOcrScan();
+    }
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
+}
+
+// OCR 输出行解析: 剥时间戳/频道标记/玩家名前缀, 输出待判定文本 (可单测)
+function gtParseOcrChatLines(raw) {
+  const out = [];
+  for (let line of String(raw || '').split(/\r?\n/)) {
+    line = line.replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    // 行首时间戳 "00:02" / "0:02"
+    line = line.replace(/^[01]?\d:[0-5]\d\s*/, '');
+    // 频道标记 [All]/[全部]/[队伍]/[全体]/[野怪]... 与成对括号段
+    line = line.replace(/\[[^\[\]]{1,8}\]/g, ' ').replace(/【[^【】]{1,8}】/g, ' ');
+    line = line.replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    // "召唤师名: 内容" 前缀 (冒号前不超过 14 个字符且不含空格才算名字)
+    const m = line.match(/^([^\s:：]{1,14})[:：]\s*(.+)$/);
+    if (m && m[2].trim()) line = m[2].trim();
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+async function gtOcrScan() {
+  if (!lolAPI.gameTranslateOcrChat) return;
+  try {
+    const raw = await lolAPI.gameTranslateOcrChat();
+    if (!raw) return;
+    let fresh = 0;
+    for (const body of gtParseOcrChatLines(raw)) {
+      if (gtOcrSeen.has(body)) continue;
+      gtOcrSeen.add(body);
+      if (gtOcrSeen.size > 400) gtOcrSeen.clear();
+      // 系统播报 (击杀/streak 类) 与中文行 (OCR 无身份信息, 无法判定是谁发的,
+      // 一律不处理 —— 自己发的中文走浮窗输入框, 不走 OCR 回环)
+      if (GT_SYS_BODY_RE.test(body)) continue;
+      if (GT_ZH_RE.test(body)) continue;
+      if (!gtLooksForeign(body)) continue;
+      gtQueue.push({ name: '聊天', body });
+      _gtOcrTotal++; fresh++;
+    }
+    if (fresh) {
+      try { lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ')'); } catch (e) {}
+      gtFlush();
+    }
+  } catch (e) { try { lolAPI.debugLog('[GT] ocr error: ' + (e?.message || e)); } catch (e2) {} }
 }
 
 async function gtTranslateBatch(texts, target) {
