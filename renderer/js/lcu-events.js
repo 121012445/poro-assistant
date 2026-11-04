@@ -113,6 +113,8 @@ function handleGameflowPhase(phase) {
   } else if (activePage === "page-live") {
     updateLivePage(phase);
   }
+  // 解说模式: 阶段播报与轮询启停 (所有阶段都要收到, 否则结算时停不掉定时器)
+  if (typeof commentaryOnPhase === 'function') { try { commentaryOnPhase(phase); } catch (e) {} }
   // 离开对局后重置"已跳转"标记, 下一局重新自动跳
   if (phase !== "ChampSelect" && phase !== "GameStart" && phase !== "InProgress") _autoLiveSwitched = false;
   if (phase !== "ChampSelect") _benchAlertReset();   // 离开选人即清掉备战区倒计时浮层

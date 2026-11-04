@@ -32,6 +32,8 @@ async function loadStore() {
   } catch (e) {}
 }
 function storeGet(k) { return _store[k] !== undefined ? _store[k] : null; }
+// 键名枚举：成长页要扫 aiReview:* 前缀的缓存，不能再靠固定 key 列表
+function storeKeys() { return Object.keys(_store); }
 function storeSet(k, v) { _store[k] = String(v); scheduleStoreSave(); }
 function showStoreWriteError() {
   if (_storeWriteFailedNotified || typeof toolMsg !== 'function') return;
@@ -90,7 +92,11 @@ async function importPoroBackup() {
     'augmentJournal', 'autoHonor', 'autoReconnect', 'autoReturnLobby', 'autoReturnQueue',
     'benchAlert', 'benchOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
     'compliance', 'gsCameraMode', 'hexDataScope', 'includePractice', 'opggLoadout',
-    'sideAnnounce', 'uiTheme', 'navCollapsed'
+    'sideAnnounce', 'uiTheme', 'navCollapsed',
+    'pickGuard', 'pickGuardLockSec',
+    'aiReviewStyle', 'commentary', 'commentaryTone', 'commentaryRate', 'commentaryVolume', 'commentaryEvents',
+    'commentaryEngine', 'commentaryVoice', 'commentaryStyle', 'liveTips', 'liveBoard',
+    'gameTranslate', 'translateTarget', 'gtAutoMine'
   ]);
   const sanitized = {};
   for (const [key, value] of Object.entries(incoming)) {
@@ -157,6 +163,8 @@ function loadConfig() {
       const scopeSelect = document.getElementById('hexScope');
       if (scopeSelect) scopeSelect.value = hexDataScope;
     }
+    if (typeof commentaryLoadConfig === 'function') commentaryLoadConfig();
+    if (typeof pickGuardLoadConfig === 'function') pickGuardLoadConfig();
   } catch (e) {}
 }
 

@@ -6,6 +6,7 @@
 let autoBPEnabled = false;
 let autoBPHeroes = { ban: [], pick: [] };
 let autoBPRules = { mode: 'all', position: 'all' };
+let _autoBPBusy = false;   // 正在写客户端；选人保底据此让路
 function toggleAutoBP(on) {
   if (on && !guardAutomation('自动BP')) { document.getElementById('autoBPToggle').checked = false; return; }
   autoBPEnabled = on;
@@ -91,6 +92,9 @@ function renderAutoBPHeroList() {
 }
 async function doAutoBP() {
   if (!autoBPEnabled || !lcuConnected || complianceOn) return;
+  // 选人保底要知道 BP 是不是正在写客户端，避免两边同时 PATCH 同一动作互相覆盖。
+  if (_autoBPBusy) return;
+  _autoBPBusy = true;
   try {
     const session = await lolAPI.lcuRequest('GET', '/lol-champ-select/v1/session');
     if (!session || !session.actions) return;
@@ -136,5 +140,5 @@ async function doAutoBP() {
         }
       }
     }
-  } catch (e) {}
+  } catch (e) {} finally { _autoBPBusy = false; }
 }

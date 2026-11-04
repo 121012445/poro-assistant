@@ -48,6 +48,10 @@ const sandbox = {
     createElement: () => elStub(),
     body: elStub()
   },
+  // persist.js 在 window 上挂了 beforeunload（关窗前补一次落盘），
+  // sandbox.window = sandbox，所以根对象也得有这两个方法，否则整片脚本加载就崩。
+  addEventListener: () => {},
+  removeEventListener: () => {},
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   lolAPI: {
     lcuRequest: (method, path, body) => {

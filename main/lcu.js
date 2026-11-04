@@ -388,20 +388,15 @@ function liveRequest(urlPath) {
   });
 }
 
-// 修复 LCU 窗口大小 (Win32 SetWindowPos, 异步不阻塞)
-async function fixLCUWindow() {
-  const script = [
-    'Add-Type -TypeDefinition "using System;using System.Runtime.InteropServices;public class Win32Fix{[DllImport(\\"user32.dll\\")]public static extern IntPtr FindWindow(string cls,string title);[DllImport(\\"user32.dll\\")]public static extern bool SetWindowPos(IntPtr h,IntPtr a,int x,int y,int cx,int cy,uint f);}"',
-    'Add-Type -AssemblyName System.Windows.Forms',
-    '$h=[Win32Fix]::FindWindow("RiotWindowClass",$null)',
-    'if($h -ne [IntPtr]::Zero){$vs=[System.Windows.Forms.SystemInformation]::VirtualScreen;$x=[int](($vs.Width-1280)/2);$y=[int](($vs.Height-720)/2);[Win32Fix]::SetWindowPos($h,[IntPtr]::Zero,$x,$y,1280,720,0x0040)|Out-Null;Write-Output "OK"}else{Write-Output "NOT_FOUND"}'
-  ].join('; ');
-  const out = await execCmd(`"${POWERSHELL}" -NoProfile -Command "${script}"`, 12000);
-  return out.includes('OK');
-}
+// 修复 LCU 窗口大小 —— 已迁到 win-rect.setClientBounds (koffi 直调 user32)。
+// 旧实现是 PowerShell FindWindow("RiotWindowClass") + SetWindowPos, 两个问题:
+//   1. 类名错了: 客户端主窗是 RCLIENT, RiotWindowClass 只在进游戏后才存在,
+//      所以在选人/大厅点"立即修复"必然返回 NOT_FOUND;
+//   2. 坐标没做 DPI 换算, 缩放不是 100% 时会偏出屏幕。
+// 这里保留一个薄封装给测试/兼容用, 行为已与按钮一致。
 
 module.exports = {
-  getLCU, lcuRequest, liveRequest, fixLCUWindow, reset, getCached, getGameConfigDir,
+  getLCU, lcuRequest, liveRequest, reset, getCached, getGameConfigDir,
   // 仅供测试
   _internals: {
     parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK,

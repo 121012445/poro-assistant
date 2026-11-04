@@ -213,7 +213,9 @@ function stream(buf, { status = 200, headers = {}, chunk = 7 } = {}) {
     assert.ok(preload.includes(`'${ch}'`), 'preload 缺少 ' + ch);
   }
   assert.ok(!/ipcRenderer\.invoke\('update:[a-zA-Z]+',\s*\w/.test(preload), '更新相关 IPC 不接收渲染层参数 (下载地址只能来自上次检查结果)');
-  assert.ok(main.includes('spawn(file, [], { detached: true, stdio: \'ignore\' }).unref()'), '安装程序脱离 Poro 进程运行');
+  // 安装程序必须 detached + unref（不能挂在 Poro 进程下）。代码里中间插了 error 监听，
+  // 所以不能要求它们挤在一行 —— 断言"同一段 spun 调用之后 200 字内出现 unref"。
+  assert.ok(/spawn\(file, \[\], \{ detached: true, stdio: 'ignore' \}\)[\s\S]{0,200}?\.unref\(\)/.test(main), '安装程序脱离 Poro 进程运行');
   assert.ok(main.includes("require('./elevation').isElevated() ? 'full' : 'limited'"), '按当前是否提权选择正式版/受限版');
   assert.ok(/releases\\\/\//.test(main) || main.includes('121012445\\/poro-assistant\\/releases'), '打开发布页只允许本仓库的 releases');
 

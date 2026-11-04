@@ -33,7 +33,10 @@ assert(social.includes('function isKnownPlayerName'));
 assert(social.includes('seenGames'));
 assert(social.includes('hydrateEncounterNames'));
 assert(social.includes('name || encounter.name'));
-assert(social.includes('const ENCOUNTERS_VER = 4'));
+assert(social.includes('const ENCOUNTERS_VER = 5'));
+// 同一局 p:→g: 换键不能算两局（历史迁移函数同样要在）
+assert(social.includes('function migrateEncounterGameKeys'));
+assert(social.includes("prev.startsWith('p:') && key.startsWith('g:')"));
 assert(live.includes('系统画像'));
 assert(live.includes('addEncounter(p.puuid, p.name, _currentGameKey)'));
 assert(!live.includes('_encounterTrackedFor !== _currentGameKey'));

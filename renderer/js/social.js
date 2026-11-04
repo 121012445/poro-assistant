@@ -167,16 +167,24 @@ function getPlayerMarks(puuid) {
 // ========== 对局历史遭遇标记 ==========
 let encounterMap = {};
 let _currentGameKey = '';
+// 同一局可能先后拿到两个键：先 p:<puuid集合>（gameId 还没就绪），几秒后变成
+// g:<gameId>。若各算一局，只碰过一次的人会显示"遇见 2 次"（实测本机 230 人）。
+// 换键只可能发生在同一局内，所以留一个时间窗做兜底，超过窗口就按新的一局算。
+const ENCOUNTER_SAME_GAME_MS = 90 * 60 * 1000;
 function normalizeEncounterEntry(entry, migrateLegacyCount = false) {
   const value = entry && typeof entry === 'object' ? entry : {};
   const knownName = isKnownPlayerName(value.name) ? String(value.name).trim() : '';
   const oldCount = Math.max(0, Number(value.count) || 0);
+  const lastTime = Math.max(0, Number(value.lastTime) || 0);
   return {
     name: knownName,
     // v1-v3 可能因阵容/阶段刷新把同一局累计很多次，旧数值不可还原；只保留
     // “曾遇见过”的事实。v4 起由 seenGames 精确累计。
     count: migrateLegacyCount ? (knownName && oldCount ? 1 : 0) : oldCount,
-    lastTime: Math.max(0, Number(value.lastTime) || 0),
+    lastTime,
+    // 最后一次“算成新的一局”的时刻。lastTime 会被同局内的重复刷新顶掉，
+    // 不能拿来判断换键是否发生在同一局。
+    keyAt: Math.max(0, Number(value.keyAt) || lastTime),
     seenGames: Array.isArray(value.seenGames) ? [...new Set(value.seenGames.map(String).filter(Boolean))].slice(-80) : []
   };
 }
@@ -201,9 +209,19 @@ function addEncounter(puuid, name, gameKey = _currentGameKey) {
   const key = String(gameKey);
   const isNewGame = !entry.seenGames.includes(key);
   if (isNewGame) {
-    entry.count++;
-    entry.seenGames.push(key);
-    if (entry.seenGames.length > 80) entry.seenGames.splice(0, entry.seenGames.length - 80);
+    const prev = entry.seenGames[entry.seenGames.length - 1] || '';
+    // 同一局换了标识：把上一条 p: 键直接改成 g: 键，不新增一局。
+    // 反向（g:→p:）多半是下一局 gameId 还没就绪，不能归一，否则会漏记。
+    const sameGame = prev.startsWith('p:') && key.startsWith('g:')
+      && Date.now() - entry.keyAt < ENCOUNTER_SAME_GAME_MS;
+    if (sameGame) {
+      entry.seenGames[entry.seenGames.length - 1] = key;
+    } else {
+      entry.count++;
+      entry.seenGames.push(key);
+      if (entry.seenGames.length > 80) entry.seenGames.splice(0, entry.seenGames.length - 80);
+      entry.keyAt = Date.now();
+    }
   }
   entry.lastTime = Date.now();
   encounterMap[puuid] = entry;
@@ -231,17 +249,65 @@ function sampleEncounterCount(puuid, ownerPuuid) {
 // ========== 历史遭遇持久化 ==========
 // v4: 每名玩家保存近期对局 key，页面重复刷新不会再次累计；旧版次数已经被动态
 // roster key 污染，迁移时折算为“至少遇见 1 次”，之后从可信基线准确累计。
-const ENCOUNTERS_VER = 4;
+// v5: 合并同一局的两把键（p:<puuid集合> 与 g:<gameId>），修 v4 遗留的重复计数。
+const ENCOUNTERS_VER = 5;
+
+// v4 末期同一局先记了 p: 键、gameId 就绪后又记了 g: 键，两个 key 各算一局。
+// 判据不靠猜：这两个键在多名玩家的记录里相邻出现（同局 10 人都会留下这个模式），
+// 且每个 p: 键只配对一个 g: 键。满足才合并，其余原样保留。
+function migrateEncounterGameKeys(map) {
+  const pairs = new Map();      // "p\0g" -> 共现人数
+  for (const entry of Object.values(map)) {
+    const ks = (entry && entry.seenGames) || [];
+    for (let i = 0; i < ks.length - 1; i++) {
+      if (String(ks[i]).startsWith('p:') && String(ks[i + 1]).startsWith('g:')) {
+        const k = ks[i] + '\u0000' + ks[i + 1];
+        pairs.set(k, (pairs.get(k) || 0) + 1);
+      }
+    }
+  }
+  const byP = new Map();        // p 键 -> Map(g 键 -> 人数)
+  for (const [k, n] of pairs) {
+    const sep = k.indexOf('\u0000');
+    const p = k.slice(0, sep), g = k.slice(sep + 1);
+    if (!byP.has(p)) byP.set(p, new Map());
+    byP.get(p).set(g, n);
+  }
+  const pairsToDrop = [];       // [p, g]
+  for (const [p, gs] of byP) {
+    if (gs.size !== 1) continue;
+    const [[g, people]] = [...gs];
+    if (people < 2) continue;
+    pairsToDrop.push([p, g]);
+  }
+  if (!pairsToDrop.length) return 0;
+  let merged = 0;
+  for (const entry of Object.values(map)) {
+    const ks = (entry && entry.seenGames) || [];
+    for (const [p, g] of pairsToDrop) {
+      const i = ks.indexOf(p);
+      if (i === -1 || !ks.includes(g)) continue;
+      ks.splice(i, 1);
+      entry.count = Math.max(0, (Number(entry.count) || 0) - 1);
+      merged++;
+    }
+  }
+  return merged;
+}
+
 function loadEncounters() {
   try {
     const data = storeGet('encounters');
     if (!data) return;
     const parsed = JSON.parse(data);
     const source = parsed?.map || parsed || {};
-    const migrateLegacyCount = parsed?.__v !== ENCOUNTERS_VER;
+    const ver = Number(parsed?.__v) || 0;
+    // 只有 v1-v3 的次数不可信；v4 之后的 count 是可信基线，升级版本号时不能再折算
+    const migrateLegacyCount = ver < 4;
     encounterMap = Object.fromEntries(Object.entries(source)
       .filter(([puuid, value]) => puuid && value && typeof value === 'object')
       .map(([puuid, value]) => [puuid, normalizeEncounterEntry(value, migrateLegacyCount)]));
+    if (ver === 4) migrateEncounterGameKeys(encounterMap);
     saveEncounters();
   } catch (e) {}
 }

@@ -137,7 +137,7 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
   paint(body.querySelector('.rv-canvas'));
   const cachedAi = readAiReviewCache(gameId);
   if (cachedAi?.text) {
-    renderAiReviewText(body.querySelector('.rv-ai-out'), cachedAi.text, true);
+    renderAiReviewText(body.querySelector('.rv-ai-out'), cachedAi.text, true, cachedAi.style, cachedAi.generatedAt);
     body.querySelector('.rv-ai-btn').textContent = '重新生成';
   }
   body.querySelector('.rv-ai-btn').addEventListener('click', (ev) => {
@@ -333,27 +333,132 @@ function drawTimelineChart(chart) {
 function fmtGoldShort(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v); }
 
 // ========== AI 复盘 ==========
-function aiReviewCacheKey(gameId) { return 'aiReview:' + String(gameId || 'unknown'); }
-function readAiReviewCache(gameId) {
-  try { const raw = storeGet(aiReviewCacheKey(gameId)); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+// 复盘风格: 只改口吻, 不放松事实约束 —— 每条都必须落在数据上, 不做无依据的评价。
+// 输出格式统一收口: 界面要按"总评 + 分类要点"排版, 模型各写各的就没法排。
+const AI_FORMAT_RULE = '输出格式（严格遵守，不要输出其它内容）：\n'
+  + '· 第1行必须是一句总评（必须写，不许省略、不许空行），不超过24字，不加任何前缀；\n'
+  + '· 第2行起输出3-5条，每条单独一行、以「- 」开头、不超过40字；\n'
+  + '· 每条必须以【亮点】【问题】【建议】三者之一开头；\n'
+  + '· 提到具体玩家时，只写编号本身（例如 P2），不要加括号、花括号、星号；\n'
+  + '  禁止自己写英雄名、召唤师名或英雄 ID —— 英雄名由程序按编号填入；\n'
+  + '· 示例：\n蓝方中期一波团战定胜负\n- 【问题】P3 8分钟经济差-2757，下路视野缺口被越塔\n'
+  + '· 不要使用 markdown 标题、加粗、编号或结尾总结。';
+// 提示词改动后旧缓存里的文本是"另一种格式", 用版本号隔开, 免得新旧混排
+const AI_PROMPT_VER = 'p4';
+
+// 英雄 ID → { id: 英文id, name: 中文名 }。
+// 三条回退链: champNumMap(已加载的映射表) → allChampions 全表(按 key 反查) → SGP 的英文名。
+// 任何一条都不能把裸数字当名字递给模型 —— 模型看到 "246" 会自己编一个英雄出来。
+function reviewChamp(p) {
+  const key = String((p && p.championId) != null ? p.championId : '');
+  const hit = (typeof champNumMap === 'object' && champNumMap) ? champNumMap[key] : null;
+  if (hit && hit.name) return { id: hit.id || String(p.championName || ''), name: hit.name };
+  const table = (typeof allChampions === 'object' && allChampions) ? allChampions : null;
+  if (table) {
+    const row = Object.values(table).find(r => r && String(+r.key) === key);
+    if (row && row.name) return { id: row.id || '', name: row.name };
+  }
+  if (p && p.championName) return { id: p.championName, name: p.championName };
+  return null;
 }
-function renderAiReviewText(out, value, cached) {
-  const text = String(value || '').trim() || '(空响应: 模型未返回文本)';
-  out.innerHTML = `${cached ? '<div class="rv-ai-cache">已载入本地缓存 · 不重复消耗请求</div>' : ''}` + text.split(/\n{2,}/).map(p => p.trim() ? (
-    `<div class="rv-ai-line">${p.split('\n').map(l => escapeHtml(l.trim())).join('<br>')}</div>`
-  ) : '').filter(Boolean).join('');
+function reviewChampLabel(p) {
+  const c = reviewChamp(p);
+  return c ? c.name : ('英雄' + ((p && p.championId) || ''));
+}
+const AI_STYLE_DEFS = {
+  coach: {
+    label: '教练',
+    sys: '你是一名英雄联盟{{mode}}教练。基于用户提供的对局数据做复盘分析，关注决定胜负的关键节点、双方运营节奏差异、最值得改进的具体行为。只写数据支持的结论，不编造数据里没有的细节，不寒暄。使用中文。'
+  },
+  tough: {
+    label: '毒舌',
+    sys: '你是一名嘴很毒但懂行的英雄联盟{{mode}}复盘解说。基于数据吐槽，允许夸张比喻和反问，但每条吐槽必须指向具体数据（KDA/补刀/经济/输出/目标物），禁止人身攻击、地域与性别歧视、劝退或辱骂性表述，不得编造数据里没有的细节。使用中文。'
+  },
+  formal: {
+    label: '正经',
+    sys: '你是一名严谨的英雄联盟{{mode}}数据分析师。先按时间顺序客观复述关键节点（经济曲线拐点、目标物、团战结果），再给2条可执行的改进建议。只陈述数据支持的结论，不评价玩家水平。使用中文。'
+  }
+};
+function currentAiReviewStyle() {
+  const v = storeGet('aiReviewStyle');
+  return AI_STYLE_DEFS[v] ? v : 'coach';
+}
+function setAiReviewStyle(v) {
+  const key = AI_STYLE_DEFS[v] ? v : 'coach';
+  storeSet('aiReviewStyle', key);
+  if (typeof toolMsg === 'function') {
+    toolMsg('<span style="color:var(--positive)">复盘风格已切换为「' + AI_STYLE_DEFS[key].label + '」</span>');
+  }
+}
+// 缓存按风格分开: 换风格后点开旧对局不会看到上一种口吻的旧文本。
+function aiReviewCacheKey(gameId, style) {
+  return 'aiReview:' + String(gameId || 'unknown') + '.t' + (style || currentAiReviewStyle()) + '.' + AI_PROMPT_VER;
+}
+function readAiReviewCache(gameId, style) {
+  try { const raw = storeGet(aiReviewCacheKey(gameId, style)); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+// 渲染统一的 HTML (标题栏 + 总评 + 分类要点), 并把"复制"接上
+function renderAiReviewText(out, value, cached, styleKey, at) {
+  if (!out) return;
+  const text = String(value || '').trim();
+  const md = (typeof window !== 'undefined' && window.PoroAiMd) || null;
+  if (md) {
+    out.innerHTML = md.render(text || '(空响应: 模型未返回文本)', {
+      style: styleKey || currentAiReviewStyle(),
+      cached: !!cached,
+      at: at || Date.now()
+    });
+  } else {
+    out.textContent = text || '(空响应: 模型未返回文本)';
+  }
+  const copyBtn = out.querySelector('.rv-ai-copy');
+  if (copyBtn) {
+    const doCopy = (ev) => {
+      ev.stopPropagation();
+      const done = () => {
+        copyBtn.textContent = '已复制';
+        copyBtn.classList.add('ok');
+        setTimeout(() => { copyBtn.textContent = '复制'; copyBtn.classList.remove('ok'); }, 1200);
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {});
+        return;
+      }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done();
+      } catch (e) {}
+    };
+    copyBtn.addEventListener('click', doCopy);
+    copyBtn.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); doCopy(ev); }
+    });
+  }
 }
 async function runAiReview(btn, norm, chart, gameId) {
   const out = btn.parentElement.querySelector('.rv-ai-out');
+  const styleKey = currentAiReviewStyle();
   btn.disabled = true;
   btn.textContent = 'AI 分析中...';
-  out.textContent = '';
+  out.innerHTML = '<div class="rv-ai-loading"><i></i><i></i><i></i><span>正在读这一局的数据…</span></div>';
   try {
     const aramMode = isAramReviewMode(norm);
-    const players = norm.participants.map(p => {
-      const c = champNumMap[String(p.championId)];
+    // 编号 → 英雄名: 模型只写 {{Pn}}, 名字由这里填, 避免它把英雄叫错
+    const roster = norm.participants.map((p, i) => ({ idx: i + 1, label: reviewChampLabel(p), raw: p }));
+    const players = norm.participants.map((p, i) => {
+      const c = reviewChamp(p);
       return {
-        名字: p.name, 英雄: c ? c.name : p.championId, 阵营: p.teamId === 100 ? '蓝' : '红',
+        编号: 'P' + (i + 1),
+        名字: p.name,
+        // 官方中文名 + 英文 id: 后者是跨版本稳定的锚点, 模型认译名认不全时还能对上
+        英雄: c ? c.name + '(' + c.id + ')' : (p.championName || ('英雄' + p.championId)),
+        阵营: p.teamId === 100 ? '蓝' : '红',
         位置: p.position || '', KDA: `${p.k}/${p.d}/${p.a}`, 补刀: p.cs || 0,
         经济: p.gold || 0, 输出: p.dmg || 0, 承伤: p.dmgTaken || 0,
         ...(aramMode ? {} : { 视野: p.visionScore || 0 }),
@@ -372,29 +477,35 @@ async function runAiReview(btn, norm, chart, gameId) {
       } : null,
       玩家: players
     });
+    const styleDef = AI_STYLE_DEFS[styleKey] || AI_STYLE_DEFS.coach;
+    // 模式限制写在格式要求之前: 顺序反了模型容易只记得格式, 又给大乱斗出"控小龙"的建议
+    const systemPrompt = styleDef.sys.replace('{{mode}}', aramMode ? '大乱斗' : '峡谷')
+      + (aramMode ? ' 大乱斗没有野区、野怪、插眼控视野或小龙大龙运营，禁止给出这些建议。' : '')
+      + '\n' + AI_FORMAT_RULE;
     const messages = [
-      { role: 'system', content: aramMode
-        ? '你是一名英雄联盟大乱斗教练。基于数据输出3-5条简明要点，每条不超过40字；只分析团战站位、进场时机、输出、承伤、治疗护盾、经济和参团。大乱斗没有野区、野怪、插眼控视野或小龙大龙运营，禁止给出这些建议。使用中文，直接输出要点列表。'
-        : '你是一名英雄联盟峡谷教练。基于用户提供的对局数据做复盘分析，输出3-5条简明要点，每条不超过40字，关注决定胜负的关键节点、双方运营节奏差异、最值得改进的具体行为。使用中文，直接输出要点列表，不要寒暄。' },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent }
     ];
     const resp = await lolAPI.aiChat(messages);
     if (resp.__error) {
-      out.innerHTML = `<span style="color:var(--negative)">${escapeHtml(resp.__error)}</span>`;
+      out.innerHTML = '<div class="rv-ai-err">' + escapeHtml(resp.__error) + '</div>';
     } else {
       // 部分推理模型 (deepseek-r1 风格) 会把结果放在 reasoning_content 而 content 为空;
       // 同时 content 可能只有空白/换行 → 经 split/filter 后变空 (用户看不到任何东西)
       const m = resp.choices?.[0]?.message || {};
       let text = (m.content || '').trim() || (m.reasoning_content || '').trim();
       if (!text) text = '(空响应: 模型未返回文本)';
-      storeSet(aiReviewCacheKey(gameId), JSON.stringify({ text, generatedAt: Date.now() }));
-      renderAiReviewText(out, text, false);
+      // 把 {{Pn}} 换成英雄名后再入库: 缓存里存的是最终文本, 换风格重看不会再问一次模型
+      text = (window.PoroAiMd && window.PoroAiMd.fillPlayers) ? window.PoroAiMd.fillPlayers(text, roster) : text;
+      const at = Date.now();
+      storeSet(aiReviewCacheKey(gameId, styleKey), JSON.stringify({ text, style: styleKey, generatedAt: at }));
+      renderAiReviewText(out, text, false, styleKey, at);
     }
   } catch (e) {
-    out.innerHTML = `<span style="color:var(--negative)">AI 请求失败: ${escapeHtml(e.message)}</span>`;
+    out.innerHTML = '<div class="rv-ai-err">AI 请求失败: ' + escapeHtml(e.message) + '</div>';
   } finally {
     btn.disabled = false;
-    btn.textContent = readAiReviewCache(gameId)?.text ? '重新生成' : 'AI 复盘';
+    btn.textContent = readAiReviewCache(gameId, styleKey)?.text ? '重新生成' : 'AI 复盘';
   }
 }
 // AI 配置保存 (userData/ai.json, OpenAI 兼容接口)
@@ -434,6 +545,36 @@ async function testAiConfig() {
     toolMsg('<span style="color:var(--negative)">测试失败: ' + e.message + '</span>');
   }
 }
+// 拉取接口的可用模型: 服务商下线/改名模型是"配置看着对但一直报错"的最常见原因
+async function fetchAiModels() {
+  toolMsg('正在拉取模型列表...');
+  try {
+    const cfg = await lolAPI.getAiConfig();
+    if (!cfg || cfg.__error || !cfg.hasApiKey || !cfg.baseUrl) {
+      return toolMsg('<span style="color:var(--negative)">请先填写并保存配置</span>');
+    }
+    const res = await lolAPI.listAiModels();
+    if (!res || res.__error) {
+      return toolMsg('<span style="color:var(--negative)">拉取失败: ' + escapeHtml(res?.__error || '未知错误') + '</span>');
+    }
+    const all = Array.isArray(res.models) ? res.models : [];
+    // 图像/视频/语音/向量模型不能做对话, 先过滤掉, 免得填进去又是一个"用不了"
+    const chat = all.filter(m => !/image|video|tts|speech|whisper|embed|rerank/i.test(m));
+    const list = document.getElementById('aiModelList');
+    if (list) list.innerHTML = chat.map(m => '<option value="' + escapeHtml(m) + '"></option>').join('');
+    if (chat.length) storeSet('aiModelCache', JSON.stringify(chat));
+    const modelEl = document.getElementById('aiModel');
+    const current = (modelEl?.value || '').trim();
+    let note = '';
+    if (modelEl && chat.length) {
+      if (!current) { modelEl.value = chat[0]; note = '；已填入 ' + chat[0]; }
+      else if (chat.indexOf(current) < 0) note = '；当前填写的「' + current + '」不在列表里，可能已下线';
+    }
+    toolMsg('<span style="color:var(--positive)">可用模型 ' + chat.length + ' 个' + escapeHtml(note) + '（点模型输入框可直接选）</span>');
+  } catch (e) {
+    toolMsg('<span style="color:var(--negative)">拉取失败: ' + escapeHtml(e.message) + '</span>');
+  }
+}
 async function loadAiConfig() {
   try {
     const cfg = await lolAPI.getAiConfig();
@@ -442,5 +583,15 @@ async function loadAiConfig() {
     if (el1 && cfg.baseUrl) el1.value = cfg.baseUrl;
     if (el3 && cfg.model) el3.value = cfg.model;
     if (el2 && cfg.hasApiKey) { el2.value = ''; el2.placeholder = '已使用 Windows 安全存储保存；留空表示不修改'; }
+    const styleEl = document.getElementById('aiReviewStyle');
+    if (styleEl) styleEl.value = currentAiReviewStyle();
+    // 上次拉取过的模型列表直接复用, 省一次网络请求
+    try {
+      const cached = JSON.parse(storeGet('aiModelCache') || '[]');
+      const list = document.getElementById('aiModelList');
+      if (list && Array.isArray(cached) && cached.length) {
+        list.innerHTML = cached.map(m => '<option value="' + escapeHtml(String(m)) + '"></option>').join('');
+      }
+    } catch (e) {}
   } catch (e) {}
 }

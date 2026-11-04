@@ -148,6 +148,7 @@ function switchPage(page) {
   // 「我的画像」的两块内容(擅长与提升 / 趣味档案)是懒渲染的: 首屏不再计算它们,
   // 进页面时才用首页已加载的战绩现算一次。数据没到就显示空状态。
   if (page === "profile" && typeof renderProfilePage === "function") renderProfilePage();
+  if (page === "growth" && typeof renderGrowthPage === "function") renderGrowthPage();
   if (page === "tools") {
     populateBgChampionList();
     // 提权提示要在打开工具箱时就显示，不能等用户点"刷新诊断"才出现
@@ -227,6 +228,8 @@ async function init() {
     window.__appVersion = appVer;
     setVersionText('');
     await loadStore();
+    // 把用户自定义热键下发给主进程 (主进程默认键位在收到前先用内置值)
+    if (typeof syncHotkeysToMain === 'function') syncHotkeysToMain();
     // 主题要在拿到持久化配置后立刻应用, 否则深色用户每次启动都先闪一下浅色
     applyTheme();
     // 正式主题选择 (C 浅蓝默认 / A 雾紫 / B 暗色玻璃 / dark 经典深色) 覆盖旧的深浅开关

@@ -60,4 +60,61 @@
   if (window.lolAPI && window.lolAPI.onGameLiveData) {
     lolAPI.onGameLiveData(d => { if (d) render(d); });
   }
+
+  // ---------- 本局实时区块 (经济/对位/成装) ----------
+  // 数据由主窗口 commentary.js 每 4 秒推一次; 这里只做纯渲染。
+  const boardEl = document.getElementById('board');
+  const bTimeEl = document.getElementById('bTime');
+  const bLeadEl = document.getElementById('bLead');
+  const bGoldEl = document.getElementById('bGold');
+  const bFillEl = document.getElementById('bFill');
+  const bSubEl = document.getElementById('bSub');
+
+  function fmtTime(sec) {
+    const s = Math.max(0, Math.round(Number(sec) || 0));
+    return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  // 与主窗口 live-metrics.js 的 formatGold 保持一致.
+  // 浮窗是独立页面 (sandbox + CSP), 不复用主窗口模块, 所以这里保留一份小实现。
+  function fmtGold(n) {
+    const v = Math.round(Number(n) || 0);
+    return Math.abs(v) < 1000 ? String(v) : (v / 1000).toFixed(1) + 'k';
+  }
+
+  function renderBoard(d) {
+    if (!boardEl) return;
+    if (!d || typeof d !== 'object') { boardEl.hidden = true; return; }
+    boardEl.hidden = false;
+    const lead = Math.max(-100, Math.min(100, Number(d.leadPct) || 0));
+    if (bTimeEl) bTimeEl.textContent = fmtTime(d.gameTime);
+    if (bLeadEl) {
+      const cls = lead === 0 ? 'flat' : lead > 0 ? 'up' : 'down';
+      bLeadEl.className = 'b-lead ' + cls;
+      bLeadEl.textContent = lead === 0 ? '均势' : (lead > 0 ? '领先 ' : '落后 ') + Math.abs(lead) + '%';
+    }
+    if (bGoldEl) bGoldEl.textContent = fmtGold(d.allyValue) + ' : ' + fmtGold(d.enemyValue);
+    if (bFillEl) {
+      // 中点为均势基准, 条从中间向有利侧延伸; 最多占满半条轨道
+      const half = Math.min(50, Math.abs(lead) / 100 * 50);
+      bFillEl.style.width = half + '%';
+      bFillEl.style.left = (lead >= 0 ? 50 : 50 - half) + '%';
+      bFillEl.className = lead < 0 ? 'down' : 'up';
+    }
+    if (bSubEl) {
+      const parts = [];
+      const m = d.matchup;
+      if (m && m.pos) {
+        const diff = Number(m.diff) || 0;
+        parts.push(m.pos + ' ' + (diff >= 0 ? '+' : '-') + fmtGold(Math.abs(diff)) + ' · 补刀 ' + m.selfCs + ':' + m.oppCs);
+      }
+      if (d.spike) parts.push(d.spike);
+      bSubEl.textContent = parts.join('  ');
+      bSubEl.style.display = parts.length ? '' : 'none';
+    }
+  }
+
+  if (window.lolAPI && window.lolAPI.onGameLiveBoard) {
+    lolAPI.onGameLiveBoard(d => renderBoard(d));
+  }
 })();

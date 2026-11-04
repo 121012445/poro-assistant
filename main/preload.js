@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   // Live Client Data (对局内 2999 端口)
   liveGameData: () => ipcRenderer.invoke('live:gameData'),
   livePlayerlist: () => ipcRenderer.invoke('live:playerlist'),
+  liveEventData: () => ipcRenderer.invoke('live:eventData'),
   // 文件读写 (持久化配置, 仅限 userData 白名单目录)
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('fs:writeFile', path, content),
@@ -77,15 +78,29 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getAiConfig: () => ipcRenderer.invoke('ai:getConfig'),
   saveAiConfig: (config) => ipcRenderer.invoke('ai:saveConfig', config),
   aiChat: (messages) => ipcRenderer.invoke('ai:chat', messages),
+  listAiModels: () => ipcRenderer.invoke('ai:listModels'),
   // 外服聊天翻译: 文本翻译 + 游戏内浮窗数据通道
   translateText: (texts, target) => ipcRenderer.invoke('translate:text', texts, target),
   gameTranslatePush: (payload) => ipcRenderer.invoke('game-translate:push', payload),
   onGameTranslateData: (cb) => { ipcRenderer.on('game-translate:data', (e, d) => cb(d)); },
+  // 悬浮窗输入模式 (Ctrl+F10 呼出): 发送 / 取消 / 接收状态
+  gameTranslateSend: (text, target) => ipcRenderer.invoke('game-translate:send', { text, target }),
+  gameTranslateExitInput: () => ipcRenderer.invoke('game-translate:exit-input'),
+  gameTranslateResetPos: () => ipcRenderer.invoke('game-translate:reset-pos'),
+  gameTranslateSetTarget: (target) => ipcRenderer.invoke('game-translate:target', target),
+  onGameTranslateInput: (cb) => { ipcRenderer.on('game-translate:input', (e, d) => cb(d)); },
+  // 自定义热键: 设置 (main 校验并即时生效) / 读取当前绑定
+  hotkeySet: (action, combo) => ipcRenderer.invoke('hotkey:set', { action, combo }),
+  hotkeyGetAll: () => ipcRenderer.invoke('hotkey:getAll'),
   // 对局战报浮窗 (F9 呼出): 主窗口推数据 / 浮窗收数据
   gameLivePush: (payload) => ipcRenderer.invoke('game-live:push', payload),
   onGameLiveData: (cb) => { ipcRenderer.on('game-live:data', (e, d) => cb(d)); },
-  // 周报分享卡: 主进程离屏渲染并保存 PNG
-  saveShareCard: (html, width, height) => ipcRenderer.invoke('share-card:save', html, width, height),
+  liveBoardPush: (payload) => ipcRenderer.invoke('game-live:board', payload),
+  onGameLiveBoard: (cb) => { ipcRenderer.on('game-live:board', (e, d) => cb(d)); },
+  // 解说语音: 在线合成 (本地 speechSynthesis 音色太机械时用这条)
+  ttsSynthesize: (text, speed) => ipcRenderer.invoke('tts:synthesize', text, speed),
+  // 分享卡 (周报/战报): 主进程离屏渲染并保存 PNG; opts={title,prefix,theme}
+  saveShareCard: (html, width, height, opts) => ipcRenderer.invoke('share-card:save', html, width, height, opts),
   // 设置 (托盘/自启)
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setAutoLaunch: (on) => ipcRenderer.invoke('settings:autoLaunch', on),

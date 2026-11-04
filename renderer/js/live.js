@@ -611,6 +611,27 @@ function updateLivePlayerRow(p, idx) {
   if (kdaEl) kdaEl.textContent = `KDA ${kda}`;
 }
 
+// 选人期对手情报: 复用已拉到的近期战绩, 聚合出"对手在玩什么"和一条 ban 建议。
+// 只在选人阶段显示 —— 那时 ban 还有意义; 进对局后再看只是噪音。
+function enemyIntelHtml(data, selfPuuid) {
+  if (!window.PoroEnemyIntel) return '';
+  if (window._gameflowPhase !== 'ChampSelect') return '';
+  const norm = t => (t === 100 || t === '100') ? 100 : (t === 200 || t === '200') ? 200 : 0;
+  const self = (selfPuuid && data.find(p => p.puuid === selfPuuid)) || null;
+  const selfTeam = self ? norm(self.team) : 0;
+  if (!selfTeam) return '';
+  try {
+    const intel = window.PoroEnemyIntel.build(data, {
+      selfTeam,
+      champName: id => (champOfLive(id) || {}).name || ''
+    });
+    return window.PoroEnemyIntel.render(intel);
+  } catch (e) {
+    console.warn('[enemy-intel]', e && e.message);
+    return '';
+  }
+}
+
 async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   checkBlacklist(data);
   let selfPuuid = null;
@@ -676,6 +697,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   };
   body.innerHTML = `
     ${buildLiveDecisionPanel(data, selfPuuid)}
+    ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue')}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
   pushGameLiveBoard(data, premadeGroups);

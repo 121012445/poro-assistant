@@ -87,6 +87,9 @@ const safeModeActive = process.env.PORO_DISABLE_GPU === '1'
   || process.argv.includes(SAFE_MODE_ARG)
   || rendererCompatActive
   || previousStartupInterrupted;
+// 解说语音用 <audio> 播放合成结果: 默认策略下窗口长时间无交互 (打游戏时没人点 Poro)
+// 会让 play() 抛 NotAllowedError, 表现成"解说突然不响了"。这里一次性放开。
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 if (safeModeActive) {
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch('disable-gpu');
@@ -111,6 +114,8 @@ const gameSettings = require('./game-settings');
 const aramkit = require('./aramkit');
 // 选人浮窗的两块支撑: 读客户端窗口矩形 (koffi 直调 user32, 无需编译) + 纯函数位置计算
 const winRect = require('./win-rect');
+const gtForeground = require('./foreground');   // 输入浮窗抢前台/还焦点 (koffi 直调 user32)
+const glossary = require('./lol-glossary');
 const overlayPosition = require('./overlay-position');
 const augmentRecognizerFactory = require('./augment-recognizer');
 const augmentVision = require('./augment-vision');
@@ -194,15 +199,19 @@ function httpGet(hostname, urlPath, headers) {
       hostname, port: 443, path: urlPath, method: 'GET',
       headers: Object.assign({ 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, headers || {})
     }, (res) => {
-      let data = '';
+      // 必须先收齐 Buffer 再整体按 UTF-8 解码:
+      // 直接 data += chunk 会让跨 TCP 分片的 4 字节字符(emoji 等)被切成两个 U+FFFD,
+      // 中文长回复里就会出现"◆◆◆"这种乱码
+      const chunks = [];
       let bytes = 0;
       res.on('data', chunk => {
         bytes += chunk.length;
         if (bytes > MAX_JSON_RESPONSE_BYTES) return req.destroy(new Error('响应数据过大'));
-        data += chunk;
+        chunks.push(chunk);
       });
       res.on('end', () => {
         if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+        const data = Buffer.concat(chunks).toString('utf8');
         try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
       });
     });
@@ -219,15 +228,24 @@ function httpsPost(hostname, port, urlPath, headers, body, timeoutMs) {
       hostname, port: port || 443, path: urlPath, method: 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json', 'Content-Length': payload.length }, headers || {})
     }, (res) => {
-      let data = '';
+      // 同 httpGet: 先攒 Buffer 再整体解码, 否则 emoji 跨分片会变成 U+FFFD 乱码
+      const chunks = [];
       let bytes = 0;
       res.on('data', chunk => {
         bytes += chunk.length;
         if (bytes > MAX_JSON_RESPONSE_BYTES) return req.destroy(new Error('AI 响应数据过大'));
-        data += chunk;
+        chunks.push(chunk);
       });
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (e) {
+        const data = Buffer.concat(chunks).toString('utf8');
+        try {
+          const parsed = JSON.parse(data);
+          // 记录状态码(不可枚举, 不会传给渲染层): 4xx/5xx 的错误体要靠它区分
+          if (parsed && typeof parsed === 'object') {
+            try { Object.defineProperty(parsed, '__httpStatus', { value: res.statusCode, enumerable: false, configurable: true }); } catch (e) {}
+          }
+          resolve(parsed);
+        } catch (e) {
           reject(new Error('HTTP ' + res.statusCode + ' 响应非JSON: ' + data.substring(0, 150)));
         }
       });
@@ -721,6 +739,9 @@ async function aiTranslateBatch(texts, target) {
   const langName = TRANSLATE_LANG_NAMES[target] || '简体中文';
   const prompt = 'You are an in-game chat translator for League of Legends. '
     + '将下列每一行游戏聊天翻译成' + langName + '。保留游戏黑话/术语的习惯译法, 不要解释。'
+    + '固定术语: 上路差距=top gap, 中路差距=mid gap, 打野差距=jungle gap, 下路差距=bot gap, 辅助差距=support gap; '
+    + '大龙=baron, 小龙=dragon, 峡谷先锋=herald, 闪现=flash, 大招=ult, 传送=tp, 打团=teamfight, 做视野=ward, 补刀=CS, 越塔=dive。'
+    + '表示"某路差距"一律用 gap, 不要用 diff 或 disparity。译文要短, 像真人打字, 不要加句号以外的标点。'
     + '输出一个 JSON 字符串数组, 与输入行一一对应, 不要输出任何其他内容。\n输入:\n'
     + texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
   const targetUrl = resolveChatUrl(cfg.baseUrl);
@@ -735,8 +756,7 @@ async function aiTranslateBatch(texts, target) {
 }
 
 // 兜底: Google 免费机翻端点 (无需 Key)。失败返回 null, 由调用方回退原文。
-function googleTranslateOne(text, target) {
-  return new Promise(resolve => {
+function googleTranslateOne(text, target) {  return new Promise(resolve => {
     try {
       const u = new URL('https://translate.googleapis.com/translate_a/single');
       u.searchParams.set('client', 'gtx');
@@ -762,8 +782,136 @@ function googleTranslateOne(text, target) {
   });
 }
 
-ipcMain.handle('translate:text', async (e, texts, target) => {
-  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+// 腾讯交互翻译 (transmart): 国内可直连, 无需 Key, 实测 300ms 级。
+// 这是国内用户的主力源 —— Google 端点在国内直连会 ECONNRESET (实测 2026-11-04)。
+const TRANSMART_LANG = { 'zh-CN': 'zh' };
+function transmartBatch(texts, target) {
+  return new Promise(resolve => {
+    let payload;
+    try {
+      payload = Buffer.from(JSON.stringify({
+        header: { fn: 'auto_translation', client_key: 'browser-chrome-124.0.0-Windows 10-1730000000000-poro' },
+        type: 'plain',
+        model_category: 'normal',
+        source: { lang: 'auto', text_list: texts },
+        target: { lang: TRANSMART_LANG[target] || target }
+      }), 'utf8');
+    } catch (e) { return resolve(null); }
+    let settled = false;
+    const done = v => { if (!settled) { settled = true; resolve(v); } };
+    const req = https.request({
+      hostname: 'transmart.qq.com',
+      path: '/api/imt',
+      method: 'POST',
+      timeout: 6000,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': payload.length,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Poro/1.5'
+      }
+    }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        if (res.statusCode !== 200) return done(null);
+        try {
+          const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const arr = data && Array.isArray(data.auto_translation) ? data.auto_translation : null;
+          if (!arr || arr.length !== texts.length) return done(null);
+          // 全是空串 = 语种不支持, 当失败处理
+          if (!arr.some(x => String(x || '').trim())) return done(null);
+          done(arr.map(x => String(x || '')));
+        } catch (e) { done(null); }
+      });
+      res.on('error', () => done(null));
+    });
+    req.on('error', () => done(null));
+    req.on('timeout', () => { req.destroy(); done(null); });
+    req.write(payload);
+    req.end();
+  });
+}
+
+// MyMemory: 最后的兜底, 匿名有配额限制, 单条 GET
+function mymemoryOne(text, target) {
+  return new Promise(resolve => {
+    try {
+      const src = /[\u4e00-\u9fff]/.test(text) ? 'zh-CN' : 'en';
+      const dst = target === 'zh-CN' ? 'zh-CN' : target;
+      if (src === dst) return resolve(text);
+      const u = new URL('https://api.mymemory.translated.net/get');
+      u.searchParams.set('q', String(text).substring(0, 400));
+      u.searchParams.set('langpair', src + '|' + dst);
+      const req = https.get(u, { headers: { 'User-Agent': 'Poro/1.5' } }, res => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          if (res.statusCode !== 200) return resolve(null);
+          try {
+            const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            const out = String(data?.responseData?.translatedText || '').trim();
+            resolve(out || null);
+          } catch (e) { resolve(null); }
+        });
+        res.on('error', () => resolve(null));
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(6000, () => { req.destroy(); resolve(null); });
+    } catch (e) { resolve(null); }
+  });
+}
+
+// 免费机翻多源链: 记住上次成功的源, 避免每次都先等一遍超时
+let translateSourcePref = '';
+async function freeTranslateBatch(texts, target) {
+  const order = [];
+  if (translateSourcePref) order.push(translateSourcePref);
+  for (const s of ['transmart', 'google', 'mymemory']) if (!order.includes(s)) order.push(s);
+  for (const src of order) {
+    let out = null;
+    if (src === 'transmart') {
+      out = await transmartBatch(texts, target);
+    } else if (src === 'google') {
+      const rows = [];
+      for (const t of texts) rows.push(await googleTranslateOne(t, target));
+      out = rows.every(x => !x) ? null : rows.map((x, i) => x || texts[i]);
+    } else {
+      const rows = [];
+      for (const t of texts) rows.push(await mymemoryOne(t, target));
+      out = rows.every(x => !x) ? null : rows.map((x, i) => x || texts[i]);
+    }
+    if (out && out.length === texts.length) {
+      if (translateSourcePref !== src) {
+        translateSourcePref = src;
+        try { logErr('[TRANSLATE] 机翻源=' + src); } catch (e) {}
+      }
+      return out;
+    }
+  }
+  return null;
+}
+
+// ========== 解说语音合成 ==========
+// 实现放在 main/tts.js (纯模块, 可在 node 里单测);
+// 这里只做 IPC 绑定 + 失败计数, 超过阈值就让渲染层整体退回本机音色。
+const ttsService = require('./tts');
+let ttsFailStreak = 0;
+
+ipcMain.handle('tts:synthesize', async (e, text, speed) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) {
+    return { ok: false, error: '无效来源' };
+  }
+  const res = await ttsService.synthesize(text, speed);
+  if (!res.ok) {
+    ttsFailStreak++;
+    return { ok: false, error: res.error, streak: ttsFailStreak };
+  }
+  ttsFailStreak = 0;
+  return res;
+});
+
+// 翻译核心: 主窗口与游戏内悬浮输入共用同一条链 (术语表 → 缓存 → AI → 免费源 → 纠正)
+async function translateBatchCore(texts, target) {
   const list = (Array.isArray(texts) ? texts : [])
     .map(t => String(t || '').trim().substring(0, 300))
     .filter(Boolean)
@@ -773,6 +921,9 @@ ipcMain.handle('translate:text', async (e, texts, target) => {
   const out = new Array(list.length);
   const pendingIdx = [];
   list.forEach((text, i) => {
+    // 先查 LoL 术语表: 短句占聊天绝大多数, 命中就不调接口 (也不受机翻质量影响)
+    const local = glossary.isInbound(lang) ? glossary.phraseIn(text) : glossary.phraseOut(text);
+    if (local) { out[i] = local; return; }
     const hit = translateCacheGet(lang + '\u0000' + text);
     if (hit !== undefined) out[i] = hit;
     else pendingIdx.push(i);
@@ -781,22 +932,39 @@ ipcMain.handle('translate:text', async (e, texts, target) => {
     const pending = pendingIdx.map(i => list[i]);
     let results = null;
     try { results = await aiTranslateBatch(pending, lang); } catch (e) { results = null; }
-    if (!results) {
-      results = [];
-      for (const text of pending) results.push(await googleTranslateOne(text, lang) || '');
-    }
+    if (!results) results = await freeTranslateBatch(pending, lang);
+    if (!results) results = pending.slice();   // 全挂: 原样返回, 调用方据此判断失败
     pendingIdx.forEach((idx, i) => {
-      const value = results[i] && results[i] !== pending[i] ? results[i] : pending[i];
+      const raw = results[i] && results[i] !== pending[i] ? results[i] : pending[i];
+      // 机翻产出的固定错译 (road gap / 顶部间隙 / 拉古诺 …) 在这里纠正
+      const value = raw === pending[i] ? raw : glossary.polish(raw, lang);
       out[idx] = value;
       translateCacheSet(lang + '\u0000' + pending[i], value);
     });
   }
   return out;
+}
+
+ipcMain.handle('translate:text', async (e, texts, target) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+  return translateBatchCore(texts, target);
 });
 
 // ---------- 外服聊天翻译浮窗 (点击穿透, 贴游戏窗口聊天区上方) ----------
 let gameTranslateWindow = null;
-const GAME_TRANSLATE_SIZE = { width: 350, height: 230 };
+const GAME_TRANSLATE_SIZE = { width: 370, height: 300 };
+
+// 悬浮窗位置记忆: 用户在打字模式拖动后保存「相对游戏窗口左上角的偏移」, 存独立文件。
+// 不进 poro-config.json —— persist.js 每次保存都整文件覆写, 主进程写的键会被冲掉。
+let gtOverlayPos = null;
+try {
+  gtOverlayPos = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'gt-overlay-pos.json'), 'utf8'));
+  if (!gtOverlayPos || !Number.isFinite(gtOverlayPos.dx) || !Number.isFinite(gtOverlayPos.dy)) gtOverlayPos = null;
+} catch (e) { gtOverlayPos = null; }
+function saveGtOverlayPos(pos) {
+  gtOverlayPos = pos;
+  try { fs.writeFileSync(path.join(app.getPath('userData'), 'gt-overlay-pos.json'), JSON.stringify(pos)); } catch (e) {}
+}
 
 function gameTranslateMetrics() {
   let game = null;
@@ -812,8 +980,15 @@ function gameTranslateMetrics() {
   const padX = 16;
   // 聊天框在游戏窗口左下角 (约占底部四分之一): 浮窗贴在它上方, 避开聊天与技能区
   const bottomPad = Math.round((game ? game.height : area.height) * 0.27);
-  const x = game ? game.x + padX : area.x + padX;
-  const y = game ? game.y + game.height - bottomPad - height : area.y + area.height - bottomPad - height;
+  let x = game ? game.x + padX : area.x + padX;
+  let y = game ? game.y + game.height - bottomPad - height : area.y + area.height - bottomPad - height;
+  // 用户拖动过: 按相对游戏窗口的偏移摆, 窗口挪了也会跟着走
+  if (gtOverlayPos) {
+    const ox = game ? game.x : area.x;
+    const oy = game ? game.y : area.y;
+    x = ox + gtOverlayPos.dx;
+    y = oy + gtOverlayPos.dy;
+  }
   return { scale, bounds: {
     x: Math.max(area.x, Math.min(x, area.x + area.width - width)),
     y: Math.max(area.y, Math.min(y, area.y + area.height - height)),
@@ -822,20 +997,83 @@ function gameTranslateMetrics() {
   }};
 }
 
+// 程序自己 setBounds 也会触发 'moved', 用这个锁把"程序摆的"和"用户拖的"区分开
+let _gtBoundsLock = false;
+
 function showGameTranslateWindow() {
   if (!gameTranslateWindow || gameTranslateWindow.isDestroyed()) return;
   try {
     const metrics = gameTranslateMetrics();
+    _gtBoundsLock = true;
     gameTranslateWindow.setBounds(metrics.bounds);
+    setTimeout(() => { _gtBoundsLock = false; }, 200);
     try { gameTranslateWindow.webContents.setZoomFactor(metrics.scale); } catch (e) {}
     gameTranslateWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-    gameTranslateWindow.setIgnoreMouseEvents(true, { forward: false });
+    // 输入模式正在打字时不要重置鼠标穿透, 否则输入框点不了
+    if (!gameTranslateInputMode) gameTranslateWindow.setIgnoreMouseEvents(true, { forward: false });
     gameTranslateWindow.show();
     try { gameTranslateWindow.moveTop(); } catch (e) {}
   } catch (error) { logErr('[TRANSLATE OVERLAY] show failed: ' + error.message); }
 }
 
+// ---------- 悬浮窗输入模式 (F10 呼出: 浮窗获得焦点, 打中文回车即翻成外语发进游戏) ----------
+// 常态: focusable=false + 鼠标穿透, 弹幕只看不碰游戏。输入模式: 临时可聚焦可点击,
+// Esc/发送成功/失焦/45 秒无操作都会退回穿透态, 不给游戏留一个挡点击的透明矩形。
+let gameTranslateInputMode = false;
+let gameTranslateTarget = 'en';          // 最近一次由主窗口翻译页推送的目标语言
+let gameTranslateInputTimer = null;
+
+function pushGameTranslateInputState() {
+  if (!gameTranslateWindow || gameTranslateWindow.isDestroyed()) return;
+  try {
+    gameTranslateWindow.webContents.send('game-translate:input', { on: gameTranslateInputMode, target: gameTranslateTarget });
+  } catch (e) {}
+}
+
+function setGameTranslateInput(on) {
+  try {
+    on = !!on;
+    if (!gameTranslateWindow || gameTranslateWindow.isDestroyed()) {
+      if (!on) return;
+      createGameTranslateWindow();   // 首次呼出时窗口可能还没建过 (没有任何消息推送时)
+    }
+    if (on && gameTranslateInputMode) {
+      // 已经在输入模式: 再按只把焦点拉回输入框, 幂等。
+      // 注意 win.focus() 在游戏持前台时会被 Windows 前台锁拒绝, 必须走原生抢前台
+      try { gameTranslateWindow.focus(); } catch (e) {}
+      try { gtForeground.stealFocus(gameTranslateWindow); } catch (e) {}
+      pushGameTranslateInputState();
+      return;
+    }
+    gameTranslateInputMode = on;
+    if (on) {
+      showGameTranslateWindow();
+      gameTranslateWindow.setFocusable(true);
+      gameTranslateWindow.setIgnoreMouseEvents(false, { forward: false });
+      try { gameTranslateWindow.focus(); } catch (e) {}
+      // 呼出时游戏几乎总是前台, 普通焦点调用会被前台锁吞掉 —— 这里用合成 ALT
+      // 助攻拿回前台, 否则用户还得拿鼠标点一下输入框才能开始打字
+      try { gtForeground.stealFocus(gameTranslateWindow); } catch (e) {}
+      if (gameTranslateInputTimer) clearTimeout(gameTranslateInputTimer);
+      gameTranslateInputTimer = setTimeout(() => setGameTranslateInput(false), 45000);   // 忘了退出也不挡游戏点击
+    } else {
+      if (gameTranslateInputTimer) { clearTimeout(gameTranslateInputTimer); gameTranslateInputTimer = null; }
+      // 还焦点: 只有键盘焦点仍在我们浮窗上 (Esc/发送成功主动退出) 时才把前台还给游戏;
+      // 如果是用户点了游戏触发的 blur, 此刻前台已经是游戏/别的窗口, 什么都不做
+      const stillFocused = (() => { try { return gtForeground.isForeground(gameTranslateWindow); } catch (e) { return false; } })();
+      try { gameTranslateWindow.blur(); } catch (e) {}
+      gameTranslateWindow.setFocusable(false);
+      gameTranslateWindow.setIgnoreMouseEvents(true, { forward: false });
+      if (stillFocused) {
+        try { if (!gtForeground.focusWindowClass('RiotWindowClass')) gtForeground.focusWindowClass('RCLIENT'); } catch (e) {}
+      }
+    }
+    pushGameTranslateInputState();
+  } catch (error) { logErr('[TRANSLATE OVERLAY] input mode failed: ' + error.message); }
+}
+
 function hideGameTranslateWindow() {
+  if (gameTranslateInputMode) setGameTranslateInput(false);
   if (gameTranslateWindow && !gameTranslateWindow.isDestroyed() && gameTranslateWindow.isVisible()) gameTranslateWindow.hide();
 }
 
@@ -870,6 +1108,24 @@ function createGameTranslateWindow() {
   gameTranslateWindow.loadFile(path.join(__dirname, '..', 'renderer', 'game-translate.html'));
   gameTranslateWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   gameTranslateWindow.webContents.on('did-fail-load', (e, code, desc) => logErr('[TRANSLATE OVERLAY LOAD FAILED] ' + code + ' ' + desc));
+  // 失焦 = 用户点了游戏或切走: 立刻退回穿透态, 别留一个吃点击的透明窗口
+  gameTranslateWindow.on('blur', () => { if (gameTranslateInputMode) setGameTranslateInput(false); });
+  // 打字模式下的拖动 = 记住新位置 (常态穿透拖不动, 程序定位有 _gtBoundsLock 挡着)
+  gameTranslateWindow.on('moved', () => {
+    if (_gtBoundsLock || !gameTranslateInputMode) return;
+    try {
+      const b = gameTranslateWindow.getBounds();
+      let game = null;
+      try { game = winRect.getLeagueGameRect(); } catch (e2) {}
+      const display = electronScreen.getDisplayMatching(b);
+      const area = display?.workArea || { x: 0, y: 0 };
+      const ox = game ? game.x : area.x;
+      const oy = game ? game.y : area.y;
+      saveGtOverlayPos({ dx: b.x - ox, dy: b.y - oy });
+    } catch (e2) {}
+  });
+  // 呼出时窗口可能还在加载: 加载完成补发一次输入状态, 否则输入条拿不到焦点
+  gameTranslateWindow.webContents.on('did-finish-load', () => pushGameTranslateInputState());
   gameTranslateWindow.on('closed', () => { gameTranslateWindow = null; });
   return gameTranslateWindow;
 }
@@ -878,16 +1134,66 @@ ipcMain.handle('game-translate:push', async (e, payload) => {
   if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
   const lines = (Array.isArray(payload?.lines) ? payload.lines : [])
     .filter(it => it && typeof it === 'object')
-    .slice(-6)
+    .slice(-10)
     .map(it => ({
       name: String(it.name || '玩家').substring(0, 24),
       body: String(it.body || '').substring(0, 140),
       translated: String(it.translated || '').substring(0, 200),
       ts: Number(it.ts) || Date.now()
     }));
+  if (payload?.target && TRANSLATE_LANG_NAMES[payload.target]) gameTranslateTarget = payload.target;
   createGameTranslateWindow();
-  try { gameTranslateWindow.webContents.send('game-translate:data', { lines }); } catch (e2) {}
-  if (lines.length) showGameTranslateWindow();
+  try { gameTranslateWindow.webContents.send('game-translate:data', { lines, target: gameTranslateTarget }); } catch (e2) {}
+  // show:true = 渲染层进局时主动要求弹出 (工具箱启动/进游戏即自动打开, 不用等消息)
+  if (lines.length || payload?.show) showGameTranslateWindow();
+  return true;
+});
+
+// 悬浮输入框回车: 翻译 → 激活游戏窗口 → 注入发送。来源只认悬浮窗自己。
+ipcMain.handle('game-translate:send', async (e, payload) => {
+  if (!gameTranslateWindow || gameTranslateWindow.isDestroyed() || e.sender.id !== gameTranslateWindow.webContents.id) {
+    return { ok: false, error: '无效来源' };
+  }
+  const text = String(payload?.text || '')
+    .replace(/[\r\n]+/g, ' ')            // 注入走的是键盘流, 换行会提前把消息发出去
+    .trim()
+    .substring(0, 200);
+  if (!text) return { ok: false, error: '内容为空' };
+  const target = TRANSLATE_LANG_NAMES[payload?.target] ? payload.target : gameTranslateTarget;
+  let translated;
+  try { translated = (await translateBatchCore([text], target))[0]; } catch (err) { translated = null; }
+  if (!translated) return { ok: false, error: '翻译失败' };
+  if (translated === text) {
+    // 原样返回 = 没翻动 (全是术语表/接口覆盖不到的内容), 发原文总比什么都不发强, 但要告知
+    logErr('[TRANSLATE OVERLAY] send: 译文与原文相同, 按原文发送');
+  }
+  const sent = await runGameChatInput(translated, true, true);
+  if (sent?.ok) setGameTranslateInput(false);   // 发完就还给游戏焦点
+  return { ok: !!sent?.ok, translated, error: sent?.error || '' };
+});
+
+ipcMain.handle('game-translate:exit-input', async (e) => {
+  if (!gameTranslateWindow || gameTranslateWindow.isDestroyed() || e.sender.id !== gameTranslateWindow.webContents.id) return false;
+  setGameTranslateInput(false);
+  return true;
+});
+
+// 双击拖动条: 清掉位置记忆, 恢复默认贴聊天框上方的摆位
+ipcMain.handle('game-translate:reset-pos', async (e) => {
+  if (!gameTranslateWindow || gameTranslateWindow.isDestroyed() || e.sender.id !== gameTranslateWindow.webContents.id) return false;
+  gtOverlayPos = null;
+  try { fs.unlinkSync(path.join(app.getPath('userData'), 'gt-overlay-pos.json')); } catch (e2) {}
+  showGameTranslateWindow();
+  logErr('[TRANSLATE OVERLAY] position reset to default');
+  return true;
+});
+
+// 对局中切换目标语言: 主窗口下拉框即时下发, 浮窗输入框马上按新语言翻,
+// 不再等下一条消息推送才刷新 (1.5.40 用户实测中途切换无效)。
+ipcMain.handle('game-translate:target', async (e, target) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  if (TRANSLATE_LANG_NAMES[target]) gameTranslateTarget = target;
+  pushGameTranslateInputState();   // 正在打字也让输入条拿到新语言
   return true;
 });
 
@@ -1238,7 +1544,9 @@ const LCU_PREFIXES = ['/lol-summoner', '/lol-ranked', '/lol-champ-select', '/lol
   // /riotclient 只放行这一条只读路径, 不放行整个前缀 (其下有重启客户端界面等接口)。
   '/lol-replays', '/lol-platform-config', '/riotclient/region-locale',
   // 自动点赞 (autoflow.js); 掉线重连用的 /lol-gameflow/v1/reconnect 已在 /lol-gameflow 前缀内
-  '/lol-honor-v2'];
+  '/lol-honor-v2',
+  // 选人保底 (pick-guard.js): 没有配置英雄池时按熟练度补悬停，只读
+  '/lol-champion-mastery'];
 
 let lcuStatusCache = { t: 0, data: null };
 let lcuStatusInFlight = null;
@@ -1329,11 +1637,88 @@ ipcMain.handle('game-settings:clear-full', async () => {
 // 渲染层兜底轮询上报的阶段变化 (WS 不可用时快捷键仍能联动)
 let lastReportedPhase = null;
 let inProgressHotkeysActive = false;
-const lastHotkeyDispatchAt = { f6: -Infinity, f7: -Infinity, f8: -Infinity };
-const hotkeyPoller = hotkeyPollerFactory.createNativePoller(
+const lastHotkeyDispatchAt = { f6: -Infinity, f7: -Infinity, f8: -Infinity, f9: -Infinity, f10: -Infinity };
+let hotkeyPoller = hotkeyPollerFactory.createNativePoller(
   (action) => dispatchInGameHotkey(action, 'win32-poll'),
   logErr
 );
+
+// ---------- 自定义热键 (工具箱改键, 存 poro-config.json 的 hotkey_* 键, 进局后生效) ----------
+const hotkeyManager = require('./hotkey-manager');
+const HOTKEY_DEFAULTS = Object.freeze({ f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10' });
+const HOTKEY_ACTIONS = Object.freeze({
+  f6: '强化识别 (海克斯三选一重扫)',
+  f7: 'KDA 简报 · 己方',
+  f8: 'KDA 简报 · 敌方',
+  f9: '对局战报浮窗开关',
+  f10: '聊天弹幕 · 打字输入'
+});
+let hotkeyBindings = Object.assign({}, HOTKEY_DEFAULTS);
+let hotkeyParsed = buildHotkeyParsed();
+
+function buildHotkeyParsed() {
+  const out = {};
+  for (const [action, combo] of Object.entries(hotkeyBindings)) {
+    const parsed = hotkeyManager.parse(combo);
+    if (parsed) out[action] = parsed;
+  }
+  return out;
+}
+
+function rebuildHotkeyPoller() {
+  const wasRunning = hotkeyPoller.isRunning();
+  try { hotkeyPoller.stop(); } catch (e) {}
+  const keys = {};
+  for (const [action, parsed] of Object.entries(hotkeyParsed)) {
+    keys[action] = parsed.mods.length ? { vk: parsed.vk, mods: parsed.mods } : parsed.vk;
+  }
+  hotkeyPoller = hotkeyPollerFactory.createNativePoller(
+    (action) => dispatchInGameHotkey(action, 'win32-poll'),
+    logErr,
+    { keys }
+  );
+  if (wasRunning) hotkeyPoller.start();
+}
+
+function registerInProgressHotkeys() {
+  const results = {};
+  for (const [action, parsed] of Object.entries(hotkeyParsed)) {
+    try { results[action] = globalShortcut.isRegistered(parsed.accelerator) || globalShortcut.register(parsed.accelerator, () => dispatchInGameHotkey(action, 'electron')); }
+    catch (e) { results[action] = false; }
+  }
+  return results;
+}
+
+function unregisterInProgressHotkeys() {
+  for (const parsed of Object.values(hotkeyParsed)) {
+    try { if (globalShortcut.isRegistered(parsed.accelerator)) globalShortcut.unregister(parsed.accelerator); } catch (e) {}
+  }
+}
+
+ipcMain.handle('hotkey:set', async (e, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { ok: false, error: '无效来源' };
+  const action = String(payload?.action || '');
+  if (!Object.prototype.hasOwnProperty.call(HOTKEY_ACTIONS, action)) return { ok: false, error: '未知功能' };
+  const parsed = hotkeyManager.parse(String(payload?.combo || ''));
+  if (!parsed) return { ok: false, error: '无法识别的组合 (字母/数字需要带 Ctrl、Alt 或 Shift)' };
+  const clash = Object.entries(hotkeyBindings).find(([act, combo]) => act !== action && hotkeyManager.normalize(combo) === parsed.display);
+  if (clash) return { ok: false, error: '与「' + (HOTKEY_ACTIONS[clash[0]] || clash[0]) + '」的键位重复' };
+  hotkeyBindings[action] = parsed.display;
+  hotkeyParsed = buildHotkeyParsed();
+  if (inProgressHotkeysActive) {
+    unregisterInProgressHotkeys();
+    registerInProgressHotkeys();
+  }
+  rebuildHotkeyPoller();
+  logErr('[HOTKEY] ' + action + ' -> ' + parsed.display);
+  return { ok: true, display: parsed.display };
+});
+
+ipcMain.handle('hotkey:getAll', async (e) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { bindings: {}, actions: {} };
+  return { bindings: Object.assign({}, hotkeyBindings), actions: Object.assign({}, HOTKEY_ACTIONS) };
+});
+
 ipcMain.on('phase:report', (e, phase) => {
   if (!phase || phase === lastReportedPhase) return;
   lastReportedPhase = phase;
@@ -1357,6 +1742,11 @@ function dispatchInGameHotkey(action, source) {
   } else if (action === 'f9') {
     logErr('[SHORTCUT] F9 fired source=' + source + ' -> GameLiveBoard');
     toggleGameLiveWindow();
+  } else if (action === 'f10') {
+    // Ctrl+F10: 只负责"呼出输入", 不做开关切换 —— electron 和 win32 轮询会对同一次
+    // 物理按键各报一次, 切换式会把状态抵消成"按了没反应" (1.5.36 实测)。退出靠 Esc/发送/失焦。
+    logErr('[SHORTCUT] Ctrl+F10 fired source=' + source + ' -> ChatTranslateInput');
+    setGameTranslateInput(true);
   }
 }
 
@@ -1365,6 +1755,9 @@ function dispatchInGameHotkey(action, source) {
 // 最近一份; F9 只是显示/隐藏这个缓存, 数据拉取逻辑完全复用 live.js。
 let gameLiveWindow = null;
 let gameLivePayload = { players: [], ddragonVersion: '' };
+// 本局实时区块 (经济/对位/成装提示). 与上面的战绩数据分开存,
+// 因为两者推送节奏不同: 战绩是选人后一次推送, 这里是每 4 秒刷新一次。
+let gameLiveBoard = null;
 let gameLiveVisible = false;
 const GAME_LIVE_SIZE = { width: 400, height: 560 };
 
@@ -1393,6 +1786,11 @@ function gameLiveMetrics() {
 function pushGameLiveData() {
   if (!gameLiveWindow || gameLiveWindow.isDestroyed()) return;
   try { gameLiveWindow.webContents.send('game-live:data', gameLivePayload); } catch (e) {}
+}
+
+function pushGameLiveBoard() {
+  if (!gameLiveWindow || gameLiveWindow.isDestroyed()) return;
+  try { gameLiveWindow.webContents.send('game-live:board', gameLiveBoard); } catch (e) {}
 }
 
 function createGameLiveWindow() {
@@ -1425,7 +1823,7 @@ function createGameLiveWindow() {
   try { gameLiveWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
   gameLiveWindow.loadFile(path.join(__dirname, '..', 'renderer', 'game-live.html'));
   gameLiveWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  gameLiveWindow.webContents.on('did-finish-load', () => { if (gameLiveVisible) pushGameLiveData(); });
+  gameLiveWindow.webContents.on('did-finish-load', () => { if (gameLiveVisible) { pushGameLiveData(); pushGameLiveBoard(); } });
   gameLiveWindow.webContents.on('did-fail-load', (e, code, desc) => logErr('[GAME LIVE LOAD FAILED] ' + code + ' ' + desc));
   gameLiveWindow.on('closed', () => { gameLiveWindow = null; });
   return gameLiveWindow;
@@ -1448,6 +1846,7 @@ function toggleGameLiveWindow() {
     gameLiveWindow.show();
     try { gameLiveWindow.moveTop(); } catch (e) {}
     pushGameLiveData();
+    pushGameLiveBoard();
   } catch (error) { logErr('[GAME LIVE] toggle failed: ' + error.message); }
 }
 
@@ -1485,29 +1884,95 @@ ipcMain.handle('game-live:push', async (e, payload) => {
   return true;
 });
 
-// ---------- 周报分享卡保存 (渲染层拼好 HTML, 主进程离屏渲染后截图存 PNG) ----------
-ipcMain.handle('share-card:save', async (e, html, width, height) => {
+// 本局实时区块: 经济/对位/成装. 浮窗只做纯渲染, 所有数值在这里过一遍范围校验,
+// 避免渲染层算出 NaN/Infinity 之类的东西直接把浮窗布局搞崩。
+ipcMain.handle('game-live:board', async (e, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  const p = payload || {};
+  if (p.clear) {
+    gameLiveBoard = null;
+  } else {
+    const num = (v, min, max) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return 0;
+      return Math.min(max, Math.max(min, n));
+    };
+    const mu = p.matchup && typeof p.matchup === 'object' ? p.matchup : null;
+    gameLiveBoard = {
+      gameTime: Math.round(num(p.gameTime, 0, 36000)),
+      leadPct: Math.round(num(p.leadPct, -100, 100)),
+      allyValue: Math.round(num(p.allyValue, 0, 9999999)),
+      enemyValue: Math.round(num(p.enemyValue, 0, 9999999)),
+      matchup: mu ? {
+        pos: String(mu.pos || '').substring(0, 4),
+        diff: Math.round(num(mu.diff, -999999, 999999)),
+        selfCs: Math.round(num(mu.selfCs, 0, 9999)),
+        oppCs: Math.round(num(mu.oppCs, 0, 9999))
+      } : null,
+      spike: String(p.spike || '').substring(0, 40),
+      updatedAt: Date.now()
+    };
+  }
+  pushGameLiveBoard();
+  return true;
+});
+
+// ---------- 分享卡保存 (渲染层拼好 HTML, 主进程离屏渲染后截图存 PNG) ----------
+// 卡片样式写在 renderer/css 里，这里把应用 CSS 一起注入离屏页面。
+// 之前只传卡片 HTML，导出的图是没有任何样式的裸排版 —— 样式全在外部样式表里。
+let SHARE_CARD_CSS = null;
+function shareCardCss() {
+  if (SHARE_CARD_CSS !== null) return SHARE_CARD_CSS;
+  let out = '';
+  // 顺序必须与 index.html 的 <link> 一致，否则后加载的档位令牌会覆盖前面
+  for (const f of ['style.css', 'extras.css', 'dark.css', 'premium.css', 'ui-polish.css']) {
+    try { out += fs.readFileSync(path.join(__dirname, '..', 'renderer', 'css', f), 'utf8') + '\n'; } catch (e) {}
+  }
+  SHARE_CARD_CSS = out;
+  return out;
+}
+
+ipcMain.handle('share-card:save', async (e, html, width, height, opts) => {
   if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
   const w = Math.max(200, Math.min(1600, Number(width) || 460));
   const h = Math.max(200, Math.min(2400, Number(height) || 760));
   if (typeof html !== 'string' || !html.length || html.length > 500000) return { __error: '内容无效' };
+  const o = (opts && typeof opts === 'object') ? opts : {};
+  const dark = o.theme === 'dark';
+  const saveTitle = (typeof o.title === 'string' && o.title.trim()) ? o.title.trim().slice(0, 40) : '保存分享图片';
+  const prefix = ((typeof o.prefix === 'string' && o.prefix.trim()) ? o.prefix.trim() : 'Poro周报')
+    .replace(/[\\/:*?"<>|]/g, '').slice(0, 20) || 'Poro';
   let win = null;
   try {
     win = new BrowserWindow({
       width: w, height: h, show: false, frame: false, transparent: false,
-      backgroundColor: '#f5f2ea', resizable: false, skipTaskbar: true,
+      backgroundColor: dark ? '#14151a' : '#fafafa', resizable: false, skipTaskbar: true,
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: false }
     });
     // 渲染层只允许引用 ddragon 图片; html 由本应用渲染层生成, 再包一层基础 CSP。
+    // body 在应用里是 grid 布局（左侧导航占一列），离屏窗口里必须重置成块级，
+    // 否则卡片会被挤进第一列、右半边被裁掉。
+    const reset = '<style>html,body{margin:0!important;padding:0!important;display:block!important;'
+      + 'grid-template-columns:none!important;background:' + (dark ? '#14151a' : '#fafafa') + '!important;overflow:hidden}</style>';
     const wrapped = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
       + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src https://ddragon.leagueoflegends.com">'
-      + '</head><body style="margin:0">' + html + '</body></html>';
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(wrapped));
+      + '<style>' + shareCardCss() + '</style>' + reset
+      + '</head><body class="' + (dark ? 'dark' : '') + '">' + html + '</body></html>';
+    // data URL 长度随样式表变大（当前约 310KB）。超过 1.2MB 时 Chromium 会拒绝加载，
+    // 所以先落一个临时文件再 loadFile，两条路都带同样的 CSP。
+    const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(wrapped);
+    if (url.length > 1200000) {
+      const tmp = path.join(app.getPath('temp'), 'poro-share-' + Date.now() + '.html');
+      fs.writeFileSync(tmp, wrapped, 'utf8');
+      try { await win.loadFile(tmp); } finally { try { fs.unlinkSync(tmp); } catch (e) {} }
+    } else {
+      await win.loadURL(url);
+    }
     await new Promise(resolve => setTimeout(resolve, 600)); // 等图片解码
     const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: h });
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
-      title: '保存周报图片',
-      defaultPath: path.join(app.getPath('desktop'), 'Poro周报-' + new Date().toISOString().slice(0, 10) + '.png'),
+      title: saveTitle,
+      defaultPath: path.join(app.getPath('desktop'), prefix + '-' + new Date().toISOString().slice(0, 10) + '.png'),
       filters: [{ name: 'PNG 图片', extensions: ['png'] }]
     });
     if (canceled || !filePath) return { canceled: true };
@@ -1533,18 +1998,14 @@ function handlePhaseChange(phase) {
     if (phase === 'InProgress') {
       inProgressHotkeysActive = true;
       const pollStarted = hotkeyPoller.start();
-      const ok1 = globalShortcut.isRegistered('F7') || globalShortcut.register('F7', () => dispatchInGameHotkey('f7', 'electron'));
-      const ok2 = globalShortcut.isRegistered('F8') || globalShortcut.register('F8', () => dispatchInGameHotkey('f8', 'electron'));
-      const ok3 = globalShortcut.isRegistered('F6') || globalShortcut.register('F6', () => dispatchInGameHotkey('f6', 'electron'));
-      const ok4 = globalShortcut.isRegistered('F9') || globalShortcut.register('F9', () => dispatchInGameHotkey('f9', 'electron'));
-      logErr('[SHORTCUT] register F6=' + ok3 + ' F7=' + ok1 + ' F8=' + ok2 + ' F9=' + ok4 + (ok1 && ok2 && ok3 && ok4 ? '' : ' (注册失败, Win32轮询仍会接管)'));
+      const reg = registerInProgressHotkeys();
+      const fmt = (act) => (hotkeyBindings[act] || act) + '=' + (reg[act] ? 'ok' : 'x');
+      logErr('[SHORTCUT] register ' + Object.keys(hotkeyParsed).map(fmt).join(' ') + (Object.values(reg).every(Boolean) ? '' : ' (注册失败项由 Win32轮询接管)'));
       logErr('[HOTKEY POLL] available=' + hotkeyPoller.available + ' running=' + hotkeyPoller.isRunning() + ' started=' + pollStarted);
     } else {
       inProgressHotkeysActive = false;
       hotkeyPoller.stop();
-      for (const key of ['F6', 'F7', 'F8', 'F9']) {
-        if (globalShortcut.isRegistered(key)) globalShortcut.unregister(key);
-      }
+      unregisterInProgressHotkeys();
       if (augmentOverlayWindow && !augmentOverlayWindow.isDestroyed()) augmentOverlayWindow.hide();
       hideGameTranslateWindow();
       hideGameLiveWindow();
@@ -1568,9 +2029,55 @@ ipcMain.handle('live:playerlist', async () => {
     return await lcu.liveRequest('/liveclientdata/playerlist');
   } catch (err) { return { __error: err.message }; }
 });
+// 对局事件流 (一血/大小龙/团灭/多杀): 解说模式用, 与 gameData 分开取, 失败不影响主数据
+ipcMain.handle('live:eventData', async () => {
+  try {
+    return await lcu.liveRequest('/liveclientdata/eventdata');
+  } catch (err) { return { __error: err.message }; }
+});
 
 // ---------- 系统 ----------
-ipcMain.handle('system:fixWindow', async () => lcu.fixLCUWindow());
+// 修复客户端窗口: 走 win-rect (koffi 直调 user32), 与贴边读矩形共用同一套类名与 DPI 处理。
+// 旧实现用 PowerShell FindWindow("RiotWindowClass") —— 那个类名只在进游戏后存在,
+// 客户端平时是 RCLIENT, 所以按钮永远报"未找到客户端窗口"。
+ipcMain.handle('system:fixWindow', async () => {
+  const W = 1280, H = 720;
+  try {
+    const { screen } = require('electron');
+    // 按客户端当前所在显示器居中; 窗口被拖出屏幕时 getDisplayMatching 会返回最近的那块
+    const cur = winRect.getLeagueClientRect();
+    const disp = (cur && screen.getDisplayMatching({ x: cur.x, y: cur.y, width: cur.width, height: cur.height }))
+      || screen.getPrimaryDisplay();
+    const area = disp.workArea;
+    const target = {
+      x: Math.round(area.x + Math.max(0, (area.width - W) / 2)),
+      y: Math.round(area.y + Math.max(0, (area.height - H) / 2)),
+      width: W,
+      height: H
+    };
+    const r = winRect.setClientBounds(target);
+    if (!r) return { ok: false, reason: 'bad-rect', error: 'calc' };
+    if (r.ok) return { ok: true, className: r.className, before: r.before, after: r.after };
+    // 失败时把"为什么"一起带回去 —— 用户只看得到一行红字, 我们看不到他的屏幕,
+    // 窗口枚举结果 / koffi 加载错误 / Win32 错误码是唯一能远程定位的线索。
+    const probe = r.reason === 'not-found'
+      ? { candidates: (r.candidates || []).slice(0, 6), total: (r.candidates || []).length }
+      : null;
+    return {
+      ok: false,
+      reason: r.reason || 'denied',
+      err: r.err || 0,
+      className: r.className || null,
+      before: r.before || null,
+      probe,
+      loadError: winRect.loadError() || null,
+      available: winRect.isAvailable()
+    };
+  } catch (e) {
+    console.error('[fix-window]', e && e.message);
+    return { ok: false, reason: 'error', error: String((e && e.message) || e) };
+  }
+});
 
 // ---------- 剪贴板写入 (对局内简报复制) ----------
 ipcMain.handle('clipboard:write', async (e, text) => {
@@ -1977,8 +2484,65 @@ ipcMain.handle('ai:chat', async (e, messages) => {
     const resp = await httpsPost(target.hostname, target.port, target.path, {
       'Authorization': 'Bearer ' + cfg.apiKey
     }, body, 90000);
-    if (resp.error) return { __error: resp.error.message || JSON.stringify(resp.error) };
+    if (resp.error) {
+      const msg = String(resp.error.message || JSON.stringify(resp.error));
+      const status = resp.__httpStatus || 0;
+      // 模型下线/改名是这类聚合服务最常见的原因: 直接把下一步动作写进报错里
+      const modelIssue = /model/i.test(msg) && /(unavailable|not available|not found|not exist|does not exist|deprecated|invalid|no such|unknown|not supported|switch to another)/i.test(msg);
+      return { __error: (status ? 'HTTP ' + status + ': ' : '') + msg
+        + (modelIssue ? ' | 该模型可能已下线，点“拉取模型”换一个可用的' : '') };
+    }
+    if (resp.__httpStatus && resp.__httpStatus >= 400) {
+      return { __error: 'HTTP ' + resp.__httpStatus + ': ' + JSON.stringify(resp).slice(0, 200) };
+    }
     return resp;
+  } catch (err) { return { __error: err.message }; }
+});
+
+// 拉取该接口的可用模型列表 (/v1/chat/completions -> /v1/models)
+function resolveModelsUrl(raw) {
+  const target = resolveChatUrl(raw);
+  return {
+    hostname: target.hostname,
+    port: target.port || 443,
+    path: target.path.replace(/\/chat\/completions(\?.*)?$/i, '/models')
+  };
+}
+
+ipcMain.handle('ai:listModels', async () => {
+  try {
+    const cfg = readAiConfig();
+    if (!cfg.apiKey || !cfg.baseUrl) return { __error: '未配置 AI 接口 (工具箱 → AI 复盘设置)' };
+    const target = resolveModelsUrl(cfg.baseUrl);
+    const resp = await new Promise(resolve => {
+      let req;
+      try {
+        req = https.get({
+          hostname: target.hostname, port: target.port, path: target.path, timeout: 20000,
+          headers: { 'Authorization': 'Bearer ' + cfg.apiKey, 'Accept': 'application/json' }
+        }, res => {
+          // 同样先攒 Buffer 再整体解码 (模型列表里有中文厂商名, 逐片解码会乱码)
+          const chunks = [];
+          let bytes = 0;
+          res.on('data', c => {
+            bytes += c.length;
+            if (bytes > 2 * 1024 * 1024) { req.destroy(); resolve({ status: 0, body: '模型列表响应过大' }); }
+            else chunks.push(c);
+          });
+          res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+        });
+        req.on('error', e => resolve({ status: 0, body: e.message }));
+        req.on('timeout', () => { req.destroy(); resolve({ status: 0, body: '请求超时' }); });
+      } catch (e) { resolve({ status: 0, body: e.message }); }
+    });
+    let parsed = null;
+    try { parsed = JSON.parse(resp.body); } catch (e) {}
+    if (!parsed) return { __error: 'HTTP ' + resp.status + ': ' + String(resp.body || '').slice(0, 120) };
+    if (parsed.error) return { __error: 'HTTP ' + resp.status + ': ' + String(parsed.error.message || JSON.stringify(parsed.error)) };
+    const list = Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.models) ? parsed.models : []);
+    const ids = list.map(m => String((m && (m.id || m.name)) || '')).filter(Boolean);
+    if (!ids.length) return { __error: '该接口未返回模型列表 (HTTP ' + resp.status + ')' };
+    return { models: ids };
   } catch (err) { return { __error: err.message }; }
 });
 

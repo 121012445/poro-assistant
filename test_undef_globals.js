@@ -83,6 +83,9 @@ function collect(file) {
     });
   }
   for (const m of src.matchAll(/catch\s*\(\s*([A-Za-z_$][\w$]*)/g)) defs.add(m[1]);
+  // 单参箭头函数的形参不带括号 (new Promise(resolve => ...)), 上面那条带括号的规则抓不到,
+  // 会把 resolve 一律误报成未定义全局。
+  for (const m of src.matchAll(/([A-Za-z_$][\w$]*)\s*=>/g)) defs.add(m[1]);
   // 函数/对象方法的短写法 (含 async)
   for (const m of src.matchAll(/(?:^|[\n{;,])\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^()]*\)\s*\{/g)) defs.add(m[1]);
   return { src, defs };
@@ -96,6 +99,8 @@ const BUILTIN = new Set(('Object Array String Number Boolean Math JSON Date RegE
   + 'document window navigator location localStorage sessionStorage history screen performance matchMedia getComputedStyle '
   + 'AbortController URL URLSearchParams Blob File FileReader FormData Headers Request Response TextEncoder TextDecoder Event CustomEvent '
   + 'MutationObserver IntersectionObserver ResizeObserver Image Audio Worker BroadcastChannel Intl require module exports '
+  + 'Uint8Array Int16Array Int32Array Float32Array Float64Array ArrayBuffer DataView '
+  + 'AudioContext OfflineAudioContext AudioBuffer AudioBufferSourceNode MediaElementAudioSourceNode SpeechSynthesisUtterance '
   + 'atob btoa webkitRequestAnimationFrame').split(' '));
 
 const OPT_OUT = /\/\/\s*undef-ok\b/;

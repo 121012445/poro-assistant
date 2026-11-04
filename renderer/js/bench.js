@@ -594,6 +594,8 @@ function handleChampSelectEvent(session) {
     }
   }
   if (now - _lastAutoBPTs > 1000) { _lastAutoBPTs = now; doAutoBP(); }
+  // 选人保底：autoBP 先跑（它按优先级主动出手），没 hover 时才由保底补位。
+  if (typeof pickGuardTick === 'function') pickGuardTick(session);
   // 捕获选人聊天房间 ID (对局内 KDA 简报的发送通道, 每次选人只查一次)
   if (!_champSelectChatCid && session && Array.isArray(session.myTeam) && session.myTeam.length) {
     lolAPI.lcuRequest('GET', '/lol-chat/v1/conversations').then(cs => {

@@ -1102,6 +1102,7 @@ function capturePendingEogGame(block) {
   writePendingEogGames(puuid, rows);
   if (!profileOverride && homeGamesOwner === puuid && Array.isArray(homeGamesData)) {
     homeGamesData = [game].concat(homeGamesData.filter(g => String(g.gid) !== String(game.gid)));
+    if (typeof growthRecordGames === 'function' && puuid) growthRecordGames([game], puuid);
     renderHomeModeFilter();
     renderHomeGameList();
     // 画像页吃的是同一份 homeGamesData, 新对局落账后若它已挂载也要跟着更新。
@@ -2033,6 +2034,12 @@ async function loadHomeStats(force, opts) {
     // 画像页(#page-profile)与首页共用这份数据。若画像页已经挂载过、或用户正停在
     // 画像页等数据, 这里补一次渲染; 否则完全不碰它, 不白算教练分析。
     refreshProfilePageIfMounted();
+    // 成长页的长期趋势全靠这里逐局累积 —— SGP 一次只给最近 50 局，
+    // 不落本地账本的话，"90 天胜率"永远只能算出这 50 局覆盖的那几天。
+    if (homeGamesOwnerIsSelf && typeof growthRecordGames === 'function') {
+      growthRecordGames(games, s.puuid);
+      if (typeof refreshGrowthPageIfMounted === 'function') refreshGrowthPageIfMounted();
+    }
     // 同一玩家重新载入(新对局落账/返回档案/缓存刷新)时保留已展开条数 ——
     // 用户往下刷到 60 条, 任何一次后台刷新都不该把它打回 20 条;
     // 换人查看(含搜索其他玩家)才收回一页。

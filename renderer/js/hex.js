@@ -1206,10 +1206,22 @@ function renderOpggGameDetail(norm, container) {
 
   container.innerHTML = `
     <div class="ogd-wrap">
+      <div class="ogd-actions"><button class="btn-secondary" type="button" data-battle-card>保存战报卡</button></div>
       <div class="ak-party-summary" data-party-summary>组队关系识别中…</div>
       ${teamBlock(tids[0])}
       ${tids[1] ? teamBlock(tids[1]) : ''}
     </div>`;
+  // 战报卡: 交给 battle-card.js 拼 HTML + 主进程离屏截图。
+  // 必须 stopPropagation —— 详情整体挂在卡片 onclick 上, 冒泡会让详情直接折叠。
+  const bcBtn = container.querySelector('[data-battle-card]');
+  if (bcBtn && window.PoroBattleCard) {
+    bcBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      window.PoroBattleCard.save(norm, ownerPuuid);
+    });
+  } else if (bcBtn) {
+    bcBtn.remove();
+  }
 }
 
 function applyMatchPremadeBadges(container, info, loading = false) {

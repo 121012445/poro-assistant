@@ -15,7 +15,56 @@
 .rv-ai { margin-top: 10px; }
 .rv-ai-btn { font-size: 11px; }
 .rv-ai-out { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--text-primary); }
-.rv-ai-line { padding: 2px 0; }
+.rv-ai-out:empty { margin-top: 0; }
+
+/* ---- AI 复盘产物 ----
+   原先是纯文本 + <br>, 模型输出的 **星号 和 1. 编号 全部裸着显示, 读起来像贴了段日志。
+   现在按"标题栏 → 总评 → 分类要点"排版: 每条要点是一张带序号的小卡,
+   【亮点】【问题】【建议】抽成彩色 chip, 数字用等宽数字加粗以便扫读。
+   颜色只用品牌色 + 正/负两色, 不额外引入第三种装饰色。 */
+.rv-ai-head { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+.rv-ai-style { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.rv-ai-time { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rv-ai-head .rv-ai-cache { display: inline-flex; align-items: center; gap: 4px; margin: 0; color: var(--text-muted); font-size: 10px; }
+.rv-ai-head .rv-ai-cache::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--positive); opacity: .7; }
+.rv-ai-copy { display: inline-flex; align-items: center; margin-left: auto; padding: 2px 9px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-muted); font-size: 10px; line-height: 1.6; cursor: pointer; user-select: none; transition: color .15s, border-color .15s, background .15s; }
+.rv-ai-copy:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--bg-hover); }
+.rv-ai-copy:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: 1px; }
+.rv-ai-copy.ok { color: var(--positive); border-color: color-mix(in srgb, var(--positive) 45%, var(--border)); }
+
+.rv-md-doc { background: color-mix(in srgb, var(--bg-secondary) 55%, transparent); border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 12px; padding: 12px 13px; }
+.rv-md-verdict { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 4px; padding: 9px 11px; border-left: 3px solid var(--accent); border-radius: 4px 10px 10px 4px; background: color-mix(in srgb, var(--accent) 7%, var(--bg-card)); color: var(--text-primary); font-size: 12.5px; font-weight: 600; line-height: 1.55; }
+.rv-md-verdict-k { flex: none; margin-top: 2px; padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .06em; }
+
+.rv-md-sec { display: flex; align-items: center; gap: 7px; margin: 13px 0 7px; color: var(--text-secondary); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.rv-md-sec:first-child { margin-top: 2px; }
+.rv-md-sec-bar { width: 3px; height: 11px; border-radius: 2px; background: var(--accent); }
+
+.rv-md-list { display: flex; flex-direction: column; gap: 6px; }
+.rv-md-item { display: flex; gap: 9px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 9px; background: var(--bg-card); transition: border-color .15s, transform .15s; }
+.rv-md-item:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.rv-md-idx { flex: none; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 11%, transparent); color: var(--accent); font-size: 9.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rv-md-body { flex: 1; min-width: 0; color: var(--text-primary); font-size: 12px; line-height: 1.65; }
+.rv-md-body strong { font-weight: 700; color: var(--text-primary); }
+.rv-md-body code { padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, var(--text-primary) 8%, transparent); font-family: Consolas, 'Courier New', monospace; font-size: 11px; }
+.rv-md-n { color: var(--text-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rv-md-tag { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; vertical-align: 1px; }
+.rv-md-tag.pos { color: var(--positive); background: color-mix(in srgb, var(--positive) 13%, transparent); }
+.rv-md-tag.neg { color: var(--negative); background: color-mix(in srgb, var(--negative) 13%, transparent); }
+.rv-md-tag.acc { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.rv-md-tag.neu { color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 12%, transparent); }
+.rv-md-p { margin: 7px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.rv-md-quote { margin: 7px 0; padding-left: 10px; border-left: 2px solid var(--border); color: var(--text-secondary); font-size: 12px; }
+.rv-md-hr { height: 1px; margin: 10px 0; background: color-mix(in srgb, var(--border) 70%, transparent); }
+
+.rv-ai-loading { display: flex; align-items: center; gap: 5px; padding: 10px 2px; color: var(--text-muted); font-size: 11px; }
+.rv-ai-loading i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .3; animation: rvDot 1s infinite ease-in-out; }
+.rv-ai-loading i:nth-child(2) { animation-delay: .15s; }
+.rv-ai-loading i:nth-child(3) { animation-delay: .3s; }
+.rv-ai-loading span { margin-left: 3px; }
+@keyframes rvDot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+.rv-ai-err { padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--negative) 28%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--negative) 7%, transparent); color: var(--negative); font-size: 11.5px; line-height: 1.55; }
+.rv-ai-empty { color: var(--text-muted); font-size: 11px; }
 
 /* 出装方案 */
 .is-block { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; background: var(--bg-card); }

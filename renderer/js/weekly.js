@@ -108,7 +108,9 @@ function closeWeeklyModal() {
 async function saveWeeklyReportImage() {
   const card = document.getElementById('weeklyCardInner');
   if (!card) return;
-  const r = await lolAPI.saveShareCard(card.outerHTML, Math.ceil(card.getBoundingClientRect().width), Math.ceil(card.getBoundingClientRect().height)).catch(e => ({ __error: e?.message || e }));
+  const r = await lolAPI.saveShareCard(card.outerHTML, Math.ceil(card.getBoundingClientRect().width), Math.ceil(card.getBoundingClientRect().height), {
+    title: '保存周报图片', prefix: 'Poro周报', theme: document.body.classList.contains('dark') ? 'dark' : 'light'
+  }).catch(e => ({ __error: e?.message || e }));
   if (r && r.ok) showToast('周报已保存: ' + r.filePath, 'positive');
   else if (r && !r.canceled) showToast('保存失败: ' + (r.__error || '未知错误'), 'negative');
 }

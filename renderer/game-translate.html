@@ -3,21 +3,57 @@
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
-<title>Poro 聊天翻译</title>
+<title>Poro 聊天弹幕</title>
 <style>
   html, body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; color:#f5f0e7; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; user-select:none; }
-  .gt-wrap { box-sizing:border-box; width:100%; max-height:100%; overflow:hidden; padding:8px 10px; border-radius:13px; display:flex; flex-direction:column; gap:5px;
-    background:linear-gradient(145deg,rgba(15,36,49,.90),rgba(24,24,37,.88)); border:1px solid rgba(91,220,217,.42);
-    box-shadow:0 10px 28px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.07); }
-  .gt-line { min-width:0; }
-  .gt-name { display:inline-block; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#8fd7e0; font-size:11px; font-weight:700; vertical-align:bottom; }
-  .gt-body { display:block; margin-top:1px; font-size:13px; font-weight:700; line-height:1.35; word-break:break-word;
-    text-shadow:0 1px 3px rgba(0,0,0,.65); }
+  /* 直播姬弹幕风: 无外框, 每条独立半透明胶囊, 新条从底部滑入, 16 秒淡出 */
+  .gt-wrap { box-sizing:border-box; width:100%; max-height:calc(100% - 46px); overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; gap:6px; padding:4px 2px 6px; }
+  .gt-line { border-radius:10px; padding:5px 11px; max-width:100%; box-sizing:border-box;
+    background:rgba(10,20,28,.48); border:1px solid rgba(255,255,255,.10);
+    box-shadow:0 2px 10px rgba(0,0,0,.30);
+    animation:gtIn .18s ease-out; transition:opacity .8s ease; }
+  .gt-line.gt-old { opacity:.30; }
+  .gt-name { display:inline-block; max-width:56%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#7fd8e0; font-size:11px; font-weight:700; vertical-align:bottom; margin-right:6px; }
+  .gt-line.gt-self .gt-name { color:#8fe0a8; }
+  .gt-body { display:inline; font-size:14px; font-weight:700; line-height:1.4; word-break:break-word; text-shadow:0 1px 3px rgba(0,0,0,.7); }
   .gt-orig { display:block; margin-top:1px; font-size:10px; line-height:1.3; color:#9db1b7; word-break:break-word; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .gt-hint { border-radius:9px; padding:3px 10px; font-size:11px; letter-spacing:.5px;
+    color:rgba(210,225,230,.62); background:rgba(10,20,28,.30); border:1px solid rgba(255,255,255,.08); }
+  /* 输入条: 常态极淡提示; 输入模式高亮并获得焦点 */
+  .gt-inputrow { display:flex; gap:6px; align-items:center; margin-top:2px; border-radius:10px; padding:6px 9px; box-sizing:border-box;
+    background:rgba(10,20,28,.30); border:1px solid rgba(255,255,255,.10); opacity:.42; transition:opacity .15s ease, border-color .15s ease; }
+  .gt-inputrow.gt-active { opacity:1; border-color:rgba(127,216,224,.65); background:rgba(10,20,28,.72); box-shadow:0 0 14px rgba(64,180,190,.25); }
+  .gt-inputrow input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:#f5f0e7; font-size:14px; font-weight:600;
+    font-family:inherit; caret-color:#7fd8e0; }
+  .gt-inputrow input::placeholder { color:rgba(190,205,212,.55); font-weight:400; }
+  .gt-send { border:0; border-radius:7px; padding:3px 10px; font-size:12px; font-weight:700; cursor:pointer;
+    color:#06282c; background:linear-gradient(135deg,#6fd6de,#4db9c4); }
+  .gt-send:disabled { opacity:.5; cursor:default; }
+  .gt-err { font-size:11px; color:#ff9d8f; min-height:0; }
+  .gt-wrap.gt-typing .gt-hint { display:none; }
+  /* 打字模式: 顶部出现拖动条 (常态鼠标穿透点不到, 只有打字模式才能拖) */
+  .gt-dragbar { display:none; -webkit-app-region:drag; border-radius:9px; padding:4px 10px; font-size:11px; text-align:center;
+    color:rgba(210,225,230,.78); background:rgba(10,20,28,.55); border:1px solid rgba(255,255,255,.16); cursor:move; }
+  .gt-wrap.gt-typing .gt-dragbar { display:block; }
+  .gt-inputrow, .gt-inputrow * { -webkit-app-region:no-drag; }
+  /* 打字模式: 弹幕区可滚动回看历史 (细滚动条), 退出后恢复只显最新 */
+  .gt-wrap.gt-typing #gtLines { overflow-y:auto; min-height:0; scrollbar-width:thin; scrollbar-color:rgba(127,216,224,.35) transparent; }
+  .gt-wrap.gt-typing #gtLines::-webkit-scrollbar { width:5px; }
+  .gt-wrap.gt-typing #gtLines::-webkit-scrollbar-thumb { background:rgba(127,216,224,.35); border-radius:3px; }
+  @keyframes gtIn { from { transform:translateY(10px); opacity:0; } to { transform:translateY(0); opacity:1; } }
 </style>
 </head>
 <body>
-  <div class="gt-wrap" id="gtWrap" style="display:none;"></div>
+  <div class="gt-wrap" id="gtWrap">
+    <div class="gt-dragbar" id="gtDrag" title="按住拖到顺手的位置, 自动记住; 双击恢复默认">⠿ 按住拖动挪位置 · 双击恢复默认</div>
+    <div id="gtLines" style="display:flex;flex-direction:column;gap:6px;"></div>
+    <div class="gt-hint" id="gtHint">Ctrl+F10 打字 → 回车翻成外语发给队友 · Esc 取消</div>
+    <div class="gt-inputrow" id="gtInputRow">
+      <input id="gtInput" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入中文，回车发送…">
+      <button class="gt-send" id="gtSend" type="button">发送</button>
+    </div>
+    <div class="gt-err" id="gtErr"></div>
+  </div>
   <script src="js/game-translate.js"></script>
 </body>
 </html>

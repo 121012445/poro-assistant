@@ -33,11 +33,35 @@
   .tag { display:inline-block; margin-left:3px; padding:0 4px; border-radius:5px; font-size:8px; background:rgba(255,255,255,.10); color:#b9c8cc; vertical-align:1px; }
   .tag.premade { color:#f4d48a; background:rgba(224,176,78,.16); }
   .state { color:#8fa4aa; font-size:10px; text-align:center; padding:16px 0; }
+  /* 本局实时区块: 只有拿到数据才显示, 没数据时不留空档 */
+  .board { flex-shrink:0; display:flex; flex-direction:column; gap:3px; padding:5px 7px 6px; border-radius:9px;
+    background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.06); }
+  .board[hidden] { display:none; }
+  .b-top { display:flex; align-items:center; gap:6px; font-size:10px; }
+  .b-time { color:#8fa4aa; font-variant-numeric:tabular-nums; }
+  .b-lead { font-weight:800; font-size:11px; }
+  .b-lead.up { color:#58e6ad; } .b-lead.down { color:#ff7580; } .b-lead.flat { color:#8fa4aa; }
+  .b-gold { margin-left:auto; color:#7f979d; font-variant-numeric:tabular-nums; }
+  .b-bar { position:relative; height:5px; border-radius:3px; background:rgba(255,255,255,.09); overflow:hidden; }
+  .b-bar i { position:absolute; top:0; bottom:0; border-radius:3px; transition:left .35s ease,width .35s ease; }
+  .b-bar i.up { background:linear-gradient(90deg,rgba(88,230,173,.45),#58e6ad); }
+  .b-bar i.down { background:linear-gradient(90deg,#ff7580,rgba(255,117,128,.45)); }
+  .b-bar u { position:absolute; left:50%; top:-1px; bottom:-1px; width:1px; background:rgba(255,255,255,.30); }
+  .b-sub { font-size:9px; color:#9db0b5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>
 </head>
 <body>
   <div class="panel">
     <div class="head"><span class="poro">P</span><span class="title">对局战报</span><span class="tip">F9 显示/隐藏</span></div>
+    <div class="board" id="board" hidden>
+      <div class="b-top">
+        <span class="b-time" id="bTime">00:00</span>
+        <span class="b-lead flat" id="bLead">--</span>
+        <span class="b-gold" id="bGold"></span>
+      </div>
+      <div class="b-bar"><i class="up" id="bFill"></i><u></u></div>
+      <div class="b-sub" id="bSub"></div>
+    </div>
     <div class="teams" id="teams"><div class="state">正在读取本局数据…<br>(实时对局页拉到战绩后自动更新)</div></div>
   </div>
   <script src="js/game-live.js"></script>

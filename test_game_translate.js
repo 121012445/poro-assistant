@@ -1,0 +1,284 @@
+// 聊天翻译（translate.js）行为测试
+// 重点是被忽略的那一半：自己在游戏里打的中文有没有被翻出来补发给队友。
+const fs = require('fs');
+const vm = require('vm');
+const path = require('path');
+
+let pass = 0, fail = 0;
+function ok(name, cond, extra) {
+  if (cond) { pass++; return; }
+  fail++;
+  console.log('✗ ' + name + (extra !== undefined ? '  → ' + JSON.stringify(extra) : ''));
+}
+
+const SRC = fs.readFileSync(path.join(__dirname, 'renderer/js/translate.js'), 'utf8');
+
+function makeEnv(opts = {}) {
+  const sent = [];
+  const translated = [];
+  const pushed = [];
+  const store = Object.assign({ gameTranslate: '1', translateTarget: 'en', gtAutoMine: '1' }, opts.store || {});
+  const messages = opts.messages || [];
+  const clock = { t: 1700000000000 };
+  const ctx = {
+    console, Promise, Number, String, Array, Set, Map, JSON, Math, Object,
+    setTimeout: (fn) => { if (typeof fn === 'function') Promise.resolve().then(fn); return 1; },
+    clearTimeout: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
+    Date: { now: () => clock.t },
+    storeGet: k => (store[k] === undefined ? '' : store[k]),
+    storeSet: (k, v) => { store[k] = v; },
+    showToast: () => {},
+    guardWrite: () => (opts.allowWrite === false ? false : true),
+    lcuConnected: true,
+    document: { getElementById: () => null },
+    window: { _gameflowPhase: 'InProgress' },
+    getGameChatCid: async () => opts.cid === undefined ? 'c1' : opts.cid,
+    lolAPI: {
+      lcuRequest: async (method, url) => {
+        if (/\/messages$/.test(url)) return messages;
+        if (/\/lol-chat\/v1\/me$/.test(url)) return { id: opts.myId || 'me-id' };
+        if (/\/current-summoner$/.test(url)) return opts.puuid ? { puuid: opts.puuid, gameName: opts.myName || '' } : {};
+        if (/\/conversations$/.test(url)) return opts.convs || [];
+        return {};
+      },
+      translateText: async (texts, target) => {
+        translated.push({ texts, target });
+        return texts.map((t) => {
+          if (opts.failTranslate) return '';
+          if (target === 'en') return opts.enResult !== undefined ? opts.enResult : ('EN[' + t.length + ']');
+          return '中文译文(' + t + ')';
+        });
+      },
+      sendGameChatNow: async (text) => { sent.push(text); return { ok: true }; },
+      gameTranslatePush: (payload) => pushed.push(payload),
+      debugLog: () => {}
+    }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(SRC, ctx);
+  vm.runInContext('initGameTranslate()', ctx);   // 从 store 载入开关（gtEnabled / gtAutoMine）
+  return {
+    ctx, sent, translated, pushed, clock,
+    advance: ms => { clock.t += ms; },
+    get: n => vm.runInContext(n, ctx),
+    set: (n, v) => vm.runInContext(`${n} = ${JSON.stringify(v)}`, ctx),
+    run: fn => vm.runInContext(fn, ctx)
+  };
+}
+
+const flushAsync = () => new Promise(r => setTimeout(r, 60));
+
+function msg(id, body, fromId) {
+  return { id, body, fromId: fromId || 'other-id', fromDisplay: { gameName: '老外' } };
+}
+
+(async () => {
+  console.log('— 语种判定 —');
+  {
+    const e = makeEnv();
+    ok('纯英文算外语', e.run('gtLooksForeign')('gg wp') === true);
+    ok('日文算外语', e.run('gtLooksForeign')('ありがとう') === true);
+    ok('纯中文不算外语', e.run('gtLooksForeign')('谢谢你') === false);
+    ok('含中文就不当外语', e.run('gtLooksForeign')('gg 谢谢') === false);
+  }
+
+  console.log('— 别人发的消息 —');
+  {
+    const e = makeEnv({ messages: [msg('1', 'mid open'), msg('2', 'push top')] });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('外语消息被翻译成中文', e.translated.some(t => t.target === 'zh-CN'), e.translated);
+    ok('译文推进浮窗', e.pushed.length > 0 && e.pushed[0].lines.length === 2, e.pushed);
+    ok('别人的消息不会被补发', e.sent.length === 0, e.sent);
+  }
+  {
+    const e = makeEnv({ messages: [msg('1', '谢谢你', 'other-id')] });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('别人的中文不翻译', e.translated.length === 0, e.translated);
+  }
+
+  console.log('— 我自己发的消息 —');
+  {
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')] });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('我发的中文被翻译成目标语言', e.translated.some(t => t.target === 'en'), e.translated);
+    ok('译文被补发到游戏聊天', e.sent.length === 1 && /^EN\[/.test(e.sent[0]), e.sent);
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('浮窗里也显示我补发了什么', lines.some(l => /已补发/.test(l.name) && /^EN\[/.test(l.translated)), lines);
+  }
+  {
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')], store: { gtAutoMine: '0' } });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('关掉开关后我发的中文不再补发', e.sent.length === 0 && e.translated.length === 0, e.sent);
+  }
+  {
+    // 我发的英文：翻成中文放进浮窗，确认自己那句在外服语境里的意思；不补发
+    const e = makeEnv({ messages: [msg('1', 'top gap', 'me-id')] });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('我发的英文被翻成中文', e.translated.some(t => t.target === 'zh-CN'), e.translated);
+    ok('我发的英文不补发', e.sent.length === 0, e.sent);
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('浮窗里显示我的英文和中文意思', lines.some(l => l.body === 'top gap' && /中文译文/.test(l.translated)), lines);
+  }
+  {
+    // 译文里残留中文 → 宁可不发，也别让队友看到半截
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')], enResult: 'jungler 在中路' });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('译文残留中文时不发送', e.sent.length === 0, e.sent);
+  }
+  {
+    // 翻译接口返回空 → 不能把原文再发一遍
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')], failTranslate: true });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('翻译失败时不发原文', e.sent.length === 0, e.sent);
+  }
+  {
+    // 我们自己补发的译文会被扫到，必须靠 gtEchoed 挡住，否则死循环
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')] });
+    await e.run('gtScan')();
+    await flushAsync();
+    const firstSent = e.sent.slice();
+    // 把发出去的译文当成一条新消息再扫一遍
+    const echoMsg = msg('2', firstSent[0], 'me-id');
+    vm.runInContext('gtQueue = []', e.ctx);
+    vm.runInContext('gtSeen = new Set()', e.ctx);
+    e.ctx.lolAPI.lcuRequest = async (m, url) => (/\/messages$/.test(url) ? [echoMsg] : {});
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('补发的译文不会被再翻一次', e.sent.length === firstSent.length, { before: firstSent.length, after: e.sent.length });
+  }
+  {
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')], allowWrite: false });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('合规模式下不代发', e.sent.length === 0, e.sent);
+  }
+
+  console.log('— 防刷屏 (1.5.33) —');
+  {
+    // 默认开启: 没存过 gtAutoMine 时，游戏里打中文就自动补英文（这才是"不用切窗口"的用法）
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')], store: { gtAutoMine: '' } });
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('默认就自动补发', e.sent.length === 1, e.sent);
+  }
+  {
+    // 击杀播报挂着本人名字, 会被当成"我发的消息" → 不许翻译也不许补发
+    const cases = [
+      ['杀人如麻', 'chat'],
+      ['雨未眠 已经大杀特杀', 'chat'],
+      ['Riven is on a killing streak', 'chat'],
+      ['on a killing streak', 'system']
+    ];
+    for (const [body, type] of cases) {
+      const e = makeEnv({ messages: [{ id: '1', body, fromId: 'me-id', type, fromDisplay: { gameName: 'me' } }] });
+      await e.run('gtScan')();
+      await flushAsync();
+      ok('系统播报不翻译不补发: ' + body, e.sent.length === 0 && e.translated.length === 0,
+        { sent: e.sent, translated: e.translated });
+    }
+  }
+  {
+    // 真正的原凶: bench.js 兜底轮询每 12 秒重复调 handleGameflowPhase('InProgress')，
+    // 早先每次都重置 gtSeen → 同一批消息无限重发
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')] });
+    await e.run('gameTranslateOnPhase')('InProgress');   // 进局的那一次回调
+    await e.run('gtScan')();
+    await flushAsync();
+    const first = e.sent.length;
+    ok('第一次正常补发一条', first === 1, e.sent);
+    for (let i = 0; i < 3; i++) {
+      e.advance(12000);
+      await e.run('gameTranslateOnPhase')('InProgress');
+      await e.run('gtScan')();
+      await flushAsync();
+    }
+    ok('12 秒重复回调不再补发', e.sent.length === first, { before: first, after: e.sent.length });
+    ok('已读集合没有被清空', e.get('gtSeen.size') >= 1, e.get('gtSeen.size'));
+    // 真的打完一局再进下一局, 状态才该重置
+    await e.run('gameTranslateOnPhase')('EndOfGame');
+    await e.run('gameTranslateOnPhase')('InProgress');
+    ok('换局后才重置已读', e.get('gtSeen.size') === 0, e.get('gtSeen.size'));
+  }
+  {
+    // 同一句 5 秒内不重发，超过窗口就该发（正常重复说话不能被卡死）
+    const e = makeEnv({ messages: [msg('1', '打野在中路', 'me-id')] });
+    await e.run('gtScan')();
+    await flushAsync();
+    const first = e.sent.length;
+    e.advance(2000);
+    e.ctx.lolAPI.lcuRequest = async (m, url) => (/\/messages$/.test(url) ? [msg('2', '打野在中路', 'me-id')] : {});
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('同一句 2 秒内不重发', e.sent.length === first, { before: first, after: e.sent.length });
+    e.advance(10000);
+    e.ctx.lolAPI.lcuRequest = async (m, url) => (/\/messages$/.test(url) ? [msg('3', '打野在中路', 'me-id')] : {});
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('过了窗口后重复说话照常发', e.sent.length === first + 1, { want: first + 1, got: e.sent.length });
+  }
+  {
+    // 每局总量闸门 (只防失控, 不能影响正常交流)
+    const msgs = [];
+    // 每条长度都不同, 否则假翻译器会返回同一串译文, 被"同句不重发"挡掉 (那是另一条规则)
+    for (let i = 0; i < 60; i++) msgs.push(msg('m' + i, '第' + i + '句话' + '啊'.repeat(i), 'me-id'));
+    const e = makeEnv({ messages: msgs });
+    for (let i = 0; i < 60; i++) { e.advance(2000); await e.run('gtScan')(); await flushAsync(); }
+    ok('每局补发有上限', e.sent.length <= 40 && e.sent.length >= 1, e.sent.length);
+  }
+
+  console.log('— 会话房间解析 —');
+  {
+    const e = makeEnv({ cid: null, convs: [
+      { id: 'c1', type: 'groupchat' },
+      { id: '1234', type: 'friend' }
+    ] });
+    const cids = await e.run('gtResolveCids')();
+    ok('championSelect 房间缺失时退到 groupchat', cids.includes('c1'), cids);
+  }
+  {
+    const e = makeEnv({ cid: null, convs: [{ id: 'c1', type: 'custom' }, { id: '999', type: 'friend' }] });
+    const cids = await e.run('gtResolveCids')();
+    ok('再退一步认 c1/c2 房间号', cids.includes('c1'), cids);
+  }
+  {
+    // 队伍 c1 和全体 c2 都要扫：只取一个的话另一边的消息永远看不到
+    const e = makeEnv({ cid: null, convs: [{ id: 'c1', type: 'custom' }, { id: 'c2', type: 'custom' }] });
+    const cids = await e.run('gtResolveCids')();
+    ok('c1 与 c2 两个房间都扫', cids.length === 2 && cids.includes('c1') && cids.includes('c2'), cids);
+  }
+  {
+    const e = makeEnv({ cid: null, convs: [{ id: '555', type: 'friend' }] });
+    const cids = await e.run('gtResolveCids')();
+    ok('只有好友私聊时宁可不翻', cids.length === 0, cids);
+  }
+  {
+    // 实测国服非对局时只有一条 type=chat、id 是本人 puuid 的会话 → 不该被当成聊天房间
+    const e = makeEnv({ cid: null, convs: [{ id: 'me@pvp.net', type: 'chat' }], puuid: 'me@pvp.net' });
+    const cids = await e.run('gtResolveCids')();
+    ok('本人的主会话被排除', cids.length === 0, cids);
+  }
+  {
+    // 对局中房间名不一定是 c1/c2，认不出来时放宽度到"非好友会话"
+    const e = makeEnv({ cid: null, convs: [{ id: 'me@pvp.net', type: 'chat' }, { id: 'room-42', type: 'chat' }], puuid: 'me@pvp.net' });
+    const cids = await e.run('gtResolveCids')();
+    ok('认不出房间名时兜底选中非好友会话', cids.includes('room-42') && !cids.includes('me@pvp.net'), cids);
+  }
+  {
+    // 能认出来就用精确匹配的，不要混入其他会话
+    const e = makeEnv({ cid: null, convs: [{ id: 'c1', type: 'custom' }, { id: 'room-42', type: 'chat' }] });
+    const cids = await e.run('gtResolveCids')();
+    ok('精确房间存在时不混入兜底会话', cids.length === 1 && cids[0] === 'c1', cids);
+  }
+
+  console.log(`\n聊天翻译: ${pass} 通过 / ${fail} 失败`);
+  if (fail) process.exit(1);
+})();

@@ -34,3 +34,7 @@ _debug_archive/*
 !_debug_archive/probe_overlay.js
 # 用 koffi 枚举窗口, 找客户端窗口类名与矩形 (贴边定位的数据来源)
 !_debug_archive/probe_client_window.js
+
+# 临时验证脚本与会话数据, 不入库
+.verify-*.js
+.workbuddy/

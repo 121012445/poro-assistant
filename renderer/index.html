@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026102501">
-<link rel="stylesheet" href="css/extras.css?v=2026102501">
-<link rel="stylesheet" href="css/dark.css?v=2026102501">
-<link rel="stylesheet" href="css/premium.css?v=2026102501">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026102501">
+<link rel="stylesheet" href="css/style.css?v=2026110420">
+<link rel="stylesheet" href="css/extras.css?v=2026110420">
+<link rel="stylesheet" href="css/dark.css?v=2026110420">
+<link rel="stylesheet" href="css/premium.css?v=2026110420">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026110420">
 </head>
 <body>
 
@@ -42,6 +42,10 @@
     <a href="#" class="nav-item" data-page="profile">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>
       <span>我的画像</span>
+    </a>
+    <a href="#" class="nav-item" data-page="growth">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg>
+      <span>成长</span>
     </a>
     <a href="#" class="nav-item" data-page="champions">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -99,6 +103,15 @@
       <span id="profileOwnerNote" class="profile-owner-note" hidden></span>
     </div>
     <div id="profilePanel"><div class="meta-loading">先到「首页」加载战绩后查看画像</div></div>
+  </div>
+
+  <!-- 成长：跨局训练计划 + 本机长期趋势。数据全在本机 (AI 复盘缓存 + 对局台账)。 -->
+  <div class="page" id="page-growth">
+    <div class="page-header">
+      <h2>成长</h2>
+      <p class="page-sub">跨局训练计划 · 长期趋势 · 只统计本机已存下的复盘与对局，不预测、不打分</p>
+    </div>
+    <div id="growthPanel"><div class="meta-loading">先到「首页」加载战绩后查看成长数据</div></div>
   </div>
 
   <!-- 英雄库 -->
@@ -260,6 +273,24 @@
         <div id="benchDiag" class="tool-state bench-diag"></div>
       </div>
       <div class="tool-card">
+        <h3>选人保底（防超时随机）</h3>
+        <p>轮到你选人时，如果你还没悬停任何英雄，助手替你<b>先悬停一个</b>，避免倒计时结束时被随机分配。补的只是<b>悬停</b>，<b>不会锁定</b>，你之后随时能换。</p>
+        <p class="tool-state">英雄来源：优先用「自动 BP」里配置的出战英雄池；池子为空时按你客户端里的英雄熟练度取前 10，不配置也能用。</p>
+        <div class="tool-row">
+          <span id="pickGuardState" class="tool-state">已关闭</span>
+          <label class="switch"><input type="checkbox" id="pickGuardToggle" onchange="togglePickGuard(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <select id="pickGuardLock" class="tool-select" onchange="setPickGuardLock(this.value)">
+            <option value="0">超时锁定: 关（只补悬停，推荐）</option>
+            <option value="5">超时锁定: 剩余 5 秒</option>
+            <option value="8">超时锁定: 剩余 8 秒</option>
+            <option value="12">超时锁定: 剩余 12 秒</option>
+          </select>
+        </div>
+        <p class="tool-warn">⚠ 补位只写你本机客户端，不发聊天、不改队友。开启「超时锁定」后助手会替你把悬停的英雄锁死，请确认池子里的顺序是你愿意接受的结果。</p>
+      </div>
+      <div class="tool-card">
         <h3>组队提示</h3>
         <p>汇总本局玩家近 30 场同队记录；共同出现至少 3 次时标记为疑似开黑，并在选人聊天中提示。</p>
         <div class="tool-row">
@@ -271,11 +302,74 @@
         </div>
       </div>
       <div class="tool-card">
+        <h3>解说模式</h3>
+        <p>实时解说：击杀阵亡、多杀、推塔、大小龙、团灭、五分钟小结。默认在线语音，只发播报文本，连不上自动回退本机音色；音色可选柔和（默认，降调并削掉刺耳高频）/ 原声 / 深沉。</p>
+        <div class="tool-row">
+          <span id="commentaryState" class="tool-state">已关闭</span>
+          <label class="switch"><input type="checkbox" id="commentaryToggle" onchange="toggleCommentary(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <select id="commentaryTone" class="tool-select" onchange="setCommentaryOption('tone', this.value)">
+            <option value="caster">风格: 解说</option>
+            <option value="coach">风格: 教练</option>
+            <option value="tough">风格: 毒舌</option>
+          </select>
+          <select id="commentaryRate" class="tool-select" onchange="setCommentaryOption('rate', this.value)">
+            <option value="0.85">语速: 慢</option>
+            <option value="1">语速: 正常</option>
+            <option value="1.15">语速: 快</option>
+          </select>
+        </div>
+        <div class="tool-row" style="gap:8px;">
+          <select id="commentaryEngine" class="tool-select" onchange="setCommentaryOption('engine', this.value)">
+            <option value="online">语音: 在线 (更自然)</option>
+            <option value="local">语音: 本机 (离线)</option>
+          </select>
+          <select id="commentaryVoice" class="tool-select" onchange="setCommentaryOption('voice', this.value)"></select>
+        </div>
+        <div class="tool-row" style="gap:8px;">
+          <select id="commentaryStyle" class="tool-select" onchange="setCommentaryOption('style', this.value)">
+            <option value="soft">音色: 柔和 (推荐)</option>
+            <option value="clear">音色: 原声</option>
+            <option value="deep">音色: 深沉</option>
+          </select>
+          <button class="btn-secondary" onclick="testCommentaryVoice()" style="font-size:12px;">试听</button>
+        </div>
+        <div class="tool-row" style="gap:8px;">
+          <span class="tool-state">音量</span>
+          <input type="range" id="commentaryVolume" min="0" max="100" step="5" value="90" oninput="setCommentaryOption('volume', this.value)" style="flex:1">
+        </div>
+        <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvPhase" checked onchange="setCommentaryEvent('phase', this.checked)"> 阶段</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvKill" checked onchange="setCommentaryEvent('kill', this.checked)"> 击杀</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvObjective" checked onchange="setCommentaryEvent('objective', this.checked)"> 目标物</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvSwing" checked onchange="setCommentaryEvent('swing', this.checked)"> 局势</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvSummary" checked onchange="setCommentaryEvent('summary', this.checked)"> 五分钟小结</label>
+        </div>
+        <p id="commentaryHint" class="tool-state" style="margin-top:6px;">未开启</p>
+      </div>
+      <div class="tool-card">
+        <h3>对局提示</h3>
+        <p>对局中播报三类局面信息: 对面成装进度、你所在对位的经济差、十分钟补刀。语音共用「解说模式」的音色和语速, 但开关互相独立 —— 只开这张卡也会出声。经济按装备原价加补刀折金估算, 只用于双方相对比较; 位置无法确定时不做对位比较, 也不会给出数字。</p>
+        <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipItemSpike" onchange="setLiveTip('itemSpike', this.checked)"> 对面成装</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipMatchup" onchange="setLiveTip('matchup', this.checked)"> 对位经济</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipCreep10" onchange="setLiveTip('creep10', this.checked)"> 十分钟补刀</label>
+        </div>
+        <div class="tool-row">
+          <label class="switch-row"><input type="checkbox" id="liveBoardToggle" checked onchange="toggleLiveBoard(this.checked)"> F9 战报浮窗里显示本局经济与对位</label>
+        </div>
+      </div>
+      <div class="tool-card">
         <h3>外服聊天翻译</h3>
-        <p>对局中自动把聊天区的外语消息翻译成中文, 悬浮显示在聊天区上方 (点击穿透, 不挡操作)。翻译优先走「AI 复盘设置」里配置的接口, 未配置时使用免费机翻。</p>
+        <p>对局中双向翻译：队友的外语翻成中文贴在聊天区上方（点击穿透不挡操作）；<b>你在游戏里打的中文</b>会自动翻成外语补发一条给队友，<b>你打的英文</b>也会翻成中文显示出来，确认自己那句话在对面眼里是什么意思。</p>
+        <p class="tool-state" style="line-height:1.6;">短句走内置 LoL 术语表（上路差距=top gap、大龙=baron、没闪=no ss）；长句走「AI 复盘设置」的接口，没配就用免费机翻。</p>
         <div class="tool-row">
           <span id="gameTranslateState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="gameTranslateToggle" onchange="toggleGameTranslate(this.checked)"><span class="slider"></span></label>
+        </div>
+        <div class="tool-row">
+          <label class="switch-row"><input type="checkbox" id="gtAutoMineToggle" checked onchange="toggleGtAutoMine(this.checked)"><span>我在游戏里打的<b>中文</b>自动翻成外语，补发一条给队友（不用切窗口）</span></label>
         </div>
         <div class="tool-row">
           <select id="translateTarget" class="tool-select" onchange="setTranslateTarget(this.value)">
@@ -288,10 +382,17 @@
           </select>
         </div>
         <div class="tool-row">
-          <input type="text" id="translateSendInput" class="tool-input" placeholder="输入中文, 翻译后预填到游戏聊天框" style="flex:1" onkeydown="if(event.key==='Enter')translateAndPrefill()">
-          <button class="btn-primary" onclick="translateAndPrefill()">翻译并预填</button>
+          <input type="text" id="translateSendInput" class="tool-input" placeholder="在 Poro 里打中文, 直接发到游戏聊天" style="flex:1" onkeydown="if(event.key==='Enter')translateAndSend()">
+          <button class="btn-primary" onclick="translateAndSend()">翻译并发送</button>
         </div>
-        <p class="tool-warn">发送遵循「预填后由你确认」: 翻译结果填进游戏输入框, 你按回车才发出。合规模式下发送不可用, 接收展示不受影响。</p>
+        <div class="tool-row">
+          <button class="btn-secondary" onclick="testTranslate()" style="font-size:11px;" title="用输入框里的内容试译一次，不需要在对局中">试译</button>
+          <button class="btn-secondary" onclick="gtDiagnose()" style="font-size:11px;" title="检查能否读到对局聊天房间">检查通道</button>
+          <button class="btn-secondary" onclick="translateAndPrefill()" style="font-size:11px;" title="只预填到游戏输入框，你按回车才发出">只预填</button>
+        </div>
+        <div id="translateTestOut" class="tool-state"></div>
+        <div id="gtReadState" class="tool-state"></div>
+        <p class="tool-warn">自动补发会以你的名义发出第二条消息 (原文 + 译文各一条)：两条之间至少隔 1.5 秒，同一句 5 秒内不重发，每局最多 40 条；击杀播报之类的系统消息永远不会被翻译或补发。译文里若还残留中文, 助手不会发, 免得队友看到半截乱码。合规模式下发送全部不可用, 接收展示不受影响。</p>
       </div>
       <div class="tool-card">
         <h3>好友助手</h3>
@@ -309,6 +410,33 @@
           <button class="btn-secondary" onclick="inviteAllDuos()" style="font-size:11px;">全部邀请</button>
         </div>
         <div id="duoInviteChips" class="duo-chips"></div>
+      </div>
+      <div class="tool-card">
+        <h3>自定义热键</h3>
+        <p>对局功能键位随你改：点击按钮后按下想要的新组合即可。字母/数字必须搭配 Ctrl、Alt 或 Shift；F1-F12、Home/End/PageUp/PageDown/Insert/Delete 可以单独用。改完即时生效，与游戏自带键位冲突时游戏行为优先。</p>
+        <div class="tool-row" style="flex-direction:column;align-items:stretch;gap:7px;">
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+            <span id="hkLabel_f6" style="flex:1;font-size:12px;">强化识别 (海克斯三选一重扫)</span>
+            <button class="btn-secondary" id="hk_f6" onclick="hkStartRecord('f6')" style="min-width:120px;font-size:12px;">F6</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+            <span id="hkLabel_f7" style="flex:1;font-size:12px;">KDA 简报 · 己方</span>
+            <button class="btn-secondary" id="hk_f7" onclick="hkStartRecord('f7')" style="min-width:120px;font-size:12px;">F7</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+            <span id="hkLabel_f8" style="flex:1;font-size:12px;">KDA 简报 · 敌方</span>
+            <button class="btn-secondary" id="hk_f8" onclick="hkStartRecord('f8')" style="min-width:120px;font-size:12px;">F8</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+            <span id="hkLabel_f9" style="flex:1;font-size:12px;">对局战报浮窗开关</span>
+            <button class="btn-secondary" id="hk_f9" onclick="hkStartRecord('f9')" style="min-width:120px;font-size:12px;">F9</button>
+          </div>
+          <div class="tool-row" style="align-items:center;gap:10px;margin:0;">
+            <span id="hkLabel_f10" style="flex:1;font-size:12px;">聊天弹幕 · 打字输入</span>
+            <button class="btn-secondary" id="hk_f10" onclick="hkStartRecord('f10')" style="min-width:120px;font-size:12px;">Ctrl+F10</button>
+          </div>
+        </div>
+        <div id="hkState" class="tool-state"></div>
       </div>
       <div class="tool-card">
         <h3>KDA简报</h3>
@@ -452,11 +580,21 @@
           <input type="text" id="aiBaseUrl" placeholder="接口地址 (如 https://open.bigmodel.cn/api/paas/v4/chat/completions)" class="tool-input" style="width:100%">
           <div style="display:flex;gap:8px;min-width:0;">
             <input type="password" id="aiApiKey" placeholder="API Key" class="tool-input" style="flex:2;min-width:0;">
-            <input type="text" id="aiModel" placeholder="模型 (glm-4-flash / agnes-2.0-flash)" class="tool-input" style="flex:1;min-width:0;">
+            <input type="text" id="aiModel" list="aiModelList" placeholder="模型 (glm-4-flash / agnes-2.5-flash)" class="tool-input" style="flex:1;min-width:0;">
+            <datalist id="aiModelList"></datalist>
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn-primary" onclick="saveAiConfig()" style="font-size:12px;">保存配置</button>
             <button class="btn-secondary" onclick="testAiConfig()" style="font-size:12px;">测试连接</button>
+            <button class="btn-secondary" onclick="fetchAiModels()" style="font-size:12px;">拉取模型</button>
+          </div>
+          <div class="tool-row" style="gap:8px;">
+            <span class="tool-state">复盘风格</span>
+            <select id="aiReviewStyle" class="tool-select" style="flex:1" onchange="setAiReviewStyle(this.value)">
+              <option value="coach">教练 · 直给改进点</option>
+              <option value="tough">毒舌 · 数据打脸，不骂人</option>
+              <option value="formal">正经 · 客观复述 + 建议</option>
+            </select>
           </div>
         </div>
       </div>
@@ -570,41 +708,51 @@
   <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
 </div>
 
-<script src="js/utils.js?v=2026102501"></script>
-<script src="js/local-cache.js?v=2026102501"></script>
-<script src="js/icons.js?v=2026102501"></script>
-<script src="js/data-model.js?v=2026102501"></script>
-<script src="js/session-state.js?v=2026102501"></script>
-<script src="js/performance.js?v=2026102501"></script>
-<script src="js/diagnostics.js?v=2026102501"></script>
-<script src="js/balance.js?v=2026102501"></script>
-<script src="js/behavior-tags.js?v=2026102501"></script>
-<script src="js/bench.js?v=2026102501"></script>
-<script src="js/champions.js?v=2026102501"></script>
-<script src="js/progress-report.js?v=2026102501"></script>
-<script src="js/home.js?v=2026102501"></script>
-<script src="js/review.js?v=2026102501"></script>
-<script src="js/theme.js?v=2026102501"></script>
-<script src="js/hex.js?v=2026102501"></script>
-<script src="js/history.js?v=2026102501"></script>
-<script src="js/live.js?v=2026102501"></script>
-<script src="js/weekly.js?v=2026102501"></script>
-<script src="js/friends.js?v=2026102501"></script>
-<script src="js/compliance.js?v=2026102501"></script>
-<script src="js/blacklist.js?v=2026102501"></script>
-<script src="js/social.js?v=2026102501"></script>
-<script src="js/chat.js?v=2026102501"></script>
-<script src="js/translate.js?v=2026102501"></script>
-<script src="js/autobp.js?v=2026102501"></script>
-<script src="js/lcu-events.js?v=2026102501"></script>
-<script src="js/opgg-loadout.js?v=2026102501"></script>
-<script src="js/update.js?v=2026102501"></script>
-<script src="js/autoflow.js?v=2026102501"></script>
-<script src="js/chat-status.js?v=2026102501"></script>
-<script src="js/settings.js?v=2026102501"></script>
-<script src="js/persist.js?v=2026102501"></script>
-<script src="js/autoreturn.js?v=2026102501"></script>
-<script src="js/sona-extra.js?v=2026102501"></script>
-<script src="js/app.js?v=2026102501"></script>
+<script src="js/utils.js?v=2026110420"></script>
+<script src="js/local-cache.js?v=2026110420"></script>
+<script src="js/icons.js?v=2026110420"></script>
+<script src="js/data-model.js?v=2026110420"></script>
+<script src="js/session-state.js?v=2026110420"></script>
+<script src="js/performance.js?v=2026110420"></script>
+<script src="js/diagnostics.js?v=2026110420"></script>
+<script src="js/balance.js?v=2026110420"></script>
+<script src="js/behavior-tags.js?v=2026110420"></script>
+<script src="js/bench.js?v=2026110420"></script>
+<script src="js/champions.js?v=2026110420"></script>
+<script src="js/progress-report.js?v=2026110420"></script>
+<script src="js/home.js?v=2026110420"></script>
+<script src="js/ai-markdown.js?v=2026110420"></script>
+<script src="js/review.js?v=2026110420"></script>
+<script src="js/theme.js?v=2026110420"></script>
+<script src="js/hex.js?v=2026110420"></script>
+<script src="js/history.js?v=2026110420"></script>
+<script src="js/enemy-intel.js?v=2026110420"></script>
+<script src="js/growth-model.js?v=2026110420"></script>
+<script src="js/growth.js?v=2026110420"></script>
+<script src="js/battle-card.js?v=2026110420"></script>
+<script src="js/live.js?v=2026110420"></script>
+<script src="js/weekly.js?v=2026110420"></script>
+<script src="js/friends.js?v=2026110420"></script>
+<script src="js/compliance.js?v=2026110420"></script>
+<script src="js/blacklist.js?v=2026110420"></script>
+<script src="js/social.js?v=2026110420"></script>
+<script src="js/chat.js?v=2026110420"></script>
+<script src="js/translate.js?v=2026110420"></script>
+<script src="js/autobp.js?v=2026110420"></script>
+<script src="js/pick-guard.js?v=2026110420"></script>
+<script src="js/lcu-events.js?v=2026110420"></script>
+<script src="js/opgg-loadout.js?v=2026110420"></script>
+<script src="js/update.js?v=2026110420"></script>
+<script src="js/autoflow.js?v=2026110420"></script>
+<script src="js/chat-status.js?v=2026110420"></script>
+<script src="js/settings.js?v=2026110420"></script>
+<script src="js/persist.js?v=2026110420"></script>
+<script src="js/hotkeys.js?v=2026110420"></script>
+<script src="js/live-metrics.js?v=2026110420"></script>
+<script src="js/commentary-script.js?v=2026110420"></script>
+<script src="js/commentary.js?v=2026110420"></script>
+<script src="js/autoreturn.js?v=2026110420"></script>
+<script src="js/sona-extra.js?v=2026110420"></script>
+<script src="js/app.js?v=2026110420"></script>
 </body>
 </html>

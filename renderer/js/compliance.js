@@ -116,9 +116,54 @@ async function acceptReadyCheckNow() {
     _readyCheckAccepting = false;
   }
 }
+// 失败信息要能让用户直接截图发回来 —— 只写"没找到"等于什么都没说,
+// 我们拿不到对方的屏幕, 枚举结果/错误码才是唯一能远程定位的线索。
+function _fixEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+function _fixDetail(text) {
+  return `<div style="font-size:11px;line-height:1.5;opacity:.72;margin-top:3px;word-break:break-all">${_fixEsc(text)}</div>`;
+}
 async function fixWindow() {
-  const ok = await lolAPI.fixWindow();
-  toolMsg(ok ? '<span style="color:var(--positive)">LCU 窗口已恢复 1280×720 居中</span>' : '<span style="color:var(--negative)">未找到客户端窗口，请确认客户端正在运行</span>');
+  let r = null;
+  try { r = await lolAPI.fixWindow(); } catch (e) { r = null; }
+  const ok = r === true || !!(r && r.ok);
+  if (!ok) {
+    const red = s => `<span style="color:var(--negative)">${s}</span>`;
+    const reason = (r && r.reason) || 'not-found';
+    if (reason === 'denied') {
+      const err = (r && r.err) || 5;
+      toolMsg(red(`客户端窗口拒绝被修改（Win32 ${err}）`) +
+        _fixDetail(err === 5
+          ? '客户端以管理员身份运行，Poro 也必须以管理员身份启动才能改它的窗口'
+          : `目标窗口类名 ${(r && r.className) || '?'}，错误码 ${err}`));
+      return;
+    }
+    if (reason === 'unavailable') {
+      toolMsg(red('窗口模块不可用') + _fixDetail(`koffi 加载失败：${(r && (r.loadError || r.error)) || '未知原因'}`));
+      return;
+    }
+    if (reason === 'error' || reason === 'bad-rect') {
+      toolMsg(red('修复失败') + _fixDetail((r && r.error) || '主进程计算目标位置时出错'));
+      return;
+    }
+    // not-found: 把枚举到的东西摆出来
+    const p = (r && r.probe) || null;
+    const list = (p && p.candidates) || [];
+    // 客户端会挂 9 个 135x37 的隐藏辅助窗, 全列出来会糊成一团, 只展示前 3 个 + 总数
+    const desc = list.length
+      ? list.slice(0, 3).map(c => `${c.className}「${c.title}」${c.width}×${c.height}${c.visible ? ' 可见' : ' 隐藏'}${c.iconic ? ' 最小化' : ''}`).join('；')
+        + (list.length > 3 ? `；等 ${list.length} 个` : '')
+      : '一个都没有（连枚举都没拿到客户端窗口）';
+    toolMsg(red('未找到客户端窗口') + _fixDetail(`枚举到 ${list.length} 个：${desc}`));
+    return;
+  }
+  // 新版主进程会回报修复后的实际矩形, 直接摆出来 —— 比一句"已恢复"更能确认真的动了
+  const a = r && r.after;
+  const b = r && r.before;
+  const size = a && a.width ? `${a.width}×${a.height}` : '1280×720';
+  toolMsg(`<span style="color:var(--positive)">LCU 窗口已恢复 ${size} 居中</span>` +
+    (b && a ? _fixDetail(`原位置 ${b.x},${b.y} ${b.width}×${b.height} → ${a.x},${a.y} ${a.width}×${a.height}（${(r && r.className) || ''}）`) : ''));
 }
 function populateBgChampionList() {
   // 简单的中文拼音首字母映射 (常见英雄)
