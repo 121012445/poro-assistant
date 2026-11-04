@@ -1105,25 +1105,27 @@ body {
 .lp-pill-empty { font-size: 9px; color: var(--text-muted); opacity: .7; }
 
 /* 逐场战绩: 整行按胜负染色; 列表内部滚动, 滚动条隐藏 (下面用底部渐隐提示还有更多) */
-.lp-recent { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.lp-recent { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
 .lp-recent::-webkit-scrollbar { width: 0; height: 0; }
 /* 战绩超出可视高度时, 底部做 20px 渐隐: 让"下面还有"看起来是有意设计, 而不是被裁断的半行。
    用 :has() 判断, 只有真的排到第 7 场 (必然溢出) 才出现。 */
 .lp-row::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 34px; border-radius: 0 0 var(--radius-sm) var(--radius-sm); pointer-events: none; opacity: 0; background: linear-gradient(to bottom, transparent, var(--bg-card) 46%); }
-.lp-row:has(.ri-card:nth-child(7))::after { opacity: 1; }
+.lp-row:has(.ri-card:nth-child(9))::after { opacity: 1; }
 .lp-self::after { background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--data-gold) 8%, var(--bg-card)) 46%); }
-.ri-card { display: grid; flex: 0 0 28px; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 5px; min-height: 28px; padding: 0 6px 0 4px; overflow: hidden; border-radius: 5px; border-left: 2px solid transparent; }
-.ri-card img { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; }
+/* 行高 24px + 1px 间隙: 和 Akari 对齐 (它 25px 无缝)。两行文字 10.5/9 各占 11.5/9.9px, 24px 刚好装下,
+   1500x940 下能露出 8 场; 再高就会回到 6~7 场。 */
+.ri-card { display: grid; flex: 0 0 24px; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 4px; min-height: 24px; padding: 0 5px 0 3px; overflow: hidden; border-radius: 4px; border-left: 2px solid transparent; }
+.ri-card img { width: 18px; height: 18px; border-radius: 3px; object-fit: cover; }
 .ri-win { border-left-color: var(--data-blue); background: color-mix(in srgb, var(--data-blue) 8%, transparent); }
 .ri-loss { border-left-color: var(--negative); background: color-mix(in srgb, var(--negative) 7%, transparent); }
-.ri-body { display: flex; flex-direction: column; min-width: 0; line-height: 1.12; }
-.ri-mode { min-width: 0; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ri-sub { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 9.5px; color: var(--text-muted); white-space: nowrap; }
+.ri-body { display: flex; flex-direction: column; min-width: 0; line-height: 1.1; }
+.ri-mode { min-width: 0; font-size: 10.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ri-sub { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 9px; color: var(--text-muted); white-space: nowrap; }
 .ri-date { font-variant-numeric: tabular-nums; }
 .ri-result { font-weight: 800; }
 .ri-win .ri-result { color: var(--data-blue); }
 .ri-loss .ri-result { color: var(--negative); }
-.ri-kda { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px; white-space: nowrap; color: var(--text-primary); }
+.ri-kda { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px; white-space: nowrap; color: var(--text-primary); }
 .ri-empty, .ri-loading { display: grid; place-items: center; min-height: 80px; color: var(--text-muted); font-size: 11px; }
 .ri-loading { animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }

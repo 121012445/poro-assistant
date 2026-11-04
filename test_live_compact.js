@@ -199,7 +199,8 @@ const body = makeEl('liveGameArea');
   const metricLine = n(val('.lp-metric', 'line-height'));
   const pillGap = n(val('.lp-profile-line', 'gap').split(/\s+/)[0]);
   const profileH = 2 * metricLine + pillGap + n(val('.lp-profile-line', 'margin-bottom'));
-  const rowPitch = n(val('.ri-card', 'flex').split(/\s+/)[2]) + n(val('.lp-recent', 'gap'));   // 每场战绩的行距
+  const rowGap = n(val('.lp-recent', 'gap'));
+  const rowPitch = n(val('.ri-card', 'flex').split(/\s+/)[2]) + rowGap;   // 每场战绩的行距 (行高 + 行间间隙)
 
   const budget = winH => {
     const avail = winH - barH - mainPadTop - mainPadBottom - headerH - decisionH - (wrapPadTop + wrapPadBottom);
@@ -207,13 +208,16 @@ const body = makeEl('liveGameArea');
     const cardH = teamH - (2 + 2 * teamPad) - teamHead - gridPt;
     const cardInner = cardH - (2 + 2 * rowPad);                    // 左右各 1px 边框 + 上下内边距
     const recentH = cardInner - headRowH - overviewH - profileH;
-    return { recentH, visible: Math.floor((recentH + 2) / rowPitch) };
+    // 最后一行后面不需要间隙, 所以分子补一个 gap
+    return { recentH, visible: Math.floor((recentH + rowGap) / rowPitch) };
   };
 
   // 1200x800 是压力档 (老笔记本全屏); 1440x900 才是实际常用尺寸, 两档都要保住基本可读性。
   const small = budget(800), normal = budget(900);
-  assert.ok(small.visible >= 4, `1200x800 下 10 场至少应露出 4 场, 实际 ${small.visible} 场`);
-  assert.ok(normal.visible >= 6, `1440x900 下 10 场至少应露出 6 场, 实际 ${normal.visible} 场`);
+  assert.ok(small.visible >= 5, `1200x800 下 10 场至少应露出 5 场, 实际 ${small.visible} 场`);
+  assert.ok(normal.visible >= 7, `1440x900 下 10 场至少应露出 7 场, 实际 ${normal.visible} 场`);
+  // Akari 在 1511x937 下露 8 场, 我们同尺寸必须打平 (行高 24 + 间隙 1 = 25, 与它的 25px 无缝等价)
+  assert.ok(budget(940).visible >= 8, `1500x940 下应露出 8 场, 实际 ${budget(940).visible} 场`);
 
   console.log(`实时对局紧凑布局测试通过 (1200x800 露出 ${small.visible} 场 / 1440x900 露出 ${normal.visible} 场)`);
 })().catch(e => { console.error(e); process.exitCode = 1; });
