@@ -359,10 +359,16 @@ async function gtTranslateBatch(texts, target) {
   });
   if (need.length) {
     let fetched = null;
+    let fetchErr = '';
     try {
       const r = await lolAPI.translateText(need.map(i => texts[i]), target);
       fetched = Array.isArray(r) ? r : null;
-    } catch (e) {}
+      if (!fetched) fetchErr = '返回结构异常';
+    } catch (e) { fetchErr = (e && e.message) || String(e); }
+    if (fetchErr) {
+      // 接口挂了之前完全静默 (浮窗显示原文, 和"没翻译"无法区分) —— 留痕
+      try { lolAPI.debugLog('[GT] translate failed: ' + fetchErr + ' target=' + target + ' texts=' + need.map(i => texts[i]).join(' | ').slice(0, 120)); } catch (e) {}
+    }
     need.forEach((idx, k) => {
       const value = fetched ? String(fetched[k] || '') : '';
       const translated = value || texts[idx];
