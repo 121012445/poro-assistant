@@ -1198,7 +1198,7 @@ ipcMain.handle('game-translate:target', async (e, target) => {
 });
 
 // 1.5.46 GT 聊天框 OCR: 国服对局聊天不进 LCU 会话 (conv dump 实证, 走游戏进程
-// 自己的通道), LCU 扫描永远读不到队友发言。兜底方案: 截游戏窗口左下聊天框
+// 自己的通道), LCU 扫描永远读不到队友发言。兜底方案: 截游戏窗口聊天框
 // 区域 → Windows OCR → 文本行交回渲染层进翻译管线。复用 augment 的截图与
 // OCR worker; 截不到 (全屏独占/游戏未运行) 返回 null, 渲染层按失败静默。
 ipcMain.handle('game-translate:ocr-chat', async (e) => {
@@ -1234,12 +1234,14 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
       if (crop.width > 300 && crop.height > 200) screenshot = screenshot.crop(crop);
     }
     const size = screenshot.getSize();
-    // 聊天框固定在左下: x 0~34%, y 40~58% (1080p 下约 0-650 x 430-625, 覆盖最近 5-6 行)
+    // 聊天框固定在左上 (1.5.46 误定为左下 y40-58%, 用户截图实证 LoL 对局聊天
+    // 在左上角): x 0~36%, y 7~27% (1080p 下约 0-690 x 75-290, 覆盖最多 8-9 行
+    // 渐隐聊天; y<7% 是击杀数/金币/计时条, 不纳入)
     const chatRect = {
       x: 0,
-      y: Math.round(size.height * 0.40),
-      width: Math.min(size.width, Math.round(size.width * 0.34)),
-      height: Math.round(size.height * 0.18)
+      y: Math.round(size.height * 0.07),
+      width: Math.min(size.width, Math.round(size.width * 0.36)),
+      height: Math.round(size.height * 0.20)
     };
     let crop = screenshot.crop(chatRect);
     if (crop.isEmpty()) return null;
@@ -1252,6 +1254,9 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     let text = '';
     try { text = String(await requestAugmentOcr(imagePath) || ''); }
     finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
+    // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到
+    const diagLine = `[GT OCR] len=${text.length} text=${text.replace(/\s+/g, ' ').trim().substring(0, 120)}`;
+    if (periodicLog.shouldLog('gt-chat', diagLine)) logErr(diagLine);
     return text;
   } catch (err) {
     return null;
