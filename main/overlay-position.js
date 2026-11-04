@@ -72,4 +72,41 @@ function computeOverlayBounds(req) {
   return { x: Math.round(x), y: Math.round(y), width: size.width, height: size.height };
 }
 
-module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds };
+// 对局聊天框 OCR 的裁剪矩形 —— 同样做成纯函数, 便于单测。
+//
+// 真实截图的经验值: 聊天列表只占游戏窗口左上起的第一列, 远不到左三分之一。
+// 1.5.50 用 x 0~30% / y 5~60%, 把 "输入 /help 获取命令列表" 提示、队伍面板、
+// 以及 Poro 浮窗压住的那条带一起截了进来 —— 18:31 局每轮 OCR 都读到
+// "输入 /help 获取命令列表", 白占识别预算还污染解析。
+//
+// 浮窗 (gameTranslateWindow) 默认贴在聊天框上方, 与裁剪区下沿相交时会把
+// 最新几条消息糊掉, 所以相交时把下沿抬到浮窗上边之上。
+const CHAT_OCR_RECT = { x: 0, y: 0.05, width: 0.26, height: 0.57 };   // 相对比例
+const CHAT_OCR_OVERLAY_GAP = 6;    // 与浮窗留的缝 (像素)
+const CHAT_OCR_MIN_KEEP = 0.5;     // 浮窗最多吃掉一半高度, 再多就不裁 (宁可糊, 不能空)
+
+function chatOcrCrop(size, overlay) {
+  const w = Math.max(1, Math.round((size && size.width) || 0));
+  const h = Math.max(1, Math.round((size && size.height) || 0));
+  const rect = {
+    x: Math.round(w * CHAT_OCR_RECT.x),
+    y: Math.round(h * CHAT_OCR_RECT.y),
+    width: Math.max(1, Math.min(w, Math.round(w * CHAT_OCR_RECT.width))),
+    height: Math.max(1, Math.round(h * CHAT_OCR_RECT.height))
+  };
+  rect.height = Math.max(1, Math.min(rect.height, h - rect.y));
+  if (!overlay || !Number.isFinite(overlay.y)) return rect;
+  const oTop = overlay.y;
+  const oBottom = overlay.y + (Number.isFinite(overlay.height) ? overlay.height : 0);
+  const oRight = overlay.x + (Number.isFinite(overlay.width) ? overlay.width : 0);
+  const intersects = Number.isFinite(overlay.x)
+    && overlay.x < rect.x + rect.width && oRight > rect.x
+    && oTop < rect.y + rect.height && oBottom > rect.y;
+  if (!intersects) return rect;
+  // 只有"浮窗压住下沿"这一种情况能靠抬高下沿解决; 压住整段时保持原样
+  const clipped = Math.round(oTop - CHAT_OCR_OVERLAY_GAP) - rect.y;
+  if (clipped < rect.height && clipped >= rect.height * CHAT_OCR_MIN_KEEP) rect.height = clipped;
+  return rect;
+}
+
+module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop };

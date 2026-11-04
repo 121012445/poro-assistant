@@ -1257,16 +1257,25 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
       }
     }
     const size = screenshot.getSize();
-    // 聊天框在左侧一列, 位置随消息量/日志展开状态变化 (截图实证):
-    // 少量新消息在左上 y~14%, 长日志列表在 y 37-56% —— 裁整个左列
-    // x 0~30%, y 5~60% (1440p 下 0-768 x 72-864), 两种布局全覆盖。
-    // 游戏内浮动文字 (中文名/伤害数字) 由渲染层过滤器处理。
-    const chatRect = {
-      x: 0,
-      y: Math.round(size.height * 0.05),
-      width: Math.min(size.width, Math.round(size.width * 0.30)),
-      height: Math.round(size.height * 0.55)
-    };
+    // 1.5.51: 裁剪区交给纯函数算 (可单测), 并且把 Poro 浮窗的矩形换算到同一
+    // 坐标系里避开 —— 浮窗默认贴在聊天框上方, 会压住最新几条消息。
+    // 1.5.50 的 x 0~30% / y 5~60% 太宽, 每轮都把 "/help 获取命令列表" 和
+    // 队伍面板一起截进来 (18:31 局 OCR 日志实证)。
+    let overlayRect = null;
+    try {
+      const ob = gameTranslateWindow && !gameTranslateWindow.isDestroyed() ? gameTranslateWindow.getBounds() : null;
+      if (ob && gameRect.width > 0 && gameRect.height > 0) {
+        const kx = size.width / gameRect.width;
+        const ky = size.height / gameRect.height;
+        overlayRect = {
+          x: (ob.x - gameRect.x) * kx,
+          y: (ob.y - gameRect.y) * ky,
+          width: ob.width * kx,
+          height: ob.height * ky
+        };
+      }
+    } catch (e) {}
+    const chatRect = overlayPosition.chatOcrCrop(size, overlayRect);
     let crop = screenshot.crop(chatRect);
     if (crop.isEmpty()) return null;
     const cs = crop.getSize();
@@ -1281,7 +1290,7 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到;
     // 换行用 ⏎ 标记保留 —— OCR 是否把多条聊天合并成一行直接影响解析
     const diagText = text.replace(/\r?\n/g, ' ⏎ ').replace(/[ \t]+/g, ' ').trim().substring(0, 160);
-    const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} len=${text.length} text=${diagText}`;
+    const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} crop=${chatRect.x},${chatRect.y},${chatRect.width}x${chatRect.height} overlay=${overlayRect ? 'yes' : '-'} len=${text.length} text=${diagText}`;
     if (periodicLog.shouldLog('gt-chat', diagLine)) logErr(diagLine);
     return text;
   } catch (err) {

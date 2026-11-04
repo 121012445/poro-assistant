@@ -31,7 +31,11 @@ let _gtFreshTotal = 0;           // 本局读到的新消息条数 (真实进入
 let _gtPhaseInAt = 0;            // 本局进局时间 (OCR 通道延迟启动用)
 let _gtOcrNextAt = 0;            // 下次聊天框 OCR 的时间
 let _gtOcrTotal = 0;             // OCR 通道累计送进翻译管线的行数 (诊断用)
-const gtOcrSeen = new Set();     // OCR 行去重 (文本规范化后)
+let _gtOcrSkipLogAt = 0;         // 上次打"OCR 全被过滤"日志的时间 (限频)
+// OCR 消息去重: 键 = "频道|时间戳", 值 = { body, sent }。
+// 1.5.50 之前按**文本**去重 —— OCR 每轮抖动都会产生新文本, 于是同一条消息
+// 每轮都被当成新消息 (18:31 局: 一条 congratulations 产生了 4 个版本)。
+const gtOcrSeen = new Map();
 let _gtSkipEmpty = 0, _gtSkipEcho = 0, _gtSkipMineOff = 0, _gtSkipNoMatch = 0;
 let _gtSkipHist = 0;             // 跳过的"进局前的我方历史消息"条数
 let _gtSkipLogAt = 0;            // 上次打跳过统计日志的时间 (限频)
@@ -170,6 +174,8 @@ function gameTranslateOnPhase(phase) {
     _gtPhaseInAt = Date.now();
     _gtOcrNextAt = Date.now() + 30000;   // 进局 30s 后才考虑 OCR (LCU 通道先给机会)
     gtOcrSeen.clear();
+    _gtOcrTotal = 0;
+    _gtOcrSkipLogAt = 0;
     _gtSkipEmpty = 0; _gtSkipEcho = 0; _gtSkipMineOff = 0; _gtSkipNoMatch = 0; _gtSkipHist = 0;
     _gtSkipLogAt = 0;
     // chat.js 的选人房间 cid 跨局残留会让扫描/补发永远盯着死房间 (1.5.42 实测:
@@ -396,50 +402,124 @@ async function gtScan() {
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
 }
 
-// OCR 输出解析 (可单测)。1.5.48 杂音行过滤; 1.5.49 中文名(英雄)前缀剥除;
-// 1.5.50: OCR 会把多条聊天+系统文本合并成一大行且无换行 (18:12 局日志实证),
-// 行内中文残渣会让整行被"含中文即丢"误杀。改为:
-// ① 按 "时间戳+频道" 头部强制断行; ② 含中文的行只抽取其中的外文片段,
-// 无聊天头部证据的混杂行只收多词片段 (防 WorkBuddy/人名单词误报)。
-// 注意: 不能带 /i —— "Esc" 带大小写匹配, 否则 "escape" 这类正常英文聊天会被误杀
+// OCR 输出解析 (可单测)。
+// 1.5.50 之前的思路是"尽量多收": 只要行里有外文片段就送去翻译。18:31 局日志
+// 证明这条路走不通 —— Windows OCR 把整个聊天列表读成**一整行**, 同一条消息在
+// 不同轮次被读成多个残缺版本 (congratulations → "gra 卣 白 tion" / "ulations" /
+// "ülations"), 解析器把每个版本都当成新消息, 于是浮窗里出现"从没出现过的消息"。
+// 1.5.51 改为"只认证据", 三条:
+//   ① 必须有**完整聊天头**: 时间戳 + 频道标记 ([队伍]/[全体]/[All]...), 缺一不可。
+//      头部之前的文字一律丢弃 (那是 "输入 /help 获取命令列表"、选人播报、界面文字)。
+//   ② 消息体必须干净: 混进中文 / 竖线等 OCR 噪声就**整条丢弃**, 不再"从中抽片段"
+//      —— 抽出来的 "tion"、"gra" 正是幻影消息的来源。
+//   ③ 去重键改成"频道+时间戳" (见 gtOcrScan): 同一条消息的多个 OCR 版本只会
+//      产生一条翻译。
+// 注意: GT_OCR_NOISE_RE 不能带 /i —— "Esc" 靠大小写区分, 否则 "escape" 会被误杀
 const GT_OCR_NOISE_RE = /打字|回车|发给队友|滚轮|拖动|双击|取消|发送|行情|买币|Esc/;
-const GT_OCR_HEADER_RE = /(\(?\d{1,2}[:：]\d{2}\)?\s*(?:\[[^\[\]]{1,8}\]|【[^【】]{1,8}】))/g;
-const GT_OCR_LATIN_RUN_RE = /[A-Za-z][A-Za-z0-9'’\-.,!?()\/ ]{2,}/g;
+// 时间戳容忍 OCR 插入的空格: 实测输出是 "00 ： 18" (数字与冒号两侧都有空格),
+// 而 1.5.50 的正则要求 \d{1,2}[:：]\d{2} 紧邻 —— 头部从未匹配, 断行从未生效。
+const GT_OCR_HEADER_RE = /(?<!\d)(\d{1,2})\s*[:：]\s*(\d{2})\s*[)）]?\s*(?:\[\s*([^\[\]]{1,10}?)\s*\]|【\s*([^【】]{1,10}?)\s*】)/g;
 const GT_OCR_ZH_RE = /[\u4e00-\u9fff]/;
-function gtOcrLatinRuns(text, strict) {
-  const runs = [];
-  for (const m of String(text).matchAll(GT_OCR_LATIN_RUN_RE)) {
-    const run = m[0].replace(/\s+/g, ' ')
-      .replace(/^[\s.,!?;:()\/\-]+|[\s.,!?;:()\/\-]+$/g, '').trim();
-    if (run.length < 4 || !/[A-Za-z]{2}/.test(run)) continue;
-    if (strict && !/\s/.test(run)) continue;
-    runs.push(run);
-  }
-  return runs;
+// 合法的"一个词"消息: 只有一两个词的消息不能因为"像残片"就被丢掉
+const GT_OCR_SHORT_OK = new Set([
+  'gg', 'wp', 'gj', 'ggwp', 'lol', 'lmao', 'hi', 'hello', 'hey', 'ty', 'thx', 'thanks',
+  'omw', 'ez', 'op', 'ff', 'jg', 'mid', 'top', 'adc', 'sup', 'jungle', 'nice', 'good',
+  'yes', 'no', 'ok', 'okay', 'push', 'care', 'help', 'run', 'wait', 'ult', 'flash',
+  'baron', 'dragon', 'herald', 'sry', 'sorry', 'np', 'yep', 'nope', 'go', 'back', 'recall'
+]);
+// 本文件解析器的"丢弃留痕" (诊断用): 每轮重置, 只留前 4 条, 供 gtOcrScan 写日志
+let _gtOcrDropped = [];
+
+function gtNormalizeOcrText(raw) {
+  return String(raw || '')
+    .replace(/[\u00a0\u3000]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/(?<=\d)\s*[:：]\s*(?=\d)/g, ':');   // "00 ： 18" → "00:18"
 }
+
+// 消息体是否"干净且像一句完整的话"。这里是过滤残片的主闸门。
+function gtOcrBodyOk(body) {
+  const s = String(body || '').trim();
+  if (s.length < 2 || s.length > 160) return false;
+  if (GT_OCR_ZH_RE.test(s)) return false;                 // 混进中文 = 两行糊在一起
+  if (/[|｜`~^\\]/.test(s)) return false;                 // 竖线/反引号是 OCR 噪声标志
+  if (GT_OCR_NOISE_RE.test(s)) return false;
+  if (!gtLooksForeign(s)) return false;
+  const tokens = s.split(/\s+/).filter(Boolean);
+  const words = tokens.filter(t => /[A-Za-z]{2,}/.test(t));
+  if (!words.length) return false;
+  // 单个短词: 除非是常见短句, 否则当残片丢 ("tion" / "gra" / "he")
+  if (tokens.length === 1 && s.replace(/[^A-Za-z]/g, '').length < 5
+    && !GT_OCR_SHORT_OK.has(s.toLowerCase())) return false;
+  // 一半以上是单字符 token = 断字噪声 ("h 0 00 0 g")
+  if (tokens.length >= 3 && words.length * 2 < tokens.length) return false;
+  return true;
+}
+
+// 单个词的短消息先"待确认": 它可能只是长词被截断的一半 ("ulations")。
+// 下一轮读到同样内容才发出, 读到更完整的版本就用更完整的那个。
+function gtOcrNeedsConfirm(body) {
+  const tokens = String(body || '').split(/\s+/).filter(Boolean);
+  return tokens.length === 1 && !GT_OCR_SHORT_OK.has(String(body).toLowerCase());
+}
+
+function gtOcrStripBody(seg) {
+  let s = String(seg || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  s = s.replace(/^[\]】)）\s]+/, '').trim();
+  // "玩家名 (英雄名): 内容" 前缀剥除; 前缀以数字结尾时不剥 (防把 "15:30" 当分隔符)
+  const m = s.match(/^(.{1,40}?)[:：]\s*(.+)$/);
+  if (m && m[2].trim() && !/\d\s*$/.test(m[1])) s = m[2].trim();
+  // 行尾残留的"半个聊天头" (裁剪边缘切断): "hello everyone 00:2"
+  s = s.replace(/\s+\d{1,2}[:：]\d{0,1}$/, '').trim();
+  s = s.replace(/[\[\]【】]+$/g, '').trim();
+  // 下一条聊天头的左括号会被切成上一段的尾巴 ("... best ad (")
+  s = s.replace(/\s+[\[\]【】()（）]+$/g, '').trim();
+  return gtOcrBodyOk(s) ? s : '';
+}
+
+// 返回 [{ ts, channel, body }] —— ts/channel 是去重键, 缺一不可。
+// 没有完整聊天头的文字不会出现在结果里 (它们不是"谁说的哪句话")。
+// 先按行切: OCR 偶尔会给换行, 一条聊天永远在一行内 —— 不按行切的话,
+// 上一条消息的正文会把下面无关的界面文字一起吞进去 ("luck game nice escape mid")。
 function gtParseOcrChatLines(raw) {
+  _gtOcrDropped = [];
+  const text = gtNormalizeOcrText(raw);
   const out = [];
-  const segmented = String(raw || '').replace(GT_OCR_HEADER_RE, '\n$1');
-  for (let line of segmented.split(/\r?\n/)) {
-    line = line.replace(/\s+/g, ' ').trim();
-    if (!line) continue;
-    let chat = false; // 聊天头部证据: 时间戳 / 频道标记 / 名字冒号
-    // 行首时间戳 "00:02" / "0:02" / "(08:24)"
-    const ts = line.match(/^\(?[01]?\d[:：][0-5]\d\)?\s*/);
-    if (ts) { chat = true; line = line.slice(ts[0].length); }
-    if (/\[[^\[\]]{1,8}\]|【[^【】]{1,8}】/.test(line)) chat = true;
-    line = line.replace(/\[[^\[\]]{1,8}\]/g, ' ').replace(/【[^【】]{1,8}】/g, ' ');
-    line = line.replace(/\s+/g, ' ').trim();
-    if (!line) continue;
-    if (GT_OCR_NOISE_RE.test(line)) continue;
-    // "玩家名 (英雄名): 内容" 前缀剥除 (允许空格/括号), 数字结尾前缀不剥
-    const m = line.match(/^(.{1,32}?)[:：]\s*(.+)$/);
-    if (m && m[2].trim() && !/\d\s*$/.test(m[1])) { chat = true; line = m[2].trim(); }
-    if (!line) continue;
-    if (!GT_OCR_ZH_RE.test(line)) out.push(line);
-    else out.push(...gtOcrLatinRuns(line, !chat));
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const heads = [];
+    GT_OCR_HEADER_RE.lastIndex = 0;
+    let m;
+    while ((m = GT_OCR_HEADER_RE.exec(line))) {
+      heads.push({
+        start: m.index,
+        end: m.index + m[0].length,
+        ts: String(Number(m[1])).padStart(2, '0') + ':' + m[2],
+        channel: String(m[3] || m[4] || '').replace(/\s+/g, '')
+      });
+    }
+    if (!heads.length) {
+      if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无聊天头) ' + line.trim().slice(0, 40));
+      continue;
+    }
+    if (heads[0].start > 0 && _gtOcrDropped.length < 4) {
+      _gtOcrDropped.push('(头部前杂音) ' + line.slice(0, heads[0].start).trim().slice(0, 40));
+    }
+    for (let i = 0; i < heads.length; i++) {
+      const h = heads[i];
+      const segEnd = i + 1 < heads.length ? heads[i + 1].start : line.length;
+      const body = gtOcrStripBody(line.slice(h.end, segEnd));
+      if (!body) {
+        if (_gtOcrDropped.length < 4) {
+          _gtOcrDropped.push('(' + h.ts + h.channel + ') ' + line.slice(h.end, segEnd).trim().slice(0, 40));
+        }
+        continue;
+      }
+      out.push({ ts: h.ts, channel: h.channel, body });
+    }
   }
-  return out.filter(s => s && s.length >= 2);
+  return out;
 }
 
 async function gtOcrScan() {
@@ -447,21 +527,59 @@ async function gtOcrScan() {
   try {
     const raw = await lolAPI.gameTranslateOcrChat();
     if (!raw) return;
-    let fresh = 0;
-    for (const body of gtParseOcrChatLines(raw)) {
-      if (gtOcrSeen.has(body)) continue;
-      gtOcrSeen.add(body);
-      if (gtOcrSeen.size > 400) gtOcrSeen.clear();
-      // 系统播报 (击杀/streak 类) 不处理; 中文残渣已在解析层剥除/抽取,
-      // 纯中文消息在解析层就无外文片段可出, 不会走到这里
-      if (GT_SYS_BODY_RE.test(body)) continue;
-      if (!gtLooksForeign(body)) continue;
-      gtQueue.push({ name: '聊天', body });
+    const parsed = gtParseOcrChatLines(raw);
+    let fresh = 0, dup = 0, held = 0;
+    for (const item of parsed) {
+      const body = item.body;
+      // 系统播报 (击杀/streak 类) 不处理
+      if (GT_SYS_BODY_RE.test(body) || !gtLooksForeign(body)) continue;
+      const key = item.channel + '|' + item.ts;
+      const rec = gtOcrSeen.get(key);
+      if (!rec) {
+        if (gtOcrNeedsConfirm(body)) { gtOcrSeen.set(key, { body, sent: false, at: Date.now() }); held++; continue; }
+        gtOcrSeen.set(key, { body, sent: true, at: Date.now() });
+        gtQueue.push({ name: '聊天', body });
+        _gtOcrTotal++; fresh++;
+        continue;
+      }
+      // 同一频道同一时间戳 = 同一条消息。已经发过就不再发 —— 这是幻影消息的根治点。
+      if (rec.sent) { dup++; continue; }
+      // 上一轮是"待确认"的单字词: 这一轮读到同样内容 (或更完整的版本) 才发出
+      if (body === rec.body || body.includes(rec.body)) {
+        rec.body = body; rec.sent = true;
+        gtQueue.push({ name: '聊天', body });
+        _gtOcrTotal++; fresh++;
+      } else if (rec.body.includes(body)) {
+        dup++;   // 这轮读得更残, 忽略
+      } else {
+        rec.body = body; rec.sent = true;   // 抖动变体: 取最新的一版
+        gtQueue.push({ name: '聊天', body });
+        _gtOcrTotal++; fresh++;
+      }
+    }
+    // 待确认的单字词一直没被第二轮读到 (消息已经滚出聊天框) 时不能永远悬着:
+    // 15 秒后按读到的那一版发出去, 否则这条消息就静默消失了。
+    const nowTs = Date.now();
+    for (const rec of gtOcrSeen.values()) {
+      if (rec.sent || !rec.at || nowTs - rec.at < 15000) continue;
+      rec.sent = true;
+      gtQueue.push({ name: '聊天', body: rec.body });
       _gtOcrTotal++; fresh++;
     }
+    if (gtOcrSeen.size > 400) {
+      let drop = gtOcrSeen.size - 250;
+      for (const k of gtOcrSeen.keys()) { if (drop-- <= 0) break; gtOcrSeen.delete(k); }
+    }
     if (fresh) {
-      try { lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ')'); } catch (e) {}
+      try { lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ' dup=' + dup + ')'); } catch (e) {}
       gtFlush();
+    } else if ((dup || held || _gtOcrDropped.length) && Date.now() - (_gtOcrSkipLogAt || 0) > 30000) {
+      // 被过滤的必须留痕, 否则"OCR 读到了但一条都没进管线"和"OCR 什么都没读到"无法区分
+      _gtOcrSkipLogAt = Date.now();
+      try {
+        lolAPI.debugLog('[GT] ocr filtered: dup=' + dup + ' held=' + held
+          + ' drop=' + JSON.stringify(_gtOcrDropped.slice(0, 3)));
+      } catch (e) {}
     }
   } catch (e) { try { lolAPI.debugLog('[GT] ocr error: ' + (e?.message || e)); } catch (e2) {} }
 }

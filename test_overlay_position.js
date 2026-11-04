@@ -105,3 +105,37 @@ assert.ok(sec.x >= 1920 && sec.x + W <= 1920 + 1280, '副屏上不得越过该�
 assert.ok(sec.y >= 0 && sec.y + H <= 1024, '副屏上不得超出该屏工作区高度');
 
 console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判据 / 兜底位置 / 贴右外侧 / 改贴左外侧 / 占满屏压回右缘 / 真机数据回归 / 垂直夹边界与不误夹 / 用户位置优先 / 副屏边界)');
+
+// ---- 10. 聊天框 OCR 裁剪区 (1.5.51) ----
+// 18:31 局日志实证: x 0~30% / y 5~60% 把 "/help 获取命令列表" 提示、队伍面板
+// 和浮窗压住的那条带全截进来了, 每轮 OCR 都在读杂音。
+{
+  const { chatOcrCrop } = require('./main/overlay-position');
+  const size = { width: 2560, height: 1440 };
+
+  const plain = chatOcrCrop(size, null);
+  assert.deepStrictEqual(plain, { x: 0, y: 72, width: 666, height: 821 },
+    '基础裁剪区: 左列 26% 宽、y 5%~62%, 不再是整个左三分之一');
+  assert.ok(plain.width < size.width * 0.30, '宽度必须收回到聊天列, 不能还是左三分之一');
+
+  // 浮窗贴在聊天框上方 (y 52%~73%): 压住裁剪区下沿 -> 抬高下沿避开
+  const overlapped = chatOcrCrop(size, { x: 16, y: 749, width: 370, height: 300 });
+  assert.ok(overlapped.height < plain.height, '浮窗压住下沿时必须缩小裁剪高度');
+  assert.strictEqual(overlapped.y + overlapped.height, 749 - 6,
+    '裁剪区下沿应停在浮窗上边之上 (留 6px 缝)');
+  assert.strictEqual(overlapped.x, plain.x, '避开浮窗不应改变左边界');
+
+  // 浮窗在聊天列右侧 (不重叠): 不能白缩
+  const rightSide = chatOcrCrop(size, { x: 1200, y: 700, width: 370, height: 300 });
+  assert.deepStrictEqual(rightSide, plain, '浮窗不在裁剪区内时不得改变裁剪区');
+
+  // 浮窗几乎盖满裁剪区: 宁可糊也不能把区域压没
+  const covering = chatOcrCrop(size, { x: 0, y: 100, width: 800, height: 900 });
+  assert.ok(covering.height >= plain.height * 0.5, '浮窗吃掉超过一半高度时不裁剪 (否则等于关掉 OCR)');
+
+  // 尺寸畸形 (0/负) 不能算出 0 或负宽高, 否则 crop() 直接抛
+  const bad = chatOcrCrop({ width: 0, height: 0 }, null);
+  assert.ok(bad.width >= 1 && bad.height >= 1, '畸形尺寸也要给出可用的正数矩形');
+}
+
+console.log('聊天框 OCR 裁剪区测试通过 (基础区域 / 避开浮窗 / 浮窗不重叠时不缩 / 覆盖过半不裁 / 畸形尺寸)');

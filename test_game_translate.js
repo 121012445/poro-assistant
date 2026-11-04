@@ -246,13 +246,15 @@ function msg(id, body, fromId) {
     ok('每局补发有上限', e.sent.length <= 40 && e.sent.length >= 1, e.sent.length);
   }
 
-  console.log('— OCR 聊天框通道 (1.5.46) —');
+  console.log('— OCR 聊天框通道 (1.5.46 / 1.5.51 收紧) —');
   {
+    // 1.5.51 契约变更: 只认"时间戳+频道"齐全的聊天头。没有头部的文字
+    // (界面提示、系统播报、别的窗口内容) 一律不进翻译管线 —— 它们是幻影消息的来源。
     const e = makeEnv({});
-    const lines = await e.run('gtParseOcrChatLines')('00:02 [All] Rain: Good Luck\n0:05 雨未散：连败衰神\n\n00:08 killing spree');
-    // 1.5.50: 纯中文消息在解析层就丢弃 (无外文片段可出)
-    ok('OCR 行剥时间戳与频道标记', lines[0] === 'Good Luck' && lines[1] === 'killing spree', lines);
-    ok('OCR 行数正确 (中文消息已丢)', lines.length === 2, lines);
+    const lines = await e.run('gtParseOcrChatLines')(
+      '00:02 [All] Rain: Good Luck\n0:05 雨未散：连败衰神\ndragon at 15:30');
+    ok('OCR 只收带"时间戳+频道"的聊天', lines.length === 1 && lines[0].body === 'Good Luck', lines);
+    ok('OCR 解析结果带时间戳与频道 (去重键)', lines[0] && lines[0].ts === '00:02' && lines[0].channel === 'All', lines[0]);
   }
   {
     // 1.5.49: 真实游戏日志格式 —— 括号时间戳 + 中文玩家名(英雄名)前缀,
@@ -260,10 +262,12 @@ function msg(id, body, fromId) {
     const e = makeEnv({});
     const raw = '(08:24) [队伍] 雨未散 (战争女神): bang is world\'s best ad\n'
       + '(00:03) [队伍] Faker (发条魔灵): IG is awesome.\n'
-      + 'dragon at 15:30';
+      + '(00:26) [队伍] Faker: dragon at 15:30';
     const lines = await e.run('gtParseOcrChatLines')(raw);
-    ok('OCR 括号时间戳+中文名(英雄)前缀剥除', lines[0] === 'bang is world\'s best ad' && lines[1] === 'IG is awesome.', lines);
-    ok('OCR 数字结尾前缀不剥 (防时间截断)', lines[2] === 'dragon at 15:30', lines);
+    const bodies = lines.map(l => l.body);
+    ok('OCR 括号时间戳+中文名(英雄)前缀剥除', bodies[0] === 'bang is world\'s best ad' && bodies[1] === 'IG is awesome.', bodies);
+    ok('OCR 正文里的时间不被当分隔符', bodies[2] === 'dragon at 15:30', bodies);
+    ok('OCR 时间戳统一成 mm:ss', lines[0] && lines[0].ts === '08:24', lines[0]);
   }
   {
     // 1.5.48: 浮窗提示条/后台应用杂音行整行丢弃 (17:31 局 OCR 日志实证)
@@ -273,13 +277,10 @@ function msg(id, body, fromId) {
       + '00:02 [All] Rain: luck game\n'
       + 'nice escape mid';
     const lines = await e.run('gtParseOcrChatLines')(raw);
-    ok('OCR 杂音行 (浮窗提示/混杂行情) 丢弃', lines.length === 2 && lines[0] === 'luck game' && lines[1] === 'nice escape mid', lines);
-    // 1.5.50: "WorkBuddy..." 混杂行在解析层抽取外文片段, 无聊天头部证据时
-    // 只收多词片段 —— 单词 "WorkBuddy" 被丢弃, "luck game" 保留
-    const lines2 = await e.run('gtParseOcrChatLines')('WorkBuddy 新建任务 专家 连接器 资料库\nluck game');
-    ok('OCR 混杂杂音单词被丢 (无头部证据)', lines2.length === 1 && lines2[0] === 'luck game', lines2);
+    const bodies = lines.map(l => l.body);
+    ok('OCR 杂音行 (浮窗提示/混杂行情/无头部行) 丢弃', bodies.length === 1 && bodies[0] === 'luck game', bodies);
     const e2 = makeEnv({});
-    e2.ctx.lolAPI.gameTranslateOcrChat = async () => 'WorkBuddy 新建任务 专家 连接器 资料库\n00:03 [All] Rain: luck game';
+    e2.ctx.lolAPI.gameTranslateOcrChat = async () => raw;
     await e2.run('gtOcrScan')();
     await flushAsync();
     ok('OCR 含中文杂音行不进翻译管线', e2.translated.length === 1 && e2.translated[0].texts[0] === 'luck game', e2.translated);
@@ -294,21 +295,61 @@ function msg(id, body, fromId) {
     ok('OCR 行不补发', e.sent.length === 0, e.sent);
   }
   {
-    // 1.5.50: 真实日志夹具 —— OCR 把多条聊天+系统文本合并成一大行,
-    // 含大量中文残渣, 需从中抽取出外文消息
+    // 1.5.51 真实报障夹具 (18:31 局 [GT OCR] 原文, 整块被 OCR 读成一行):
+    // 头部断行必须能在这串里认出 00:18 / 00:29 两条聊天, 其余全部丢弃。
     const e = makeEnv({});
-    const raw = '输 4 获 取 命 令 列 表 0 0 \' 戒 乏 箭 已 经 选 择 了 位 置 ： 上 路 阝 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： 大 家 好 00 8 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： hello everyone';
+    const raw = '` 丸 he | p 获 取 命 令 列 表 00 《 06 惩 戒 之 箭 已 经 选 择 了 位 置 ： 上 路 '
+      + '00 ： 10 [ 队 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： 大 家 女 新 '
+      + '00 ： 18 [ 队 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： hello everyone '
+      + '00 ： 29 [ 队 伍 ] 雨 未 散 （ 惩 戒 之 箭 ） ： congratulations '
+      + '1 ： 22 [ 队 伍 ] 雨 未 散';
     const lines = await e.run('gtParseOcrChatLines')(raw);
-    ok('OCR 合并混杂行抽取外文片段', lines.includes('hello everyone'), lines);
-    const raw2 = '已 经 选 择 了 位 置 ： 上 路 雨 未 散 （ 惩 戒 之 箭 ） ： good luck have fun';
-    const lines2 = await e.run('gtParseOcrChatLines')(raw2);
-    ok('OCR 中文系统前缀合并行也能抽出', lines2.includes('good luck have fun'), lines2);
-    // 端到端: 混杂行进翻译管线
-    const e2 = makeEnv({});
-    e2.ctx.lolAPI.gameTranslateOcrChat = async () => raw;
-    await e2.run('gtOcrScan')();
-    await flushAsync();
-    ok('OCR 混杂行端到端进翻译', e2.translated.some(t => (t.texts || []).includes('hello everyone')), e2.translated);
+    const bodies = lines.map(l => l.body);
+    ok('OCR 合并单行按头部断行 (带空格的 "00 ： 18" 也认)', bodies.length === 2, bodies);
+    ok('OCR 合并单行只留真实外文消息', bodies[0] === 'hello everyone' && bodies[1] === 'congratulations', bodies);
+    ok('OCR 头部前的 /help 提示被丢弃', !bodies.some(b => /help|获 取|命 令/i.test(b)), bodies);
+  }
+  {
+    // 1.5.51 核心回归: 同一时间戳在不同轮次被读成不同版本, 只能产生一条翻译。
+    const e = makeEnv({});
+    let raw = '00:18 [队伍] 雨未散 (惩戒之箭): hello everyone\n'
+      + '00:29 [队伍] 雨未散 (惩戒之箭): congratulations';
+    e.ctx.lolAPI.gameTranslateOcrChat = async () => raw;
+    await e.run('gtOcrScan')(); await flushAsync();
+    raw = '00:18 [队伍] 雨未散 (惩戒之箭): hello éVeryone\n'
+      + '00:29 [队伍] 雨未散 (惩戒之箭): congratulations\n'
+      + '00:31 [队伍] 雨未散 (惩戒之箭): nice escape mid';
+    e.advance(4000);
+    await e.run('gtOcrScan')(); await flushAsync();
+    const texts = e.translated.flatMap(t => t.texts || []);
+    ok('OCR 同时间戳残片不再产生幻影消息',
+      texts.length === 3 && texts.includes('hello everyone') && texts.includes('congratulations') && texts.includes('nice escape mid'), texts);
+    ok('OCR 抖动版本不进翻译', !texts.some(t => /éVeryone/.test(t)), texts);
+  }
+  {
+    // 1.5.51: 中文污染的行不再"抽外文片段", 整条丢 —— "tion" 就是这么冒出来的
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')('(08:24) [队伍] 雨未散 (惩戒之箭): gra 卣 白 tion');
+    ok('OCR 中文污染残片整条丢弃', lines.length === 0, lines);
+  }
+  {
+    // 1.5.51: 单个词可能是长词被截断的一半 —— 先待确认, 下一轮读到更完整的就用完整的
+    const e = makeEnv({});
+    let raw = '00:29 [队伍] 雨未散 (惩戒之箭): ulations';
+    e.ctx.lolAPI.gameTranslateOcrChat = async () => raw;
+    await e.run('gtOcrScan')(); await flushAsync();
+    ok('OCR 单词残片先待确认 (不立刻翻译)', e.translated.length === 0, e.translated);
+    raw = '00:29 [队伍] 雨未散 (惩戒之箭): congratulations';
+    e.advance(4000);
+    await e.run('gtOcrScan')(); await flushAsync();
+    const texts = e.translated.flatMap(t => t.texts || []);
+    ok('OCR 待确认的单词升级为完整版', texts.length === 1 && texts[0] === 'congratulations', texts);
+  }
+  {
+    // 1.5.51: 裁剪边缘切断的"半个聊天头"不能留在正文里
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')('00:18 [队伍] 雨未散 (惩戒之箭): hello everyone 00:2');
+    ok('OCR 正文尾部的半截时间戳被剥掉', lines.length === 1 && lines[0].body === 'hello everyone', lines);
   }
 
   console.log('— 会话房间解析 —');
