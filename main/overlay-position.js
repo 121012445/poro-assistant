@@ -89,8 +89,13 @@ function computeOverlayBounds(req) {
 //     截成 "shenzhe" —— 宁可多 3% 也不能切字。
 // 于是改成 y0.40~0.575 / x0~0.25。列表只会往上长, 最新消息永远在底部,
 // 所以固定裁下半段不会漏新消息。
+// 1.5.55: 同一块带在两局里表现**不一致** —— 深色背景那局 4x 就全对, 亮色丛林
+// 背景那局 4x 把 4 行聊天读成 "0" / "1" / 两行界面文字, 一条消息都没出来。
+// 把同一帧按 Poro 的真实输出尺寸 (640x252 再放大 S 倍) 逐个试:
+//   4x → 0 条聊天; 5x → "hello everyone" + "hello" 都对; 8x → 也对但更慢。
+// 取 5x (实测单帧 278ms, 4x 是冷启动 1.9s, 8x 是 637ms)。
 const CHAT_OCR_RECT = { x: 0, y: 0.40, width: 0.25, height: 0.175 };
-const CHAT_OCR_SCALE = 4;          // 小字放大 4 倍再识别 (2x 时英文单词会被读错)
+const CHAT_OCR_SCALE = 5;          // 小字放大 5 倍再识别 (实测 4x 在亮色丛林背景上会把整段聊天读丢)
 const CHAT_OCR_OVERLAY_GAP = 6;    // 与浮窗留的缝 (像素)
 const CHAT_OCR_MIN_KEEP = 0.5;     // 浮窗最多吃掉一半高度, 再多就不裁 (宁可糊, 不能空)
 

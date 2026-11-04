@@ -370,6 +370,47 @@ function msg(id, body, fromId) {
       !bodies.some(b => /help|获 取|中 路/i.test(b)), bodies);
   }
   {
+    // 1.5.55 真实报障夹具 (20:05 局, 亮色丛林背景): 5x 的真实 OcrLine 输出。
+    // 这一帧的频道方括号**整个消失**, 三种方括号写法全不匹配 —— 1.5.54 装上去
+    // 仍然一条都不翻, 用户看到的就是"聊天框的消息没被翻译"。
+    const e = makeEnv({});
+    const raw = [
+      '输 ） 获 取 命 令 列 表',
+      '00 ： 0 破 鬼 才 已 经 选 择 了 位 置 ： 下 路 ．',
+      '佣 <6 到 伍 1 雨 禾 散 （ 烁 咳 鬼 才 ） ： hello everyone',
+      '00 队 伍 ] 雨 未 散 （ 鬼 才 ） hello'
+    ].join('\n');
+    const bodies = (await e.run('gtParseOcrChatLines')(raw)).map(l => l.body);
+    ok('OCR 方括号全丢时用冒号兜底 (hello everyone)',
+      bodies.includes('hello everyone'), bodies);
+    ok('OCR 冒号兜底不吞系统播报', !bodies.some(b => /下 路|位 置/.test(b)), bodies);
+  }
+  {
+    // 同一局深色背景帧 (5x): 方括号健在, 走原来的频道锚点, 7 条消息一条不少
+    const e = makeEnv({});
+    const raw = [
+      '制 入 / he!p 获 取 命 令 列 表',
+      '00 ： 05 傲 之 追 猎 者 已 择 了 位 ； 中 路',
+      '00 ： 07 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 hello even;one',
+      '00 ： 31 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： hi',
+      '01 ： 32 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 tokyo',
+      '11 ： 04 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 goodluck',
+      '11 ： 20 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 goodluck',
+      '25 ： 39 [ 队 伍 ] 雨 未 散 （ 傲 之 犭 congradulations',
+      "25 ： 56 [ 队 到 雨 未 散 （ 傲 之 追 猎 ） ： hieveryone i'm from shenzhen"
+    ].join('\n');
+    const bodies = (await e.run('gtParseOcrChatLines')(raw)).map(l => l.body);
+    ok('OCR 5x 深色帧: 7 条消息全部抽出', bodies.length === 7, bodies);
+    ok('OCR 5x 深色帧: tokyo / goodluck 读对',
+      bodies.includes('tokyo') && bodies.filter(b => b === 'goodluck').length === 2, bodies);
+  }
+  {
+    // 冒号兜底不能把 "dragon at 15:30" 这种正文里的时间当锚点
+    const e = makeEnv({});
+    const bodies = (await e.run('gtParseOcrChatLines')('dragon at 15:30')).map(l => l.body);
+    ok('OCR 冒号兜底不切正文里的时间', bodies.length === 0, bodies);
+  }
+  {
     // worker 契约: 必须按 OcrLine 逐行输出。OcrResult.Text 会用空格把多行拼成一行,
     // 一旦有人改回去, 聊天 OCR 会静默退化成"一条都认不出"(不报错, 只是没反应)。
     const ps = fs.readFileSync(path.join(__dirname, 'main/native/PoroOcrWorker.ps1'), 'utf8');
@@ -385,11 +426,10 @@ function msg(id, body, fromId) {
     ok('OCR 长句差 3 个字母视为同一条 (he everyone ≈ hello everyone)',
       same('heeveryone', 'helloeveryone') === true);
     ok('OCR 短句差 2 个字母不合并 (gg ≠ ggwp)', same('gg', 'ggwp') === false);
-    // 已知取舍: 包含判定会把握手式前缀并掉 ("good" ⊂ "goodluck")。这条是 1.5.52
-    // 用来合并 "ulations"/"congratulations" 的同一机制, 收紧它会退回幻影消息,
-    // 因此保留 —— 这里只把行为钉住, 免得以后有人以为是 bug 改坏。
-    ok('OCR 包含判定保留 (good ⊂ goodluck 视为同一条, 已知取舍)',
-      same('good', 'goodluck') === true);
+    // 1.5.55: 裸包含判定把握手式前缀并掉了 —— 真实帧里 00:16 "hello everyone" 之后
+    // 00:39 的 "hello" 是**另一条真消息**, 却被当成重复吞掉。加了 0.6 长度比例门禁。
+    ok('OCR 包含判定加比例门禁 (hello ≠ hello everyone)', same('hello', 'helloeveryone') === false);
+    ok('OCR 包含判定加比例门禁 (good ≠ goodluck)', same('good', 'goodluck') === false);
   }
   {
     // 1.5.51: 裁剪边缘切断的"半个聊天头"不能留在正文里

@@ -434,7 +434,9 @@ const GT_OCR_SHORT_OK = new Set([
   'gg', 'wp', 'gj', 'ggwp', 'lol', 'lmao', 'hi', 'hello', 'hey', 'ty', 'thx', 'thanks',
   'omw', 'ez', 'op', 'ff', 'jg', 'mid', 'top', 'adc', 'sup', 'jungle', 'nice', 'good',
   'yes', 'no', 'ok', 'okay', 'push', 'care', 'help', 'run', 'wait', 'ult', 'flash',
-  'baron', 'dragon', 'herald', 'sry', 'sorry', 'np', 'yep', 'nope', 'go', 'back', 'recall'
+  'baron', 'dragon', 'herald', 'sry', 'sorry', 'np', 'yep', 'nope', 'go', 'back', 'recall',
+  // 1.5.55: 完整单词不该被当成残片扣一轮 (真实帧里 11:04/11:20 两条 goodluck)
+  'goodluck', 'congrats', 'congratulations', 'welcome'
 ]);
 // 本文件解析器的"丢弃留痕" (诊断用): 每轮重置, 只留前 4 条, 供 gtOcrScan 写日志
 let _gtOcrDropped = [];
@@ -469,7 +471,13 @@ function gtOcrBodyOk(body) {
 // 下一轮读到同样内容才发出, 读到更完整的版本就用更完整的那个。
 function gtOcrNeedsConfirm(body) {
   const tokens = String(body || '').split(/\s+/).filter(Boolean);
-  return tokens.length === 1 && !GT_OCR_SHORT_OK.has(String(body).toLowerCase());
+  if (tokens.length !== 1) return false;
+  const word = String(body).toLowerCase();
+  if (GT_OCR_SHORT_OK.has(word)) return false;
+  // 1.5.55: 长单词 (≥10 个字母) 基本不可能是"被截断的一半" —— 真实帧里的
+  // "congradulations" 每次都被扣一轮才发, 白等 4 秒。短的 (ulations / tokyo)
+  // 仍然扣一轮等更完整的版本。
+  return word.replace(/[^a-z]/g, '').length < 10;
 }
 
 function gtOcrStripBody(seg) {
@@ -494,6 +502,25 @@ function gtOcrStripBody(seg) {
   return gtOcrBodyOk(s) ? s : '';
 }
 
+// 1.5.55: 频道方括号**整个消失**时的兜底锚点。真实帧里出现过
+// "0 60 1 雨 禾 散 @咳 鬼 才 ） ： hello everyone" —— 既没有 "[", 也没有 "队" 或 "伍",
+// 三种方括号写法全都匹配不上, 消息凭空消失。既然 OCR 已经是一行一条, 改用
+// "冒号"当锚点: 从左往右找第一个"左边像聊天头、右边能过正文校验"的冒号。
+// 左边必须含中文或以 )/]/】 结尾 —— 否则 "dragon at 15:30" 会被切成 "30"。
+function gtOcrSplitByColon(line) {
+  const re = /[:：]/g;
+  let m;
+  while ((m = re.exec(line))) {
+    const left = line.slice(0, m.index);
+    const right = line.slice(m.index + 1).trim();
+    if (!right) continue;
+    if (!GT_OCR_ZH_RE.test(left) && !/[)\]】」]\s*$/.test(left)) continue;
+    const body = gtOcrStripBody(right);
+    if (body) return body;
+  }
+  return '';
+}
+
 // 返回 [{ ts, channel, body }]。ts 只是附加信息 (OCR 读不准), channel 是锚点。
 // 先按行切: 一条聊天永远在一行内 —— 不按行切的话上一条消息的正文会把下面
 // 无关的界面文字一起吞进去。
@@ -510,6 +537,9 @@ function gtParseOcrChatLines(raw) {
       marks.push({ start: m.index, end: m.index + m[0].length, channel: String(m[1] || m[2] || m[3] || '').replace(/\s+/g, '') });
     }
     if (!marks.length) {
+      // 1.5.55: 方括号全丢的行退到冒号锚点, 别直接扔
+      const byColon = gtOcrSplitByColon(line);
+      if (byColon) { out.push({ ts: '', channel: '', body: byColon }); continue; }
       if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无频道标记) ' + line.trim().slice(0, 40));
       continue;
     }
@@ -571,7 +601,11 @@ function gtOcrSame(a, b) {
   if (a === b) return true;
   const short = a.length <= b.length ? a : b;
   const long = short === a ? b : a;
-  if (short.length >= 3 && long.includes(short)) return true;   // 残片 / 更完整的版本
+  // 1.5.55: 包含判定加长度比例门禁。真实帧里 00:16 是 "hello everyone"、00:39 是
+  // "hello" —— 后者是前者的子串, 旧的裸包含判定把第二条真消息当成了重复直接吞掉。
+  // 比例 ≥0.6 才认为是"同一条的更完整/更残缺版本"; 真正的残片 (ulations /
+  // congratulations = 0.53) 由下面"长句差 ≤3"和 gtOcrNeedsConfirm 兜住。
+  if (short.length >= 3 && short.length >= long.length * 0.6 && long.includes(short)) return true;
   // 1.5.54: 长句上差 ≤3 个字符基本就是同一条消息的两次识别 —— 真实帧里
   // "he everyone" 与下一轮的 "hello everyone" 只差 3 个字母, 相似度 0.77 卡在
   // 阈值下, 于是同一句被翻了两遍。短句不敢这么放宽: "gg" 和 "ggwp" 也只差 2 个
@@ -596,7 +630,12 @@ async function gtOcrScan() {
       if (norm.length < 2) continue;
       // 同一条消息的多个 OCR 版本: 模糊比对 (时间戳读不准, 不能当键)
       let rec = null;
-      for (const r of gtOcrRecent) { if (gtOcrSame(r.norm, norm)) { rec = r; break; } }
+      for (const r of gtOcrRecent) {
+        // 1.5.55: 已发出的记录只认严格相似 (否则 "hello" 会被 "hello everyone" 吞掉);
+        // 还没发出的"待确认"记录放宽到包含判定 —— 它就是靠"读到更完整的版本"来升级的。
+        if (gtOcrSame(r.norm, norm)
+          || (!r.sent && (norm.includes(r.norm) || r.norm.includes(norm)))) { rec = r; break; }
+      }
       if (!rec) {
         if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ norm, body, sent: false, at: Date.now() }); held++; continue; }
         gtOcrRecent.push({ norm, body, sent: true, at: Date.now() });

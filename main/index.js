@@ -1280,7 +1280,7 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     if (crop.isEmpty()) return null;
     const cs = crop.getSize();
     // 1.5.53: 小字放大 4 倍 (2x 时 "hello everyone" 会被读成 "helldeveryone")
-    const k = overlayPosition.CHAT_OCR_SCALE || 4;
+    const k = overlayPosition.CHAT_OCR_SCALE || 5;
     const ocrImage = crop.resize({ width: cs.width * k, height: cs.height * k, quality: 'best' });
     const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}.png`);

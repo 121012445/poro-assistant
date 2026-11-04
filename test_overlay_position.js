@@ -145,6 +145,11 @@ console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判�
   // 尺寸畸形 (0/负) 不能算出 0 或负宽高, 否则 crop() 直接抛
   const bad = chatOcrCrop({ width: 0, height: 0 }, null);
   assert.ok(bad.width >= 1 && bad.height >= 1, '畸形尺寸也要给出可用的正数矩形');
+
+  // 1.5.55: 亮色背景那局 4x 把整段聊天读丢 (只认出 "0"/"1"/两行界面文字),
+  // 同一帧 5x 能读对 "hello everyone" + "hello"。倍数掉了就会退回"一条都不翻"。
+  const { CHAT_OCR_SCALE } = require('./main/overlay-position');
+  assert.strictEqual(CHAT_OCR_SCALE, 5, 'OCR 放大倍数必须是 5 (4x 在亮色丛林背景上会读丢整段聊天)');
 }
 
 console.log('聊天框 OCR 裁剪区测试通过 (基础区域 / 避开浮窗 / 浮窗不重叠时不缩 / 覆盖过半不裁 / 畸形尺寸)');
