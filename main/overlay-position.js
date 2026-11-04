@@ -74,14 +74,15 @@ function computeOverlayBounds(req) {
 
 // 对局聊天框 OCR 的裁剪矩形 —— 同样做成纯函数, 便于单测。
 //
-// 真实截图的经验值: 聊天列表只占游戏窗口左上起的第一列, 远不到左三分之一。
-// 1.5.50 用 x 0~30% / y 5~60%, 把 "输入 /help 获取命令列表" 提示、队伍面板、
-// 以及 Poro 浮窗压住的那条带一起截了进来 —— 18:31 局每轮 OCR 都读到
-// "输入 /help 获取命令列表", 白占识别预算还污染解析。
-//
-// 浮窗 (gameTranslateWindow) 默认贴在聊天框上方, 与裁剪区下沿相交时会把
-// 最新几条消息糊掉, 所以相交时把下沿抬到浮窗上边之上。
-const CHAT_OCR_RECT = { x: 0, y: 0.05, width: 0.26, height: 0.57 };   // 相对比例
+// 1.5.53: 用用户真实帧把裁剪带/放大倍数试穿了 (同一帧喂给 Poro 自己的
+// PoroOcrWorker.ps1, 对比 2x/3x/4x/5x × 6 条裁剪带)。结论:
+//   · 聊天列实测在 y≈48~54%、x 0~14% (1440p), 是一条很窄的带;
+//   · 2x 时 "hello everyone" 被读成 "helldeveryone"/"hellöeveryone";
+//     **y45~62% + 4x** 能完整读对, 5 条消息全部识别出来;
+//   · 二值化/反色/灰度全都更差 (把抗锯齿的文字边缘切碎了), 不要用。
+// 之前 1.5.50 用 x0~30% / y5~62%, 把 "/help 获取命令列表"、队伍面板一起截进来。
+const CHAT_OCR_RECT = { x: 0, y: 0.45, width: 0.22, height: 0.17 };
+const CHAT_OCR_SCALE = 4;          // 小字放大 4 倍再识别 (2x 时英文单词会被读错)
 const CHAT_OCR_OVERLAY_GAP = 6;    // 与浮窗留的缝 (像素)
 const CHAT_OCR_MIN_KEEP = 0.5;     // 浮窗最多吃掉一半高度, 再多就不裁 (宁可糊, 不能空)
 
@@ -109,4 +110,4 @@ function chatOcrCrop(size, overlay) {
   return rect;
 }
 
-module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop };
+module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop, CHAT_OCR_SCALE };

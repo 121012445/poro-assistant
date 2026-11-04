@@ -364,7 +364,25 @@ function msg(id, body, fromId) {
     ok('OCR 上一条的时间戳不粘在本条正文里', !bodies.some(b => /\d\s*[:：]\s*\d/.test(b)), bodies);
   }
   {
-    // 1.5.52: 同一句话被 OCR 读成三个版本 (hello / heIIO / heII0), 只能翻一次。
+    // 1.5.53 真实输出 (y45~62% + 4x 裁剪, 19:31 局): 5 条聊天里能干净取出 4 条,
+    // 剩下 "tokyo 的"/"℃ 4" 是 OCR 自己读坏的 (yoyo/ggwp), 丢得对。
+    const e = makeEnv({});
+    const raw = '00 ： 05 傲 之 追 猎 者 已 经 选 择 了 位 首 ： 中 路 '
+      + '00 ： 17 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 〕 ： hello everyone '
+      + 'OO ： 31 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： hi '
+      + '01 ： 32 [ 队 伍 ] 雨 人 散 （ 傲 之 追 猎 者 ） ： tokyo 的 '
+      + '11 ℃ 4 「 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： goodluck '
+      + '11 ： 20 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 司 ： goodluck';
+    const lines = await e.run('gtParseOcrChatLines')(raw);
+    const bodies = lines.map(l => l.body);
+    ok('4x 裁剪输出: 4 条真实消息全取出', bodies.length === 4
+      && bodies[0] === 'hello everyone' && bodies[1] === 'hi'
+      && bodies[2] === 'goodluck' && bodies[3] === 'goodluck', bodies);
+    ok('残缺左括号 "「" 也认作频道标记', bodies.filter(b => b === 'goodluck').length === 2, bodies);
+    ok('时间戳被读成 "OO ： 31" 时不污染正文', !bodies.some(b => /OO\s*[:：]/.test(b)), bodies);
+  }
+  {
+    // 1.5.53: 同一句话被 OCR 读成三个版本 (hello / heIIO / heII0), 只能翻一次。
     // 时间戳同时被读成 "00 ： 17" / "ÖO ： 17" / "当 7", 所以去重不能依赖它。
     const e = makeEnv({});
     let raw = '00 ： 17 [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 者 ） ： hello everyone';

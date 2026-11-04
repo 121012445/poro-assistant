@@ -114,14 +114,15 @@ console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判�
   const size = { width: 2560, height: 1440 };
 
   const plain = chatOcrCrop(size, null);
-  assert.deepStrictEqual(plain, { x: 0, y: 72, width: 666, height: 821 },
-    '基础裁剪区: 左列 26% 宽、y 5%~62%, 不再是整个左三分之一');
+  assert.deepStrictEqual(plain, { x: 0, y: 648, width: 563, height: 245 },
+    '基础裁剪区: 聊天列 22% 宽、y 45%~62% (实测聊天记录就在这条带里)');
   assert.ok(plain.width < size.width * 0.30, '宽度必须收回到聊天列, 不能还是左三分之一');
+  assert.ok(plain.height < size.height * 0.30, '高度必须收回到聊天带, 不能还是 57% 高');
 
-  // 浮窗贴在聊天框上方 (y 52%~73%): 压住裁剪区下沿 -> 抬高下沿避开
-  const overlapped = chatOcrCrop(size, { x: 16, y: 749, width: 370, height: 300 });
+  // 浮窗压在裁剪区下沿 -> 抬高下沿避开
+  const overlapped = chatOcrCrop(size, { x: 16, y: 800, width: 370, height: 300 });
   assert.ok(overlapped.height < plain.height, '浮窗压住下沿时必须缩小裁剪高度');
-  assert.strictEqual(overlapped.y + overlapped.height, 749 - 6,
+  assert.strictEqual(overlapped.y + overlapped.height, 800 - 6,
     '裁剪区下沿应停在浮窗上边之上 (留 6px 缝)');
   assert.strictEqual(overlapped.x, plain.x, '避开浮窗不应改变左边界');
 
@@ -130,7 +131,7 @@ console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判�
   assert.deepStrictEqual(rightSide, plain, '浮窗不在裁剪区内时不得改变裁剪区');
 
   // 浮窗几乎盖满裁剪区: 宁可糊也不能把区域压没
-  const covering = chatOcrCrop(size, { x: 0, y: 100, width: 800, height: 900 });
+  const covering = chatOcrCrop(size, { x: 0, y: 660, width: 800, height: 900 });
   assert.ok(covering.height >= plain.height * 0.5, '浮窗吃掉超过一半高度时不裁剪 (否则等于关掉 OCR)');
 
   // 尺寸畸形 (0/负) 不能算出 0 或负宽高, 否则 crop() 直接抛

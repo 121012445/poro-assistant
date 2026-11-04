@@ -421,7 +421,7 @@ const GT_OCR_NOISE_RE = /打字|回车|发给队友|滚轮|拖动|双击|取消|
 // "ÖO ： 17" / "当 7" / "丽 ： 17" / "中 ： 17", 放大到 5x 也读不对 ——
 // 靠时间戳断行/去重天生不成立。而 "[ 队 伍 ]" 每轮都在 (最差剩 "伍 ]")。
 // 允许缺左括号: 只留 "[队伍全体] + 右括号" 也算一个聊天头。
-const GT_OCR_CHANNEL_RE = /(?:[\[【]\s*([^\[\]【】]{1,8}?)\s*[\]】]|([队伍全体])\s*[\]】])/g;
+const GT_OCR_CHANNEL_RE = /(?:[\[【「『〔]\s*([^\[\]【】「」『』〔〕]{1,8}?)\s*[\]】」』〕]|([队伍全体])\s*[\]】」])/g;
 const GT_OCR_TS_ANY_RE = /(\d{1,2})\s*[:：]\s*(\d{2})/g;
 const GT_OCR_ZH_RE = /[\u4e00-\u9fff]/;
 // 合法的"一个词"消息: 只有一两个词的消息不能因为"像残片"就被丢掉
@@ -517,9 +517,10 @@ function gtParseOcrChatLines(raw) {
       const segEnd = i + 1 < marks.length ? marks[i + 1].start : line.length;
       let seg = line.slice(h.end, segEnd);
       // 下一条消息的时间戳排在它的频道标记**前面**, 所以会粘在本条正文尾部
-      // ("heIIO everyone ， 00:31")。只有"后面还有消息"时才能这样剥 ——
-      // 最后一条的尾部可能是正文里真实的时间 ("dragon at 15:30")。
-      if (i + 1 < marks.length) seg = seg.replace(/\s*\d{1,2}\s*[:：]\s*\d{1,2}\s*[，,。.、]?\s*$/, '');
+      // ("hello everyone OO ： 31")。时间戳常被读成 "OO"/"ÖO"/"当", 前缀允许字母。
+      // 只有"后面还有消息"时才能这样剥 —— 最后一条的尾部可能是正文里真实的时间
+      // ("dragon at 15:30")。
+      if (i + 1 < marks.length) seg = seg.replace(/\s*(?:[A-Za-z]{1,3}|\d{1,2})\s*[:：]\s*\d{1,2}\s*[，,。.、]?\s*$/, '');
       const body = gtOcrStripBody(seg);
       if (!body) {
         if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(' + h.channel + ') ' + seg.trim().slice(0, 40));

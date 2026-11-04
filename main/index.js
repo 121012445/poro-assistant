@@ -1279,8 +1279,9 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     let crop = screenshot.crop(chatRect);
     if (crop.isEmpty()) return null;
     const cs = crop.getSize();
-    // 小字放大 2 倍再识别, 显著提升命中率 (与 augment 卡面同款做法)
-    const ocrImage = crop.resize({ width: cs.width * 2, height: cs.height * 2, quality: 'best' });
+    // 1.5.53: 小字放大 4 倍 (2x 时 "hello everyone" 会被读成 "helldeveryone")
+    const k = overlayPosition.CHAT_OCR_SCALE || 4;
+    const ocrImage = crop.resize({ width: cs.width * k, height: cs.height * k, quality: 'best' });
     const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}.png`);
     fs.writeFileSync(imagePath, ocrImage.toPNG());
