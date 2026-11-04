@@ -275,10 +275,13 @@ function msg(id, body, fromId) {
     ok('认不出房间名时兜底选中非好友会话', cids.includes('room-42') && !cids.includes('me@pvp.net'), cids);
   }
   {
-    // 能认出来就用精确匹配的，不要混入其他会话
+    // 1.5.44: strict 不再挡死 loose —— 1.5.43 下午实测, 旧局对局会话 (uuid@pvp.net,
+    // 游戏结束不销毁) 游戏开始时先进列表, 本局 c1/c2 建好后若 strict 只含旧房间,
+    // 「strict.length ? strict : loose」会把真房间挡死, 聊天永远不翻。
+    // 现在合并全扫: 旧房间无新消息, 多扫无害。
     const e = makeEnv({ cid: null, convs: [{ id: 'c1', type: 'custom' }, { id: 'room-42', type: 'chat' }] });
     const cids = await e.run('gtResolveCids')();
-    ok('精确房间存在时不混入兜底会话', cids.length === 1 && cids[0] === 'c1', cids);
+    ok('strict 与兜底会话合并全扫', cids.includes('c1') && cids.includes('room-42'), cids);
   }
 
   {

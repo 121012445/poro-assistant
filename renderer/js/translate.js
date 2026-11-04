@@ -24,6 +24,9 @@ let _gtCidDiagDone = false;
 let _gtReadTotal = 0;            // 本局累计读到的消息条数 (诊断用)
 let _gtLastStat = 0;             // 上次打"还没读到消息"日志的时间
 let _gtCidsCache = { at: 0, ids: [] };  // 房间列表 10 秒内复用, 别每 1.5 秒都查一遍
+let _gtCidLogAt = 0;             // 上次打房间解析日志的时间 (限频)
+let _gtSkipEmpty = 0, _gtSkipEcho = 0, _gtSkipMineOff = 0, _gtSkipNoMatch = 0;
+let _gtSkipLogAt = 0;            // 上次打跳过统计日志的时间 (限频)
 // 阶段闸门: bench.js 的兜底轮询每 12 秒都会调一次 handleGameflowPhase('InProgress'),
 // 早先每次调用都重置 gtSeen → 同一批消息被当成新消息反复翻译、反复补发 = 无限刷屏 (1.5.32 实测)。
 let _gtPhaseLatch = '';
@@ -152,6 +155,9 @@ function gameTranslateOnPhase(phase) {
     _gtEchoSent = 0;
     _gtEchoRecent.clear();
     _gtCidsCache = { at: 0, ids: [] };
+    _gtCidLogAt = 0;
+    _gtSkipEmpty = 0; _gtSkipEcho = 0; _gtSkipMineOff = 0; _gtSkipNoMatch = 0;
+    _gtSkipLogAt = 0;
     // chat.js 的选人房间 cid 跨局残留会让扫描/补发永远盯着死房间 (1.5.42 实测:
     // rooms empty 从进局刷到结束, 真对局房间被 strict 挡死) —— 每局开始作废重取
     if (typeof resetGameChatCid === 'function') { try { resetGameChatCid(); } catch (e) {} }
@@ -219,8 +225,17 @@ async function gtResolveCids(force) {
       }
     }
   } catch (e) {}
-  const ids = strict.length ? strict : loose;
+  // 1.5.44: strict 不再挡死 loose —— 实测上一局的对局会话 (uuid@pvp.net) 游戏结束后
+  // 不销毁, 进局首次解析时列表里只有它 (本局 c1/c2 还没建), 它先进 loose; 若之后
+  // strict 只含旧房间 (getGameChatCid 的 gameId 模糊匹配等), 本局真房间就被
+  // 「strict.length ? strict : loose」挡死, 聊天永远不翻 (1.5.43 下午实测)。
+  // 全扫无害: 旧房间没有新消息 (历史已标已读), 本人主会话已排除。
+  const ids = [...strict, ...loose.filter(id => !strict.includes(id))].slice(0, 4);
   _gtCidsCache = { at: now, ids };
+  if (ids.length && now - (_gtCidLogAt || 0) > 30000) {
+    _gtCidLogAt = now;
+    try { lolAPI.debugLog('[GT] cids=' + JSON.stringify(ids) + ' phase=' + window._gameflowPhase + ' strict=' + strict.length + ' loose=' + loose.length); } catch (e) {}
+  }
   return ids;
 }
 
@@ -273,7 +288,7 @@ async function gtScan() {
         gtSeen.add(key);
         if (gtSeen.size > 3000) gtSeen = new Set([...gtSeen].slice(-1200));
         const body = String(m?.body || '').trim();
-        if (!body || body.startsWith('/') || body.startsWith('【Poro】')) continue;
+        if (!body || body.startsWith('/') || body.startsWith('【Poro】')) { _gtSkipEmpty++; continue; }
         // 击杀播报之类不是"谁说的话", 既不翻译也不补发
         if (gtIsSystemMsg(m, body)) { _gtSysSkipped++; continue; }
         const display = m?.fromDisplay || {};
@@ -284,18 +299,18 @@ async function gtScan() {
         //   打中文 → 翻成目标语言补发一条给队友（gtAutoMine 可关）
         //   打英文 → 翻成中文放进浮窗，确认自己刚才那句在外服语境里是什么意思
         if (mine) {
-          if (gtEchoed.has(body)) continue;            // 我们自己补发出去的译文
+          if (gtEchoed.has(body)) { _gtSkipEcho++; continue; }   // 我们自己补发出去的译文
           if (GT_ZH_RE.test(body)) {
-            if (!gtAutoMine) continue;
+            if (!gtAutoMine) { _gtSkipMineOff++; continue; }
             gtQueue.push({ name: '我', body, mine: true });
             fresh++;
           } else if (gtLooksForeign(body)) {
             gtQueue.push({ name: '我', body, mine: false, self: true });
             fresh++;
-          }
+          } else { _gtSkipNoMatch++; }
           continue;
         }
-        if (!gtLooksForeign(body)) continue;
+        if (!gtLooksForeign(body)) { _gtSkipNoMatch++; continue; }
         gtQueue.push({ name: fromName || '玩家', body });
         fresh++;
       }
@@ -319,6 +334,17 @@ async function gtScan() {
     if (!_gtReadTotal && Date.now() - _gtLastStat > 30000) {
       _gtLastStat = Date.now();
       try { lolAPI.debugLog('[GT] rooms empty, cids=' + JSON.stringify(cids) + ' phase=' + window._gameflowPhase); } catch (e) {}
+    }
+    // 1.5.44: 读到了消息但一条都没进翻译队列时, 必须留下"为什么被跳过"的痕迹,
+    // 否则"没读到"和"读到了全被过滤"无法区分 (1.5.43 下午排障时缺的就是这块)
+    const skipped = _gtSkipEmpty + _gtSysSkipped + _gtSkipEcho + _gtSkipMineOff + _gtSkipNoMatch;
+    if (skipped && Date.now() - (_gtSkipLogAt || 0) > 20000) {
+      _gtSkipLogAt = Date.now();
+      try {
+        lolAPI.debugLog('[GT] skip stats: empty=' + _gtSkipEmpty + ' sys=' + _gtSysSkipped
+          + ' echo=' + _gtSkipEcho + ' mineOff=' + _gtSkipMineOff + ' noMatch=' + _gtSkipNoMatch
+          + ' myId=' + (gtMyChatId ? 'ok' : '-') + ' myName=' + (gtMyName || '-'));
+      } catch (e) {}
     }
     if (fresh) gtFlush();
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
