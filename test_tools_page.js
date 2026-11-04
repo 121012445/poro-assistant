@@ -29,6 +29,13 @@ assert.match(css, /#page-tools \.tool-card\s*\{[^}]*border-bottom:\s*1px solid/s
 assert.match(css, /#page-tools \.tools-grid\s*\{[^}]*display:\s*block;/s, '分区列表应为单列, 不再是 auto-fill 网格');
 assert.match(css, /#page-tools \.tool-info p\s*\{[^}]*max-height:\s*34px;/s, '说明默认压两行 (悬停展开)');
 
+// 卡片装饰必须清干净。只清 border/background/radius 不够: ui-polish.css 还给 .tool-card
+// 挂了 box-shadow + hover translateY, 留着会变成"没有填充、只剩阴影轮廓"的幽灵卡片,
+// 内容横向 padding 是 0, 字贴着阴影左边线 —— 看着像卡片左边被削掉一块。
+assert.match(css, /#page-tools \.tool-card\s*\{[^}]*box-shadow:\s*none;/s, '行式布局要清掉 .tool-card 的投影');
+assert.match(css, /#page-tools \.tool-card:hover\s*\{[^}]*transform:\s*none;/s, '行 hover 不能再做 translateY 位移');
+assert.match(css, /#page-tools \.tool-card:hover\s*\{[^}]*box-shadow:\s*none;/s, '行 hover 不能把投影加回来');
+
 // 深色下细线要单独提亮, 否则整页糊成一块
 assert.match(css, /body\.dark #page-tools \.tool-card\s*\{[^}]*border-bottom-color/s, '深色下需单独提亮行分隔线');
 assert.match(css, /body\.dark #page-tools \.tools-section\s*\{[^}]*border-bottom-color/s, '深色下需单独提亮分区线');

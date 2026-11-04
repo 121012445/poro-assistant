@@ -444,8 +444,13 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 #page-tools .tools-section::after { content: none; }
 #page-tools .tools-section:first-child { margin-top: 2px; }
 
-#page-tools .tool-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(210px, 290px); column-gap: 26px; align-items: start; padding: 11px 0 12px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0; background: none; }
-#page-tools .tool-card:hover { border-color: var(--border); }
+/* 行式布局必须把「卡片」的装饰全部清掉 —— 只清 border/background/radius 不够:
+   ui-polish.css 还给 .tool-card 挂了投影 (0 6px 20px rgba(23,37,58,.05)) 和 hover 位移,
+   style.css 里也有一份。留着的话每行会变成一块**没有填充、只剩阴影轮廓**的"幽灵卡片":
+   内容横向 padding 是 0, 字贴着阴影的左边线, 看起来就像卡片左边被削掉一块。
+   (深色下不明显, 因为 body.dark .tool-card 本来就把 box-shadow 置成 none。) */
+#page-tools .tool-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(210px, 290px); column-gap: 26px; align-items: start; padding: 11px 0 12px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0; background: none; box-shadow: none; transition: none; }
+#page-tools .tool-card:hover { border-color: var(--border); box-shadow: none; transform: none; }
 #page-tools .tool-info { min-width: 0; }
 #page-tools .tool-info h3 { margin: 0 0 3px; font-size: 13px; font-weight: 600; color: var(--text-primary); }
 /* 说明压两行: 用 max-height 而不是 -webkit-line-clamp —— 后者在这个字号下行高取整会把第二行切掉半截。 */
