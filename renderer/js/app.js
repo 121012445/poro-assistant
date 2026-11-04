@@ -153,6 +153,8 @@ function switchPage(page) {
     populateBgChampionList();
     // 提权提示要在打开工具箱时就显示，不能等用户点"刷新诊断"才出现
     refreshElevationNotice();
+    // 分类小标签: 按 .tools-section 现算条数, 顺便把滚动位置归零
+    if (typeof initToolsNav === "function") initToolsNav();
   }
   if (page === "hex") {
     renderHexList();

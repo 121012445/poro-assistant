@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026110504">
-<link rel="stylesheet" href="css/extras.css?v=2026110504">
-<link rel="stylesheet" href="css/dark.css?v=2026110504">
-<link rel="stylesheet" href="css/premium.css?v=2026110504">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026110504">
+<link rel="stylesheet" href="css/style.css?v=2026110505">
+<link rel="stylesheet" href="css/extras.css?v=2026110505">
+<link rel="stylesheet" href="css/dark.css?v=2026110505">
+<link rel="stylesheet" href="css/premium.css?v=2026110505">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026110505">
 </head>
 <body>
 
@@ -200,8 +200,11 @@
     <div class="page-header">
       <h2>工具箱</h2>
     </div>
+    <!-- 分类小标签: 26 个设置平铺在一页里, 没有这一排标签就只能靠滚轮瞎找。
+         内容由 js/tools-nav.js 按 .tools-section 现算, 增删设置行不用改这里。 -->
+    <nav class="tools-nav" id="toolsNav" aria-label="工具分类"></nav>
     <div class="tools-grid">
-      <div class="tools-section">自动化</div>
+      <div class="tools-section" id="tools-sec-auto" data-cat="自动化">自动化</div>
       
 <div class="tool-card">
         <div class="tool-info">
@@ -292,7 +295,7 @@
         </div>
       </div>
     
-      <div class="tools-section">选人与对局辅助</div>
+      <div class="tools-section" id="tools-sec-pick" data-cat="选人与对局辅助">选人与对局辅助</div>
       
 <div class="tool-card">
         <div class="tool-info">
@@ -573,7 +576,7 @@
         </div>
       </div>
     
-      <div class="tools-section">账号与外观</div>
+      <div class="tools-section" id="tools-sec-account" data-cat="账号与外观">账号与外观</div>
       
 <div class="tool-card">
         <div class="tool-info">
@@ -679,7 +682,7 @@
         </div>
       </div>
     
-      <div class="tools-section">客户端维护</div>
+      <div class="tools-section" id="tools-sec-maintain" data-cat="客户端维护">客户端维护</div>
       
 <div class="tool-card">
         <div class="tool-info">
@@ -714,7 +717,7 @@
         </div>
       </div>
     
-      <div class="tools-section">设置与数据</div>
+      <div class="tools-section" id="tools-sec-data" data-cat="设置与数据">设置与数据</div>
       <div class="tool-card span-all">
         <h3>软件更新 <span id="updateBadge" class="update-badge" hidden>有新版本</span></h3>
         <p>从本项目的 GitHub 发布页检查新版本。只在你点击后下载，下载完成会校验 sha256 与文件大小，再由你点击安装；不会自动安装。</p>
@@ -877,51 +880,52 @@
   <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
 </div>
 
-<script src="js/utils.js?v=2026110504"></script>
-<script src="js/local-cache.js?v=2026110504"></script>
-<script src="js/icons.js?v=2026110504"></script>
-<script src="js/data-model.js?v=2026110504"></script>
-<script src="js/session-state.js?v=2026110504"></script>
-<script src="js/performance.js?v=2026110504"></script>
-<script src="js/diagnostics.js?v=2026110504"></script>
-<script src="js/balance.js?v=2026110504"></script>
-<script src="js/behavior-tags.js?v=2026110504"></script>
-<script src="js/bench.js?v=2026110504"></script>
-<script src="js/champions.js?v=2026110504"></script>
-<script src="js/progress-report.js?v=2026110504"></script>
-<script src="js/home.js?v=2026110504"></script>
-<script src="js/ai-markdown.js?v=2026110504"></script>
-<script src="js/review.js?v=2026110504"></script>
-<script src="js/theme.js?v=2026110504"></script>
-<script src="js/hex.js?v=2026110504"></script>
-<script src="js/history.js?v=2026110504"></script>
-<script src="js/enemy-intel.js?v=2026110504"></script>
-<script src="js/growth-model.js?v=2026110504"></script>
-<script src="js/growth.js?v=2026110504"></script>
-<script src="js/battle-card.js?v=2026110504"></script>
-<script src="js/live.js?v=2026110504"></script>
-<script src="js/weekly.js?v=2026110504"></script>
-<script src="js/friends.js?v=2026110504"></script>
-<script src="js/compliance.js?v=2026110504"></script>
-<script src="js/blacklist.js?v=2026110504"></script>
-<script src="js/social.js?v=2026110504"></script>
-<script src="js/chat.js?v=2026110504"></script>
-<script src="js/translate.js?v=2026110504"></script>
-<script src="js/autobp.js?v=2026110504"></script>
-<script src="js/pick-guard.js?v=2026110504"></script>
-<script src="js/lcu-events.js?v=2026110504"></script>
-<script src="js/opgg-loadout.js?v=2026110504"></script>
-<script src="js/update.js?v=2026110504"></script>
-<script src="js/autoflow.js?v=2026110504"></script>
-<script src="js/chat-status.js?v=2026110504"></script>
-<script src="js/settings.js?v=2026110504"></script>
-<script src="js/persist.js?v=2026110504"></script>
-<script src="js/hotkeys.js?v=2026110504"></script>
-<script src="js/live-metrics.js?v=2026110504"></script>
-<script src="js/commentary-script.js?v=2026110504"></script>
-<script src="js/commentary.js?v=2026110504"></script>
-<script src="js/autoreturn.js?v=2026110504"></script>
-<script src="js/sona-extra.js?v=2026110504"></script>
-<script src="js/app.js?v=2026110504"></script>
+<script src="js/utils.js?v=2026110505"></script>
+<script src="js/local-cache.js?v=2026110505"></script>
+<script src="js/icons.js?v=2026110505"></script>
+<script src="js/data-model.js?v=2026110505"></script>
+<script src="js/session-state.js?v=2026110505"></script>
+<script src="js/performance.js?v=2026110505"></script>
+<script src="js/diagnostics.js?v=2026110505"></script>
+<script src="js/balance.js?v=2026110505"></script>
+<script src="js/behavior-tags.js?v=2026110505"></script>
+<script src="js/bench.js?v=2026110505"></script>
+<script src="js/champions.js?v=2026110505"></script>
+<script src="js/progress-report.js?v=2026110505"></script>
+<script src="js/home.js?v=2026110505"></script>
+<script src="js/ai-markdown.js?v=2026110505"></script>
+<script src="js/review.js?v=2026110505"></script>
+<script src="js/theme.js?v=2026110505"></script>
+<script src="js/hex.js?v=2026110505"></script>
+<script src="js/history.js?v=2026110505"></script>
+<script src="js/enemy-intel.js?v=2026110505"></script>
+<script src="js/growth-model.js?v=2026110505"></script>
+<script src="js/growth.js?v=2026110505"></script>
+<script src="js/battle-card.js?v=2026110505"></script>
+<script src="js/live.js?v=2026110505"></script>
+<script src="js/weekly.js?v=2026110505"></script>
+<script src="js/friends.js?v=2026110505"></script>
+<script src="js/compliance.js?v=2026110505"></script>
+<script src="js/blacklist.js?v=2026110505"></script>
+<script src="js/social.js?v=2026110505"></script>
+<script src="js/chat.js?v=2026110505"></script>
+<script src="js/translate.js?v=2026110505"></script>
+<script src="js/autobp.js?v=2026110505"></script>
+<script src="js/pick-guard.js?v=2026110505"></script>
+<script src="js/lcu-events.js?v=2026110505"></script>
+<script src="js/opgg-loadout.js?v=2026110505"></script>
+<script src="js/update.js?v=2026110505"></script>
+<script src="js/autoflow.js?v=2026110505"></script>
+<script src="js/chat-status.js?v=2026110505"></script>
+<script src="js/settings.js?v=2026110505"></script>
+<script src="js/persist.js?v=2026110505"></script>
+<script src="js/hotkeys.js?v=2026110505"></script>
+<script src="js/live-metrics.js?v=2026110505"></script>
+<script src="js/commentary-script.js?v=2026110505"></script>
+<script src="js/commentary.js?v=2026110505"></script>
+<script src="js/autoreturn.js?v=2026110505"></script>
+<script src="js/sona-extra.js?v=2026110505"></script>
+<script src="js/tools-nav.js?v=2026110505"></script>
+<script src="js/app.js?v=2026110505"></script>
 </body>
 </html>

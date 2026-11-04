@@ -468,6 +468,57 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 body.dark #page-tools .tool-card { border-bottom-color: rgba(255, 255, 255, .075); }
 body.dark #page-tools .tools-section { border-bottom-color: rgba(255, 255, 255, .17); }
 
+/* ---- 工具箱分类小标签 (1.5.63) ----
+   26 个设置平铺在一页里, 光有分区大标题的话, 想找一个「好像见过但不知道在哪」
+   的功能只能一路滚到底。在页头下面贴一排分类标签: 点一下滚到对应分区,
+   滚动时高亮当前分区。标签内容由 js/tools-nav.js 按 .tools-section 现算,
+   增删设置行/分区都不用来改 CSS 或 HTML。
+   注意选择器必须带 #page-tools: premium.css 顶部那条全局
+   `button:not(...)` 有 6 个类选择器 (0,6,1), 单靠 .tools-nav-chip (0,1,0)
+   压不住, 标签会被撑成 38px 高、13px 字 —— 也就不是「小标签」了。 */
+#page-tools .tools-nav {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-wrap: wrap; gap: 5px;
+  margin: 0 0 2px; padding: 8px 0 9px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid transparent;
+  transition: box-shadow .16s;
+}
+/* 滚起来才出现分隔线和一点投影, 静止时不让它抢视线 */
+#page-tools .tools-nav.is-stuck { border-bottom-color: var(--border); box-shadow: 0 6px 14px -12px rgba(20, 40, 70, .55); }
+/* 吸顶时 .main-content 的 padding-top (24px) 会露出一条缝, 滚过去的内容从缝里穿过去。
+   用一块与页面同色的垫片盖住它 —— 绝对定位, 不占布局; 只在真吸顶时出现,
+   否则会盖住上面的页头标题。 */
+#page-tools .tools-nav.is-stuck::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 100%;
+  height: 60px; background: var(--bg-primary); pointer-events: none;
+}
+#page-tools .tools-nav .tools-nav-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 0; height: auto;                 /* 盖掉全局按钮的 38px 最小高度 */
+  padding: 3px 9px 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: inherit; font-size: 11.5px; font-weight: 600; line-height: 17px;
+  white-space: nowrap; cursor: pointer;
+  transition: color .14s, border-color .14s, background .14s;
+}
+#page-tools .tools-nav .tools-nav-chip:hover { color: var(--text-primary); border-color: var(--accent); }
+#page-tools .tools-nav .tools-nav-chip.active {
+  color: var(--accent-deep);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+}
+#page-tools .tools-nav .tnc-count { font-size: 10px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+#page-tools .tools-nav .tools-nav-chip.active .tnc-count { color: var(--accent); }
+body.dark #page-tools .tools-nav .tools-nav-chip { border-color: rgba(255, 255, 255, .11); background: #1f1f23; }
+body.dark #page-tools .tools-nav .tools-nav-chip.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+body.dark #page-tools .tools-nav.is-stuck { border-bottom-color: rgba(255, 255, 255, .1); box-shadow: none; }
+
 /* ---- 开关：开启态用品牌色，不用荧光绿（绿只在语义位置出现） ---- */
 .switch { width: 42px; height: 24px; }
 .switch .slider { background: #cfcfd6; box-shadow: none; border-radius: 999px; }
