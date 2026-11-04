@@ -1080,12 +1080,17 @@ body {
 .lp-premade { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 15px; color: var(--data-violet); background: color-mix(in srgb, var(--data-violet) 16%, transparent); cursor: help; }
 /* 队内占比标签: 伤害 / 承伤 / 经济 / 参团。四类各一个色相, 靠颜色区分字段而不是靠文字,
    扫一眼就知道这张卡是"打伤害的"还是"抗线的"; 数值加粗, 与标签文字拉开一级。 */
-.lp-metric { flex-shrink: 0; display: inline-flex; align-items: baseline; gap: 2px; padding: 0 4px; border-radius: 3px; font-size: 9px; line-height: 15px; font-weight: 600; white-space: nowrap; }
+.lp-metric { flex-shrink: 0; display: inline-flex; align-items: baseline; gap: 1px; padding: 0 3px; border-radius: 3px; font-size: 9px; line-height: 15px; font-weight: 600; white-space: nowrap; }
 .lp-metric b { font-weight: 800; font-variant-numeric: tabular-nums; }
 .lp-metric-dmg { color: #c0392b; background: color-mix(in srgb, #e05a4a 14%, transparent); }
 .lp-metric-tank { color: #167d8c; background: color-mix(in srgb, #2aa7b8 16%, transparent); }
 .lp-metric-gold { color: #a9661a; background: color-mix(in srgb, #e0a53a 20%, transparent); }
 .lp-metric-kp { color: #5b52c9; background: color-mix(in srgb, #6b62d6 14%, transparent); }
+.lp-metric-dmgGold { color: #b03a6a; background: color-mix(in srgb, #d6538c 13%, transparent); }
+.lp-metric-vision { color: #2f6b8f; background: color-mix(in srgb, #4a9ac4 15%, transparent); }
+/* 连胜/连败是 Poro 自己算的势头, 用实心色块和别的标签区分开 —— 它是"结论", 不是"数据" */
+.lp-metric-winstreak { color: #fff; background: #2f7d55; }
+.lp-metric-lossstreak { color: #fff; background: #b8453a; }
 
 /* 近期状态: 胜率(主) + 场次(辅) + KDA(主)。
    原先这行带底色圆角条, 卡片里就有"卡 > 色条 > 战绩行"三层底色, 一眼看过去全是色块;
@@ -1101,7 +1106,7 @@ body {
 /* 标签行: 开黑组 / 系统画像 / 行为提示 (颜色全部来自主题变量, 深色自动适配) */
 /* 标签行允许换行: 组队 / 画像 / 伤害 / 承伤 / 经济 / 参团 六枚在 1200 宽下放不进一行,
    不换行会被卡右边裁掉 (看起来像渲染坏了)。换行后卡内自动多一行, 战绩区相应少一场。 */
-.lp-profile-line { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; min-height: 17px; margin-bottom: 3px; padding: 0 1px; }
+.lp-profile-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 17px; margin-bottom: 3px; padding: 0 1px; }
 .lp-pill-empty { font-size: 9px; color: var(--text-muted); opacity: .7; }
 
 /* 逐场战绩: 整行按胜负染色; 列表内部滚动, 滚动条隐藏 (下面用底部渐隐提示还有更多) */

@@ -25,20 +25,24 @@ const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
 // 取不到字段时整块返回空对象 (而不是写 0), 渲染层据此整排不显示,
 // 避免国服某些模式缺字段时出现一排毫无意义的 0%。
 function teamShareOf(participants, me, k, a, keys) {
-  const K = keys || { dmg: 'totalDamageDealtToChampions', tank: 'totalDamageTaken', gold: 'goldEarned', kills: 'kills' };
+  const K = keys || { dmg: 'totalDamageDealtToChampions', tank: 'totalDamageTaken', gold: 'goldEarned', kills: 'kills', vision: 'visionScore' };
   const mates = (participants || []).filter(x => x && x.teamId === me.teamId);
   if (!mates.length) return {};
   const num = (o, key) => Number(o && o[key]) || 0;
   const total = key => mates.reduce((n, x) => n + num(x, key), 0);
   const pct = (v, all) => (all > 0 ? Math.round((v / all) * 100) : null);
-  const dmgPct = pct(num(me, K.dmg), total(K.dmg));
+  const dmg = num(me, K.dmg), gold = num(me, K.gold);
+  const dmgPct = pct(dmg, total(K.dmg));
   if (dmgPct == null) return {};
   const teamKills = total(K.kills);
   return {
     dmgPct,
     tankPct: pct(num(me, K.tank), total(K.tank)),
-    goldPct: pct(num(me, K.gold), total(K.gold)),
-    kp: teamKills > 0 ? Math.round(((k + a) / teamKills) * 100) : null
+    goldPct: pct(gold, total(K.gold)),
+    kp: teamKills > 0 ? Math.round(((k + a) / teamKills) * 100) : null,
+    // 伤转率 = 伤害 / 经济。同样是 20% 经济占比, 打出 180% 伤转和 90% 伤转是两种人。
+    dmgGold: gold > 0 ? Math.round((dmg / gold) * 100) : null,
+    vision: num(me, K.vision) || null
   };
 }
 // 每局 10 人、每条约十几 KB (近 10 场 + 30 场同队记录); 长时间挂着会一直累积, 只保留最近的
@@ -279,8 +283,15 @@ function buildLivePlayers(livePlayers, parts, phase) {
   return players;
 }
 
+// 作战计划条渲染到页头槽位; 没有阵容 (加载中/出错/不在对局) 时清空, 不留上一局的残留。
+function setLiveHeadPanel(html) {
+  const slot = document.getElementById('liveHeadSlot');
+  if (slot) slot.innerHTML = html || '';
+}
+
 async function renderLiveFromGameflow(body, err, requestedPhase) {
   const renderToken = ++liveRenderToken;
+  setLiveHeadPanel('');
   ensureChampMap();
 
   // 方式1: gameflow session (选人阶段有完整 puuid)
@@ -637,6 +648,17 @@ function flashPreferenceHtml(pref) {
 // 这排标签是玩家卡里唯一能说明"他是怎么赢的"的信息 —— 70% 胜率可能是被带飞,
 // 也可能是每场打 30% 伤害 carry 出来的, 光看胜率和 KDA 分不开。
 // 数据缺失时整排不渲染 (不占位), 所以国服某些模式取不到字段时卡片会自然收紧。
+// 连胜 / 连败: 只看最近一段连续同结果, 2 场起才显示 (1 场不值得占一个标签位)。
+// 这是 Poro 自己算的「势头」——胜率 60% 但正在 4 连败的人, 和刚 3 连胜的人不是一回事。
+function liveStreak(recent) {
+  const list = (recent || []).filter(r => r && typeof r.win === 'boolean');
+  if (list.length < 2) return null;
+  const first = list[0].win;
+  let n = 0;
+  for (const r of list) { if (r.win === first) n++; else break; }
+  return n >= 2 ? { win: first, n } : null;
+}
+
 function liveMetricPills(recent) {
   const rs = (recent || []).filter(r => r && r.dmgPct != null);
   if (!rs.length) return '';
@@ -645,14 +667,20 @@ function liveMetricPills(recent) {
     return v.length ? Math.round(v.reduce((s, r) => s + Number(r[f]), 0) / v.length) : null;
   };
   const items = [
-    ['dmg', '伤害', avg('dmgPct')],
-    ['tank', '承伤', avg('tankPct')],
-    ['gold', '经济', avg('goldPct')],
-    ['kp', '参团', avg('kp')]
+    ['dmg', '伤害', avg('dmgPct'), '%', '队内伤害占比'],
+    ['tank', '承伤', avg('tankPct'), '%', '队内承伤占比'],
+    ['kp', '参团', avg('kp'), '%', '击杀参与率'],
+    ['dmgGold', '伤转', avg('dmgGold'), '%', '伤害 / 经济, 越高说明钱花得越值'],
+    ['gold', '经济', avg('goldPct'), '%', '队内经济占比'],
+    ['vision', '视野', avg('vision'), '', '场均视野得分']
   ].filter(it => it[2] != null);
   if (!items.length) return '';
-  return items.map(([cls, label, val]) =>
-    `<span class="lp-metric lp-metric-${cls}" title="近 ${rs.length} 场队内平均${label}占比">${label} <b>${val}%</b></span>`
+  const streak = liveStreak(recent);
+  const streakHtml = streak
+    ? `<span class="lp-metric lp-metric-${streak.win ? 'winstreak' : 'lossstreak'}" title="最近 ${streak.n} 场${streak.win ? '全胜' : '全负'}">${streak.n}${streak.win ? '连胜' : '连败'}</span>`
+    : '';
+  return streakHtml + items.map(([cls, label, val, unit, tip]) =>
+    `<span class="lp-metric lp-metric-${cls}" title="近 ${rs.length} 场平均${tip}">${label}<b>${val}${unit}</b></span>`
   ).join('');
 }
 
@@ -782,8 +810,9 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       <div class="lp-team-grid">${list.map(playerRow).join('')}${Array.from({ length: slots }, emptySlot).join('')}</div>
     </section>`;
   };
+  // 作战计划条挪进页头那一行 (和标题、展开按钮并排), 省掉整整一行 32px 的高度。
+  setLiveHeadPanel(buildLiveDecisionPanel(data, selfPuuid));
   body.innerHTML = `
-    ${buildLiveDecisionPanel(data, selfPuuid)}
     ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue')}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)

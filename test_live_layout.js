@@ -5,6 +5,7 @@ const fs = require('fs');
 
 const live = fs.readFileSync('renderer/js/live.js', 'utf8');
 const css = fs.readFileSync('renderer/css/style.css', 'utf8');
+const html = fs.readFileSync('renderer/index.html', 'utf8');
 
 assert.ok(live.includes('class="lp-team-grid"'), '实时页应使用队伍卡片网格');
 assert.ok(live.includes('class="lp-card-head"'), '玩家卡应有大头像信息头');
@@ -27,6 +28,15 @@ assert.ok(/teamShareOf\(gj\.participants/.test(live) && /teamShareOf\(game\.part
 assert.match(css, /\.lp-metric\s*\{[^}]*flex-shrink:\s*0;/s, '占比标签不得被压缩 (压扁后文字会溢出胶囊)');
 assert.match(css, /\.lp-profile-line\s*\{[^}]*flex-wrap:\s*wrap;/s, '标签行必须允许折行, 否则窄窗口下会被卡片右边裁掉');
 assert.ok(css.includes('.lp-metric-dmg') && css.includes('.lp-metric-kp'), '四类占比应各有一个色相');
+// 伤转率 / 视野 / 连胜连败: 前两个补齐 Akari 的信息面, 后一个是 Poro 自己算的势头
+assert.ok(live.includes("'dmgGold'") && live.includes("'vision'"), '应显示伤转率与场均视野');
+assert.ok(live.includes('function liveStreak') && /连胜|连败/.test(live), '应显示连胜/连败');
+assert.ok(css.includes('.lp-metric-dmgGold') && css.includes('.lp-metric-vision'), '伤转/视野应有独立色相');
+assert.ok(css.includes('.lp-metric-winstreak') && css.includes('.lp-metric-lossstreak'), '连胜连败应用实心色块与数据标签区分');
+// 作战计划条并进页头, 顶部只占一行 —— 它原来单独占 54px
+assert.ok(html.includes('id="liveHeadSlot"'), '页头应留出作战计划槽位');
+assert.ok(live.includes('function setLiveHeadPanel') && live.includes('setLiveHeadPanel(buildLiveDecisionPanel'), '作战计划应渲染进页头槽位');
+assert.ok(!/body\.innerHTML = `\s*\$\{buildLiveDecisionPanel/.test(live), '作战计划不应再占实时区一整行');
 // 行高 24px + 1px 间隙 = 每场 25px, 与 Akari 的 25px 无缝行等价 —— 这是"同尺寸也露 8 场"的唯一来源。
 assert.match(css, /\.ri-card\s*\{[^}]*flex:\s*0 0 24px;/s, '战绩行高必须锁在 24px');
 assert.match(css, /\.lp-recent\s*\{[^}]*gap:\s*1px;/s, '战绩行间隙必须为 1px');

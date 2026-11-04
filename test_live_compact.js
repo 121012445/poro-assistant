@@ -68,7 +68,10 @@ const body = makeEl('liveGameArea');
   assert.strictEqual((out.match(/class="ri-card /g) || []).length, 90, '9 个有战绩的玩家各 10 场 (玩家10 尚无战绩)');
   assert.ok(out.includes('<span class="lp-record">近10场 6胜4负</span>'), '概览行应显示「近10场 6胜4负」: ' + (out.match(/<span class="lp-record">[^<]*/) || [''])[0]);
   assert.ok(out.includes('<span class="lp-record">近期战绩加载中</span>'), '战绩未加载时的占位文案应保留');
-  assert.ok(out.includes('class="live-decision"'), '作战计划面板应保留');
+  // 1.5.61 起作战计划条并进页头: 它不再出现在实时区 (否则白占 54px), 但必须仍然渲染
+  assert.ok(!out.includes('class="live-decision"'), '作战计划不应再占实时区一整行');
+  assert.ok(liveSrc.includes('setLiveHeadPanel(buildLiveDecisionPanel'), '作战计划应渲染进页头槽位');
+  assert.ok(html.includes('id="liveHeadSlot"'), '页头应有作战计划槽位');
 
   // 概览行里的三项顺序: 胜率 → 战绩摘要 → KDA, 且「近10场」只在概览行出现一次 (没有重复标签)
   const firstCard = out.slice(out.indexOf('class="lp-row'), out.indexOf('class="lp-row', out.indexOf('class="lp-row') + 5));
@@ -181,10 +184,10 @@ const body = makeEl('liveGameArea');
   const box = v => { const t = String(v).trim().split(/\s+/).map(n); return t.length === 1 ? [t[0], t[0]] : [t[0], t[1] ?? t[0]]; };   // [上下, 左右]
 
   const barH = 44, mainPadTop = 24, mainPadBottom = 32;
-  // 1.5.60 起实时页头部压缩成一行小标题 + 一行作战计划条 (只作用于 #page-live), 这里跟着读新规则:
-  // 标题 13px * 行高 1.6 + 8px 下边距; 折叠条 24px 内容 + 2px 边框 + 6px 下边距。
-  const headerH = n(val('#page-live .page-header h2', 'font-size')) * 1.6 + n(val('#page-live .page-header', 'margin-bottom'));
-  const decisionH = n(val('#page-live .live-decision summary', 'min-height')) + 2 + n(val('#page-live .live-decision', 'margin').split(/\s+/)[2]);
+  // 1.5.61 起页头只剩一行: 13px 小标题 + 22px 作战计划摘要 + 展开按钮并排。
+  // 行高取标题行高与摘要条较高者, 再 +8px 下边距; 作战计划不再单独占高度。
+  const headerH = n(val('#page-live .page-header h2', 'font-size')) * 1.6 + n(val('#page-live .page-header', 'margin-bottom')) + 8;
+  const decisionH = 0;
   const [wrapPadTop, , wrapPadBottom] = val('.lp-wrap', 'padding').split(/\s+/).map(n);
   const wrapGap = n(val('.lp-wrap', 'gap'));
   const teamPad = box(val('.lp-team', 'padding'))[0];
@@ -216,10 +219,10 @@ const body = makeEl('liveGameArea');
 
   // 1200x800 是压力档 (老笔记本全屏); 1440x900 才是实际常用尺寸, 两档都要保住基本可读性。
   const small = budget(800), normal = budget(900);
-  assert.ok(small.visible >= 5, `1200x800 下 10 场至少应露出 5 场, 实际 ${small.visible} 场`);
-  assert.ok(normal.visible >= 7, `1440x900 下 10 场至少应露出 7 场, 实际 ${normal.visible} 场`);
-  // Akari 在 1511x937 下露 8 场, 我们同尺寸必须打平 (行高 24 + 间隙 1 = 25, 与它的 25px 无缝等价)
-  assert.ok(budget(940).visible >= 8, `1500x940 下应露出 8 场, 实际 ${budget(940).visible} 场`);
+  assert.ok(small.visible >= 6, `1200x800 下 10 场至少应露出 6 场, 实际 ${small.visible} 场`);
+  assert.ok(normal.visible >= 8, `1440x900 下 10 场至少应露出 8 场, 实际 ${normal.visible} 场`);
+  // Akari 在 1511x937 下露 8 场; 我们把页头压成一行后同尺寸应露出 9 场 (行高 24 + 间隙 1 = 25)
+  assert.ok(budget(940).visible >= 9, `1500x940 下应露出 9 场, 实际 ${budget(940).visible} 场`);
 
   console.log(`实时对局紧凑布局测试通过 (1200x800 露出 ${small.visible} 场 / 1440x900 露出 ${normal.visible} 场)`);
 })().catch(e => { console.error(e); process.exitCode = 1; });

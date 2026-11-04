@@ -692,21 +692,34 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 /* 展开后不再有"被裁断"的问题, 底部渐隐必须撤掉, 否则会压暗最后一场 */
 #page-live.live-expanded .lp-row::after { content: none; }
 
-/* 实时对局页头部压缩: 22px 大标题 (+20px 下边距) 和作战计划折叠条 (40px 高 + 14px 外边距)
-   合计约 109px, 但它们只是「当前在哪一页」和「这局建议」两类背景信息 —— 真正要看的
-   是下面两队十个人的战绩。压成一行小标题 + 一行折叠条后, 每张卡多出约 24px, 正好多露一场。
+/* 实时对局页头部压缩成一行: 「实时对局」小标题 + 作战计划摘要 + 展开按钮并排。
+   原来 22px 大标题占 52px、作战计划条占 54px, 合计 109px —— 这两块只是「当前在哪一页」
+   和「这局建议」的背景信息, 真正要看的是下面两队十个人的战绩。合并后顶部只剩 28px。
    只作用于 #page-live, 其它页面的标题层级不动。 */
-#page-live .page-header { margin-bottom: 8px; gap: 10px; align-items: center; }
+#page-live .page-header { margin-bottom: 8px; gap: 8px; align-items: center; }
 #page-live .page-header h2 { font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--text-secondary); }
 #page-live .page-header .btn-secondary { font-size: 10px; line-height: 1; padding: 4px 8px; }
-#page-live .live-decision { margin: 0 0 6px; }
-#page-live .live-decision summary { min-height: 24px; padding: 2px 8px; }
+
+/* 作战计划摘要挤进页头后, 建议文字只留一行、超出省略; 点开时以浮层盖在阵容上方,
+   不把下面的队伍顶下去 —— 否则展开一次就把省下来的高度又还回去了。 */
+.live-head-slot { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; }
+.live-head-slot:empty { display: none; }
+.live-head-slot .live-decision { position: relative; flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; box-shadow: none; }
+.live-head-slot .live-decision summary { min-height: 0; height: 22px; padding: 0; gap: 6px; }
+.live-head-slot .live-decision summary > b { font-size: 11px; }
+.live-head-slot .ld-summary-plan { flex: 1 1 auto; max-width: none; min-width: 0; font-size: 10px; color: var(--text-muted); }
+.live-head-slot .live-decision summary > em { max-width: 200px; }
+.live-head-slot .live-decision[open] .ld-body { position: absolute; top: calc(100% + 6px); left: 0; right: auto; width: min(880px, 100%); z-index: 60; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); box-shadow: var(--shadow-soft); }
 
 /* 队内占比标签的深色版本: 浅色底 + 深字在深色主题下会糊成一块, 换成半透明底 + 提亮的字 */
 body.dark .lp-metric-dmg { color: #f08a7e; background: rgba(224, 90, 74, .16); }
 body.dark .lp-metric-tank { color: #63c6d4; background: rgba(42, 167, 184, .16); }
 body.dark .lp-metric-gold { color: #e8b75c; background: rgba(224, 165, 58, .16); }
 body.dark .lp-metric-kp { color: #a49bf0; background: rgba(107, 98, 214, .20); }
+body.dark .lp-metric-dmgGold { color: #f090b8; background: rgba(214, 83, 140, .18); }
+body.dark .lp-metric-vision { color: #79c2e4; background: rgba(74, 154, 196, .18); }
+body.dark .lp-metric-winstreak { color: #d8f5e6; background: rgba(47, 125, 85, .85); }
+body.dark .lp-metric-lossstreak { color: #ffe0dc; background: rgba(184, 69, 58, .85); }
 
 /* 大乱斗平衡性调整徽标 (balance.js): 颜色走主题变量, 深色主题自动适配 */
 .lp-balance { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; border: 1px solid currentColor; }
