@@ -96,6 +96,10 @@ function computeOverlayBounds(req) {
 // 取 5x (实测单帧 278ms, 4x 是冷启动 1.9s, 8x 是 637ms)。
 const CHAT_OCR_RECT = { x: 0, y: 0.40, width: 0.25, height: 0.175 };
 const CHAT_OCR_SCALE = 5;          // 小字放大 5 倍再识别 (实测 4x 在亮色丛林背景上会把整段聊天读丢)
+// 1.5.56: 单档倍数在不同帧之间会互相打架 —— 5x 把某帧读成 "hello eve 吖 on e"(含中文
+// 直接被丢), 6x 又能读对; 换一帧 5x 对、6x 变成 "CJOOdlUCk"。两档都跑再合并,
+// 解析器按顺序收、模糊去重会自动择优。5x 在前 (深色背景更准), 6x 兜后。
+const CHAT_OCR_SCALES = [5, 6];
 const CHAT_OCR_OVERLAY_GAP = 6;    // 与浮窗留的缝 (像素)
 const CHAT_OCR_MIN_KEEP = 0.5;     // 浮窗最多吃掉一半高度, 再多就不裁 (宁可糊, 不能空)
 
@@ -123,4 +127,4 @@ function chatOcrCrop(size, overlay) {
   return rect;
 }
 
-module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop, CHAT_OCR_SCALE };
+module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop, CHAT_OCR_SCALE, CHAT_OCR_SCALES };

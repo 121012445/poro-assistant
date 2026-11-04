@@ -957,6 +957,9 @@ const GAME_TRANSLATE_SIZE = { width: 370, height: 300 };
 // 悬浮窗位置记忆: 用户在打字模式拖动后保存「相对游戏窗口左上角的偏移」, 存独立文件。
 // 不进 poro-config.json —— persist.js 每次保存都整文件覆写, 主进程写的键会被冲掉。
 let gtOverlayPos = null;
+// 1.5.56: 连续多少帧 OCR 读到空 (全黑/读不出字)。空结果必须能留痕, 否则
+// "OCR 在跑但什么都没读到"和"OCR 根本没跑"在日志里长得一模一样。
+let _gtOcrEmptyStreak = 0;
 try {
   gtOverlayPos = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'gt-overlay-pos.json'), 'utf8'));
   if (!gtOverlayPos || !Number.isFinite(gtOverlayPos.dx) || !Number.isFinite(gtOverlayPos.dy)) gtOverlayPos = null;
@@ -1204,6 +1207,32 @@ ipcMain.handle('game-translate:target', async (e, target) => {
 // 1.5.48: 优先**窗口级捕获** —— 整屏截图会把 Poro 浮窗提示条 (正好压在
 // 聊天框上) 和其他显示器/后台应用内容一起截进来, OCR 读到的全是杂音
 // (17:31 局 [GT OCR] 日志实证)。窗口捕获天然只含游戏画面。
+// 1.5.56: 判断截到的画面是不是"全黑" (捕获失败)。
+// 全屏独占的 DirectX 游戏在失去前台/切场景后, desktopCapturer 会稳定返回纯黑图,
+// 而且**会一直黑下去** —— 这时 OCR 永远返回空串, gtOcrScan 里 `if (!raw) return`
+// 直接退出, 连日志都不留, 用户看到的就是"功能没反应"。
+// 20:19 局日志实证: 12:19:29 之后再也没有任何 [GT OCR] 行。
+// 采样 24x24 个点算平均亮度, 纯黑帧均值≈0, 正常游戏画面 >20。
+function imageLooksBlack(img) {
+  try {
+    if (!img || img.isEmpty()) return true;
+    const s = img.getSize();
+    const bmp = img.getBitmap();      // BGRA
+    const stepX = Math.max(1, Math.floor(s.width / 24));
+    const stepY = Math.max(1, Math.floor(s.height / 24));
+    let sum = 0, n = 0;
+    for (let y = 0; y < s.height; y += stepY) {
+      for (let x = 0; x < s.width; x += stepX) {
+        const i = (y * s.width + x) * 4;
+        sum += bmp[i] + bmp[i + 1] + bmp[i + 2];
+        n++;
+      }
+    }
+    if (!n) return true;
+    return (sum / (n * 3)) < 8;
+  } catch (e) { return false; }
+}
+
 ipcMain.handle('game-translate:ocr-chat', async (e) => {
   try {
     if (process.platform !== 'win32' || !augmentOcr.isAvailable()) return null;
@@ -1222,8 +1251,14 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     const wSrc = (title && wSources.find(s => String(s.name || '').trim() === title))
       || wSources.find(s => /league of legends/i.test(String(s.name || '')));
     if (wSrc && wSrc.thumbnail && !wSrc.thumbnail.isEmpty()) {
-      screenshot = wSrc.thumbnail;
-      via = 'window:' + String(wSrc.name || '').substring(0, 40);
+      // 1.5.56: 窗口捕获可能是**纯黑**的 (全屏独占游戏失去前台后一直黑)。
+      // 这种"非空但全黑"的图不会被 isEmpty() 拦下, 以前就这样把 OCR 饿死了。
+      if (!imageLooksBlack(wSrc.thumbnail)) {
+        screenshot = wSrc.thumbnail;
+        via = 'window:' + String(wSrc.name || '').substring(0, 40);
+      } else {
+        via = 'window-black';
+      }
     }
     // 2) 回退: 整屏截图再裁游戏窗口 (会被浮窗/其他窗口遮挡, 仅兜底)
     if (!screenshot) {
@@ -1238,7 +1273,7 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
       const displayId = display ? String(display.id) : '';
       const source = sources.find(x => String(x.display_id || '') === displayId) || sources[0];
       screenshot = source.thumbnail;
-      via = 'screen';
+      via = (via === 'window-black' ? 'screen(win-black)' : 'screen');
       if (!screenshot || screenshot.isEmpty()) return null;
       // 从屏幕截图裁出游戏窗口
       if (display?.bounds) {
@@ -1279,20 +1314,39 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     let crop = screenshot.crop(chatRect);
     if (crop.isEmpty()) return null;
     const cs = crop.getSize();
-    // 1.5.53: 小字放大 4 倍 (2x 时 "hello everyone" 会被读成 "helldeveryone")
-    const k = overlayPosition.CHAT_OCR_SCALE || 5;
-    const ocrImage = crop.resize({ width: cs.width * k, height: cs.height * k, quality: 'best' });
+    // 1.5.56: 单档放大倍数在**不同帧之间会互相打架** —— 实测同一批帧里
+    // 5x 能把 "goodluck" 读对而把另一帧读成 "hello eve 吖 on e"(含中文直接废掉),
+    // 6x 恰好相反。所以两档都跑, 结果拼在一起交回渲染层:
+    // 解析器按出现顺序收, 同一句话的第二个版本会被模糊去重吃掉 —— 等于自动择优。
+    // 5x 排前面 (深色背景帧上更准), 6x 兜后 (亮色背景帧上才读得出来)。
+    // 代价: 每 4 秒多一次 OCR, 实测每次 ~250ms。
+    const scales = overlayPosition.CHAT_OCR_SCALES || [5, 6];
     const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}.png`);
-    fs.writeFileSync(imagePath, ocrImage.toPNG());
-    let text = '';
-    try { text = String(await requestAugmentOcr(imagePath) || ''); }
-    finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
+    const texts = [];
+    for (let si = 0; si < scales.length; si++) {
+      const k = scales[si];
+      const ocrImage = crop.resize({ width: cs.width * k, height: cs.height * k, quality: 'best' });
+      const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}-${si}.png`);
+      fs.writeFileSync(imagePath, ocrImage.toPNG());
+      try {
+        const t = String(await requestAugmentOcr(imagePath) || '');
+        if (t) texts.push(t);
+      } finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
+    }
+    const text = texts.join('\n');
     // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到;
     // 换行用 ⏎ 标记保留 —— OCR 是否把多条聊天合并成一行直接影响解析
     const diagText = text.replace(/\r?\n/g, ' ⏎ ').replace(/[ \t]+/g, ' ').trim().substring(0, 160);
     const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} crop=${chatRect.x},${chatRect.y},${chatRect.width}x${chatRect.height} overlay=${overlayRect ? 'yes' : '-'} len=${text.length} text=${diagText}`;
-    if (periodicLog.shouldLog('gt-chat', diagLine)) logErr(diagLine);
+    if (!text.length) {
+      // 空结果以前被 periodicLog 去重吃掉, 日志里完全看不到 —— 表现为"功能静默消失"。
+      // 每 10 次空结果强制留一行, 并带上连续空帧数。
+      _gtOcrEmptyStreak++;
+      if (_gtOcrEmptyStreak % 10 === 1) logErr(diagLine + ` emptyStreak=${_gtOcrEmptyStreak}`);
+    } else {
+      _gtOcrEmptyStreak = 0;
+      if (periodicLog.shouldLog('gt-chat', diagLine)) logErr(diagLine);
+    }
     return text;
   } catch (err) {
     return null;

@@ -148,8 +148,12 @@ console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判�
 
   // 1.5.55: 亮色背景那局 4x 把整段聊天读丢 (只认出 "0"/"1"/两行界面文字),
   // 同一帧 5x 能读对 "hello everyone" + "hello"。倍数掉了就会退回"一条都不翻"。
-  const { CHAT_OCR_SCALE } = require('./main/overlay-position');
+  const { CHAT_OCR_SCALE, CHAT_OCR_SCALES } = require('./main/overlay-position');
   assert.strictEqual(CHAT_OCR_SCALE, 5, 'OCR 放大倍数必须是 5 (4x 在亮色丛林背景上会读丢整段聊天)');
+  // 1.5.56: 单档倍数在不同帧之间互相打架 (5x 某帧读成 "hello eve 吖 on e", 6x 读对;
+  // 换一帧 5x 读对 "goodluck", 6x 读成 "CJOOdlUCk")。两档都跑再合并, 5x 在前。
+  assert.deepStrictEqual(CHAT_OCR_SCALES, [5, 6],
+    'OCR 必须跑两档放大再合并 (单档必然有一类帧读不对)');
 }
 
 console.log('聊天框 OCR 裁剪区测试通过 (基础区域 / 避开浮窗 / 浮窗不重叠时不缩 / 覆盖过半不裁 / 畸形尺寸)');
