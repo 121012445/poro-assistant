@@ -154,14 +154,29 @@ async function maybeAnnounceChampSelectSide(champSession) {
     _champSelectSideAnnounceBusy = false;
   }
 }
+// 跨局重置: 每局开始 (进入 InProgress) 由 translate.js 的阶段闸门调用,
+// 否则上一局的选人/gameId 房间 cid 残留, 这一局的真房间永远轮不到扫描
+function resetGameChatCid() {
+  _gameChatCid = null;
+  _champSelectChatCid = null;
+}
 async function getGameChatCid() {
+  // 1.5.43: 实测进对局后选人房间全程无消息 (InProgress 期 rooms empty 刷到底),
+  // 缓存的选人 cid 若带进对局, 翻译/发送会永远盯着死房间 —— 对局期把选人通道作废,
+  // 且不再从会话列表里认选人房间 (列表里若还挂着它, 也不能当对局聊天用)
+  const gtPhase = String(window._gameflowPhase || '');
+  const gtInGame = gtPhase === 'InProgress' || gtPhase === 'Reconnect';
+  if (gtInGame) {
+    if (/@lol-champ-select\.pvp\.net/i.test(String(_gameChatCid || ''))) _gameChatCid = null;
+    _champSelectChatCid = null;
+  }
   if (_gameChatCid) return _gameChatCid;
   if (_champSelectChatCid) return _gameChatCid = _champSelectChatCid;
   try {
     // 选人房间是主通道: 会话列表里 type=championSelect 的会话即队伍聊天房间
     const convs = await lolAPI.lcuRequest('GET', '/lol-chat/v1/conversations');
     if (Array.isArray(convs)) {
-      const csRoom = convs.find(c => c && c.type === 'championSelect' && c.id);
+      const csRoom = gtInGame ? null : convs.find(c => c && c.type === 'championSelect' && c.id);
       if (csRoom) return _gameChatCid = csRoom.id;
       const gs = await lolAPI.lcuRequest('GET', '/lol-gameflow/v1/session');
       const gameId = gs?.gameData?.gameId;

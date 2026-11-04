@@ -20,6 +20,7 @@ function makeEnv(opts = {}) {
   const store = Object.assign({ gameTranslate: '1', translateTarget: 'en', gtAutoMine: '1' }, opts.store || {});
   const messages = opts.messages || [];
   const clock = { t: 1700000000000 };
+  const urls = [];
   const ctx = {
     console, Promise, Number, String, Array, Set, Map, JSON, Math, Object,
     setTimeout: (fn) => { if (typeof fn === 'function') Promise.resolve().then(fn); return 1; },
@@ -37,6 +38,7 @@ function makeEnv(opts = {}) {
     getGameChatCid: async () => opts.cid === undefined ? 'c1' : opts.cid,
     lolAPI: {
       lcuRequest: async (method, url) => {
+        urls.push(String(url));
         if (/\/messages$/.test(url)) return messages;
         if (/\/lol-chat\/v1\/me$/.test(url)) return { id: opts.myId || 'me-id' };
         if (/\/current-summoner$/.test(url)) return opts.puuid ? { puuid: opts.puuid, gameName: opts.myName || '' } : {};
@@ -60,7 +62,7 @@ function makeEnv(opts = {}) {
   vm.runInContext(SRC, ctx);
   vm.runInContext('initGameTranslate()', ctx);   // 从 store 载入开关（gtEnabled / gtAutoMine）
   return {
-    ctx, sent, translated, pushed, clock,
+    ctx, sent, translated, pushed, clock, urls,
     advance: ms => { clock.t += ms; },
     get: n => vm.runInContext(n, ctx),
     set: (n, v) => vm.runInContext(`${n} = ${JSON.stringify(v)}`, ctx),
@@ -277,6 +279,49 @@ function msg(id, body, fromId) {
     const e = makeEnv({ cid: null, convs: [{ id: 'c1', type: 'custom' }, { id: 'room-42', type: 'chat' }] });
     const cids = await e.run('gtResolveCids')();
     ok('精确房间存在时不混入兜底会话', cids.length === 1 && cids[0] === 'c1', cids);
+  }
+
+  {
+    // 1.5.43: 选人房间进对局后全程无消息, 必须排除, 别让它挡住真房间
+    const e = makeEnv({
+      cid: null,
+      convs: [
+        { id: 'cs-room@lol-champ-select.pvp.net', type: 'championSelect' },
+        { id: 'real-game-room@pvp.net', type: 'chat' }
+      ]
+    });
+    const cids = await e.run('gtResolveCids')();
+    ok('选人房间被排除', !cids.includes('cs-room@lol-champ-select.pvp.net'), cids);
+    ok('真对局房间被选中', cids.includes('real-game-room@pvp.net'), cids);
+  }
+  {
+    // type 名含 champ 的也要排除 (域名校验 + 类型校验双保险)
+    const e = makeEnv({
+      cid: null,
+      convs: [
+        { id: 'room-a', type: 'championSelect' },
+        { id: 'room-b', type: 'chat' }
+      ]
+    });
+    const cids = await e.run('gtResolveCids')();
+    ok('championSelect 类型被排除', !cids.includes('room-a') && cids.includes('room-b'), cids);
+  }
+  {
+    // 端到端: 扫描请求不能落到选人房间上
+    const e = makeEnv({
+      cid: null,
+      convs: [
+        { id: 'cs-room@lol-champ-select.pvp.net', type: 'championSelect' },
+        { id: 'real-game-room@pvp.net', type: 'chat' }
+      ],
+      messages: [msg('1', 'hello there')]
+    });
+    await e.run('gtScan')();
+    await flushAsync();
+    const scanned = e.urls.filter(u => /\/messages$/.test(u));
+    ok('扫描请求不落选人房间', !scanned.some(u => u.includes('cs-room')), scanned);
+    ok('扫描请求打到真房间', scanned.some(u => u.includes('real-game-room')), scanned);
+    ok('外语消息照常翻译', e.translated.some(t => t.target === 'zh-CN'), e.translated);
   }
 
   console.log(`\n聊天翻译: ${pass} 通过 / ${fail} 失败`);

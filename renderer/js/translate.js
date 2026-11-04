@@ -152,6 +152,9 @@ function gameTranslateOnPhase(phase) {
     _gtEchoSent = 0;
     _gtEchoRecent.clear();
     _gtCidsCache = { at: 0, ids: [] };
+    // chat.js 的选人房间 cid 跨局残留会让扫描/补发永远盯着死房间 (1.5.42 实测:
+    // rooms empty 从进局刷到结束, 真对局房间被 strict 挡死) —— 每局开始作废重取
+    if (typeof resetGameChatCid === 'function') { try { resetGameChatCid(); } catch (e) {} }
     // 进局即自动弹出弹幕浮窗 (带 show 标记, 空行也让主进程开窗), 不用等第一条消息
     if (gtEnabled && lolAPI.gameTranslatePush) {
       lolAPI.gameTranslatePush({ lines: gtRecent, target: (storeGet('translateTarget') || 'en'), show: true });
@@ -199,6 +202,10 @@ async function gtResolveCids(force) {
         const id = String(c && c.id ? c.id : '');
         if (!id) continue;
         const type = String(c && c.type ? c.type : '');
+        // 1.5.43: 选人房间进对局后不再产生任何消息 (实测 InProgress 全程空),
+        // 无条件排除, 防止它占住扫描位挡住真对局房间 (gtScan 只在对局期跑,
+        // 选人阶段的聊天不归翻译管, 所以这里不需要分阶段)
+        if (/@lol-champ-select\.pvp\.net/i.test(id) || /champ/i.test(type)) continue;
         // 实测国服(2026-11-04): 非对局时只有一条 type=chat、id 为本人 puuid 的会话，
         // 没有 c1/c2，也没有 championSelect。对局中的队伍/全体聊天只在 InProgress 才出现，
         // 名字不一定叫 c1/c2，所以这里分两级：先认确定的，认不出来再放宽度到"非好友会话"。
