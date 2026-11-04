@@ -19,6 +19,28 @@ let liveTierMode = null;
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
+
+// 队内占比: 伤害 / 承伤 / 经济 / 参团。
+// 玩家卡上的彩色数据标签靠它 —— 只看胜率和 KDA 分不出"被带飞"和"carry 赢", 占比能。
+// 取不到字段时整块返回空对象 (而不是写 0), 渲染层据此整排不显示,
+// 避免国服某些模式缺字段时出现一排毫无意义的 0%。
+function teamShareOf(participants, me, k, a, keys) {
+  const K = keys || { dmg: 'totalDamageDealtToChampions', tank: 'totalDamageTaken', gold: 'goldEarned', kills: 'kills' };
+  const mates = (participants || []).filter(x => x && x.teamId === me.teamId);
+  if (!mates.length) return {};
+  const num = (o, key) => Number(o && o[key]) || 0;
+  const total = key => mates.reduce((n, x) => n + num(x, key), 0);
+  const pct = (v, all) => (all > 0 ? Math.round((v / all) * 100) : null);
+  const dmgPct = pct(num(me, K.dmg), total(K.dmg));
+  if (dmgPct == null) return {};
+  const teamKills = total(K.kills);
+  return {
+    dmgPct,
+    tankPct: pct(num(me, K.tank), total(K.tank)),
+    goldPct: pct(num(me, K.gold), total(K.gold)),
+    kp: teamKills > 0 ? Math.round(((k + a) / teamKills) * 100) : null
+  };
+}
 // 每局 10 人、每条约十几 KB (近 10 场 + 30 场同队记录); 长时间挂着会一直累积, 只保留最近的
 const SGP_RECENT_CACHE_MAX = 300;
 async function sgpProfileFor(platformId, puuid, count = 30) {
@@ -51,7 +73,14 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
           me.spell2Id ?? stats.spell2Id ?? me.summoner2Id ?? stats.summoner2Id
         ]);
         const win = stats.win === true || stats.win === "Win" || me.win === true;
-        if (recent.length < 10) recent.push({ champId: normalizeChampId(me.championId || stats.championId), win, k: stats.kills ?? me.kills ?? 0, d: stats.deaths ?? me.deaths ?? 0, a: stats.assists ?? me.assists ?? 0, mode: gameMode });
+        if (recent.length < 10) {
+          const k = stats.kills ?? me.kills ?? 0, d = stats.deaths ?? me.deaths ?? 0, a = stats.assists ?? me.assists ?? 0;
+          recent.push({
+            champId: normalizeChampId(me.championId || stats.championId), win, k, d, a,
+            mode: gameMode, ts: gj.gameCreation || gj.gameEndTimestamp || 0,
+            ...teamShareOf(gj.participants, me, k, a)
+          });
+        }
         const behavior = extractBehavior(Object.assign({}, me, { win }));
         if (behavior && behaviorSamples.length < 30) behaviorSamples.push({ behavior });
       }
@@ -81,7 +110,11 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
     const teammates = (game.participants || []).filter(p => p.puuid && p.teamId === me.teamId).map(p => p.puuid);
     if (teammates.length > 1) teamGames.push({ id: String(game.gid || game.time || teamGames.length), players: teammates });
     flashSamples.push(me.spells || []);
-    if (recent.length < 10) recent.push({ champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0, mode: game.mode });
+    if (recent.length < 10) recent.push({
+      champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0,
+      mode: game.mode, ts: game.time || 0,
+      ...teamShareOf(game.participants, me, me.k || 0, me.a || 0, { dmg: 'dmg', tank: 'dmgTaken', gold: 'gold', kills: 'k' })
+    });
   }
   const profile = { t: Date.now(), ttl: recent.length || teamGames.length ? SGP_RECENT_CACHE_TTL : 30000, recent, teamGames, flashPreference: summarizeFlashPreference(flashSamples) };
   sgpRecentCache.delete(key);          // 重新写入放到末尾 (最新)
@@ -556,16 +589,31 @@ function toggleLiveRecentExpanded(force) {
   syncLiveExpandButton();
 }
 
-// 单场战绩: [英雄][模式][胜/负][KDA]。整行按胜负染色 (胜=蓝、负=红),
-// 左边 2px 色条 + 背景微染, 一屏 10 行时靠颜色就能扫出胜负分布。
+// 战绩时间: "01-18 19:31"。SGP 给毫秒时间戳, LCU 也是; 缺失时返回空串, 不占位。
+function formatMatchTime(ts) {
+  const n = Number(ts);
+  if (!n || !Number.isFinite(n)) return '';
+  const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';
+  const p2 = v => String(v).padStart(2, '0');
+  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+// 单场战绩: 两行 —— 上「模式」、下「日期 + 胜/负」, 右侧独立一列放 KDA。
+// 单行塞不下日期, 而日期是判断"最近状态是不是当前的"的关键 (连跪 3 场和 3 个月前连跪 3 场完全不同);
+// 两行后 KDA 能单独成列右对齐, 竖着扫一遍就是一串等宽数字, 比夹在文字后面好读。
+// 胜负靠整行微染 + 胜/负字标出, 颜色只做辅助, 不靠它单独承载信息。
 function recentIcon(r) {
   const rc = champOfLive(r.champId);
   const isWin = r.win === true || r.win === 'Win';
   const mode = r.mode || '对局';
-  return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}" title="${escapeHtml(mode)} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}">
+  const when = formatMatchTime(r.ts);
+  return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}" title="${escapeHtml(mode)}${when ? ' ' + when : ''} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}">
     <img src="${rc ? champImg(rc.id) : placeholder('?')}" ${rc ? champIconAttrs(rc.id, rc.name) : `onerror="this.src='${placeholder('?')}'"`}>
-    <span class="ri-mode">${escapeHtml(mode)}</span>
-    <span class="ri-result">${isWin ? '胜' : '负'}</span>
+    <span class="ri-body">
+      <span class="ri-mode">${escapeHtml(mode)}</span>
+      <span class="ri-sub">${when ? `<span class="ri-date">${when}</span>` : ''}<span class="ri-result">${isWin ? '胜' : '负'}</span></span>
+    </span>
     <span class="ri-kda">${r.k}/${r.d}/${r.a}</span>
   </div>`;
 }
@@ -583,6 +631,29 @@ function flashPreferenceHtml(pref) {
     ? `该玩家放置闪现的位置不一致。在最近的对局中，D位置${pref.d}次，F位置${pref.f}次`
     : `最近${pref.total}场使用闪现的对局中，闪现均放在${pref.d ? 'D' : 'F'}位置`;
   return `<span class="lp-flash${pref.inconsistent ? ' mixed' : ''}" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+}
+
+// 近 10 场「队内占比」标签: 伤害 / 承伤 / 经济 / 参团。
+// 这排标签是玩家卡里唯一能说明"他是怎么赢的"的信息 —— 70% 胜率可能是被带飞,
+// 也可能是每场打 30% 伤害 carry 出来的, 光看胜率和 KDA 分不开。
+// 数据缺失时整排不渲染 (不占位), 所以国服某些模式取不到字段时卡片会自然收紧。
+function liveMetricPills(recent) {
+  const rs = (recent || []).filter(r => r && r.dmgPct != null);
+  if (!rs.length) return '';
+  const avg = f => {
+    const v = rs.filter(r => r[f] != null);
+    return v.length ? Math.round(v.reduce((s, r) => s + Number(r[f]), 0) / v.length) : null;
+  };
+  const items = [
+    ['dmg', '伤害', avg('dmgPct')],
+    ['tank', '承伤', avg('tankPct')],
+    ['gold', '经济', avg('goldPct')],
+    ['kp', '参团', avg('kp')]
+  ].filter(it => it[2] != null);
+  if (!items.length) return '';
+  return items.map(([cls, label, val]) =>
+    `<span class="lp-metric lp-metric-${cls}" title="近 ${rs.length} 场队内平均${label}占比">${label} <b>${val}%</b></span>`
+  ).join('');
 }
 
 // 概览行的 KDA 用「大数字 + 小标签」，与胜率形成一对主指标。
@@ -671,7 +742,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
-    const pills = `${premadeTag}${riskHtml}${behaviorTagsHtml(p.behaviorSamples)}`;
+    const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent)}${behaviorTagsHtml(p.behaviorSamples)}`;
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>

@@ -496,8 +496,9 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
    这里只保留与主题令牌无关、无法下放到基础样式的两条。 */
 .lp-row:hover { border-color: var(--border-hover); }
 .lp-champ { background: var(--bg-secondary); }
-/* 标签行不得折行: 它的高度是"卡内战绩区高度预算"的一部分 (见 style.css 实时对局区块) */
-.lp-profile-line { flex-wrap: nowrap; overflow: hidden; }
+/* 标签行允许折行: 1.5.58 起多了「伤害/承伤/经济/参团」四枚占比标签, 六枚在 1200 宽下排不进一行。
+   折行后的高度由 style.css 的 .lp-profile-line 决定, 战绩区预算按两行算 (见 test_live_compact.js)。 */
+.lp-profile-line { flex-wrap: wrap; overflow: hidden; }
 
 /* ============================ 强化资料页 ============================ */
 .hex-context { border-radius: var(--radius); }
@@ -691,6 +692,12 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 /* 展开后不再有"被裁断"的问题, 底部渐隐必须撤掉, 否则会压暗最后一场 */
 #page-live.live-expanded .lp-row::after { content: none; }
 
+/* 队内占比标签的深色版本: 浅色底 + 深字在深色主题下会糊成一块, 换成半透明底 + 提亮的字 */
+body.dark .lp-metric-dmg { color: #f08a7e; background: rgba(224, 90, 74, .16); }
+body.dark .lp-metric-tank { color: #63c6d4; background: rgba(42, 167, 184, .16); }
+body.dark .lp-metric-gold { color: #e8b75c; background: rgba(224, 165, 58, .16); }
+body.dark .lp-metric-kp { color: #a49bf0; background: rgba(107, 98, 214, .20); }
+
 /* 大乱斗平衡性调整徽标 (balance.js): 颜色走主题变量, 深色主题自动适配 */
 .lp-balance { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 15px; cursor: help; border: 1px solid currentColor; }
 .lp-balance-buff { color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent); }
@@ -712,9 +719,8 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 .lp-behavior-bad { color: var(--negative); background: color-mix(in srgb, var(--negative) 11%, transparent); }
 .lp-behavior-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 13%, transparent); }
 .lp-behavior-info { color: var(--text-secondary); background: var(--bg-secondary); }
-/* 画像行高度是实时页「战绩区高度预算」的一部分 (见 test_live_compact.js): 标签再多也不折行、不增高,
-   放不下的部分被裁掉, 完整内容看每个标签的 title */
-.lp-profile-line { flex-wrap: nowrap; overflow: hidden; }
+/* 画像行可以折行, 但每枚标签本身不许被压缩 (压缩后文字会溢出胶囊, 看着像渲染坏了) */
+.lp-profile-line { flex-wrap: wrap; overflow: hidden; }
 .lp-profile-line > * { flex-shrink: 0; }
 
 /* 英雄强度角标 (balance.js): OP.GG 当前模式强度榜, 1 阶最强 */

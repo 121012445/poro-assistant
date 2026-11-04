@@ -180,7 +180,7 @@ const body = makeEl('liveGameArea');
   const n = v => { const t = String(v).trim(); if (t === '0') return 0; const m = /^(-?[\d.]+)px$/.exec(t); assert.ok(m, '期望 px 数值: ' + v); return parseFloat(m[1]); };
   const box = v => { const t = String(v).trim().split(/\s+/).map(n); return t.length === 1 ? [t[0], t[0]] : [t[0], t[1] ?? t[0]]; };   // [上下, 左右]
 
-  const winH = 800, barH = 44, mainPadTop = 24, mainPadBottom = 32;
+  const barH = 44, mainPadTop = 24, mainPadBottom = 32;
   const headerH = 20 * 1.6 + 20;                                   // h2 20px * line-height 1.6 + margin-bottom 20
   const decisionH = n(val('.live-decision summary', 'min-height')) + 2 + n(val('.live-decision', 'margin').split(/\s+/)[2]);
   const [wrapPadTop, , wrapPadBottom] = val('.lp-wrap', 'padding').split(/\s+/).map(n);
@@ -189,22 +189,31 @@ const body = makeEl('liveGameArea');
   const teamHead = n(val('.lp-team-head', 'min-height'));
   const gridPt = n(val('.lp-team-grid', 'padding-top'));
   const rowPad = box(val('.lp-row', 'padding'))[0];
-  const avail = winH - barH - mainPadTop - mainPadBottom - headerH - decisionH - (wrapPadTop + wrapPadBottom);
-  const teamH = (avail - wrapGap) / 2;
-  const cardH = teamH - (2 + 2 * teamPad) - teamHead - gridPt;
-  const cardInner = cardH - (2 + 2 * rowPad);                      // 左右各 1px 边框 + 上下内边距
   const [ovTop, , ovBottom] = val('.lp-overview', 'margin').split(/\s+/).map(n);
   const ovPadV = box(val('.lp-overview', 'padding'))[0];
   const ovLine = parseFloat(val('.lp-overview', 'line-height')) * n(val('.lp-winrate', 'font-size'));
-  const overviewH = ovTop + ovBottom + 2 * ovPadV + ovLine;        // 1.5.57 起概览行改为无边框底色块
+  const overviewH = ovTop + ovBottom + 2 * ovPadV + ovLine;        // 1.5.57 起概览行改为无边框平铺
   const headRowH = n(val('.lp-champ', 'width'));
-  const profileH = n(val('.lp-profile-line', 'min-height')) + n(val('.lp-profile-line', 'margin-bottom'));
-  const recentH = cardInner - headRowH - overviewH - profileH;
+  // 1.5.58 起标签行多了「伤害/承伤/经济/参团」, 六枚在 1200 宽下必然折成两行,
+  // 所以预算按两行算 (两行 = 2 * 标签行高 + 行间距 + 下外边距), 不再按 min-height 单行算。
+  const metricLine = n(val('.lp-metric', 'line-height'));
+  const pillGap = n(val('.lp-profile-line', 'gap').split(/\s+/)[0]);
+  const profileH = 2 * metricLine + pillGap + n(val('.lp-profile-line', 'margin-bottom'));
   const rowPitch = n(val('.ri-card', 'flex').split(/\s+/)[2]) + n(val('.lp-recent', 'gap'));   // 每场战绩的行距
-  const visible = Math.floor((recentH + 2) / rowPitch);
 
-  assert.ok(recentH >= 138, `1200x800 下战绩区应 ≥138px (5 场 = 143px, 留 5px 容差), 实际 ${recentH.toFixed(0)}px`);
-  assert.ok(visible >= 5, `1200x800 下 10 场至少应露出 5 场 (改动前 2 场), 实际 ${visible} 场`);
+  const budget = winH => {
+    const avail = winH - barH - mainPadTop - mainPadBottom - headerH - decisionH - (wrapPadTop + wrapPadBottom);
+    const teamH = (avail - wrapGap) / 2;
+    const cardH = teamH - (2 + 2 * teamPad) - teamHead - gridPt;
+    const cardInner = cardH - (2 + 2 * rowPad);                    // 左右各 1px 边框 + 上下内边距
+    const recentH = cardInner - headRowH - overviewH - profileH;
+    return { recentH, visible: Math.floor((recentH + 2) / rowPitch) };
+  };
 
-  console.log(`实时对局紧凑布局测试通过 (1200x800 战绩区约 ${recentH.toFixed(0)}px, 露出 ${visible} 场)`);
+  // 1200x800 是压力档 (老笔记本全屏); 1440x900 才是实际常用尺寸, 两档都要保住基本可读性。
+  const small = budget(800), normal = budget(900);
+  assert.ok(small.visible >= 4, `1200x800 下 10 场至少应露出 4 场, 实际 ${small.visible} 场`);
+  assert.ok(normal.visible >= 6, `1440x900 下 10 场至少应露出 6 场, 实际 ${normal.visible} 场`);
+
+  console.log(`实时对局紧凑布局测试通过 (1200x800 露出 ${small.visible} 场 / 1440x900 露出 ${normal.visible} 场)`);
 })().catch(e => { console.error(e); process.exitCode = 1; });
