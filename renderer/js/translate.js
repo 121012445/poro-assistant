@@ -25,6 +25,9 @@ let _gtReadTotal = 0;            // 本局累计读到的消息条数 (诊断用
 let _gtLastStat = 0;             // 上次打"还没读到消息"日志的时间
 let _gtCidsCache = { at: 0, ids: [] };  // 房间列表 10 秒内复用, 别每 1.5 秒都查一遍
 let _gtCidLogAt = 0;             // 上次打房间解析日志的时间 (限频)
+let _gtConvDumped = false;       // 本局是否已 dump 过会话清单
+let _gtHistRead = 0;             // 本局 firstScan 读到的历史消息条数 (非新消息, 展示用区分)
+let _gtFreshTotal = 0;           // 本局读到的新消息条数 (真实进入翻译管线的)
 let _gtSkipEmpty = 0, _gtSkipEcho = 0, _gtSkipMineOff = 0, _gtSkipNoMatch = 0;
 let _gtSkipLogAt = 0;            // 上次打跳过统计日志的时间 (限频)
 // 阶段闸门: bench.js 的兜底轮询每 12 秒都会调一次 handleGameflowPhase('InProgress'),
@@ -156,6 +159,9 @@ function gameTranslateOnPhase(phase) {
     _gtEchoRecent.clear();
     _gtCidsCache = { at: 0, ids: [] };
     _gtCidLogAt = 0;
+    _gtConvDumped = false;
+    _gtHistRead = 0;
+    _gtFreshTotal = 0;
     _gtSkipEmpty = 0; _gtSkipEcho = 0; _gtSkipMineOff = 0; _gtSkipNoMatch = 0;
     _gtSkipLogAt = 0;
     // chat.js 的选人房间 cid 跨局残留会让扫描/补发永远盯着死房间 (1.5.42 实测:
@@ -222,6 +228,14 @@ async function gtResolveCids(force) {
         _gtCidDiagDone = true;
         const summary = convs.slice(0, 15).map(c => (c && c.type ? c.type : '?') + ':' + (c && c.id ? c.id : '?') + ':' + (c && c.name ? c.name : ''));
         try { lolAPI.debugLog('[GT] no cid, conversations=' + JSON.stringify(summary)); } catch (e) {}
+      }
+      // 1.5.45: 对局期无条件 dump 一次会话全清单 —— 15:29 局实测 InProgress 全程
+      // 只有旧局残留会话 (105694a4), 本局聊天房间从未出现, 但"只有它一个"和
+      // "还有别的被过滤"无法区分。每局一条, 量可控。
+      if (window._gameflowPhase === 'InProgress' && !_gtConvDumped) {
+        _gtConvDumped = true;
+        const summary = convs.slice(0, 15).map(c => (c && c.type ? c.type : '?') + ':' + (c && c.id ? c.id : '?') + ':' + (c && c.name ? c.name : '') + ':msgs?' );
+        try { lolAPI.debugLog('[GT] conv dump (' + convs.length + '): ' + JSON.stringify(summary)); } catch (e) {}
       }
     }
   } catch (e) {}
@@ -320,12 +334,21 @@ async function gtScan() {
       try { lolAPI.debugLog('[GT] first read, cids=' + JSON.stringify(cids) + ' msgs=' + scanned); } catch (e) {}
     }
     _gtReadTotal += scanned;
+    _gtFreshTotal += fresh;
     // 界面上的可见反馈：读不到时至少要能看出来，而不是"没反应"
+    // 1.5.45: 历史消息 (firstScan 一次性读到的存量) 与新消息分开显示,
+    // 否则扫到旧局残留消息会显示"已读到 4 条", 让人误以为功能在工作
     const readEl = document.getElementById('gtReadState');
     if (readEl) {
       if (_gtReadTotal) {
-        readEl.textContent = '本局已读到 ' + _gtReadTotal + ' 条聊天（房间 ' + cids.join(' / ') + '）';
-        readEl.style.color = 'var(--positive)';
+        if (firstScan) {
+          _gtHistRead = scanned;
+          readEl.textContent = '读到 ' + scanned + ' 条历史消息（房间 ' + cids.join(' / ') + '）— 等待新消息；若整局都无新消息，说明本局聊天房间未接入';
+          readEl.style.color = 'var(--warn, #e0a030)';
+        } else {
+          readEl.textContent = '本局已读到 ' + _gtFreshTotal + ' 条新聊天（房间 ' + cids.join(' / ') + '）';
+          readEl.style.color = 'var(--positive)';
+        }
       } else {
         readEl.textContent = '还没读到聊天（房间 ' + cids.join(' / ') + '，等待消息…）';
         readEl.style.color = '';
