@@ -397,6 +397,11 @@ async function gtScan() {
 }
 
 // OCR 输出行解析: 剥时间戳/频道标记/玩家名前缀, 输出待判定文本 (可单测)
+// 1.5.48: 浮窗提示条/后台应用杂音行整行丢弃 —— 整屏回退路径下这些文字会
+// 混进 OCR 结果 (17:31 局实证), 纯中文行本就被 GT_ZH_RE 挡住, 这里拦的是
+// 中英混杂的行 (如 "行情 SNXXUSDT ... game")。
+// 注意: 不能带 /i —— "Esc" 带大小写匹配, 否则 "escape" 这类正常英文聊天会被误杀
+const GT_OCR_NOISE_RE = /打字|回车|发给队友|滚轮|拖动|双击|取消|发送|行情|买币|Esc/;
 function gtParseOcrChatLines(raw) {
   const out = [];
   for (let line of String(raw || '').split(/\r?\n/)) {
@@ -408,6 +413,7 @@ function gtParseOcrChatLines(raw) {
     line = line.replace(/\[[^\[\]]{1,8}\]/g, ' ').replace(/【[^【】]{1,8}】/g, ' ');
     line = line.replace(/\s+/g, ' ').trim();
     if (!line) continue;
+    if (GT_OCR_NOISE_RE.test(line)) continue;
     // "召唤师名: 内容" 前缀 (冒号前不超过 14 个字符且不含空格才算名字)
     const m = line.match(/^([^\s:：]{1,14})[:：]\s*(.+)$/);
     if (m && m[2].trim()) line = m[2].trim();

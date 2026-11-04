@@ -1201,37 +1201,60 @@ ipcMain.handle('game-translate:target', async (e, target) => {
 // 自己的通道), LCU 扫描永远读不到队友发言。兜底方案: 截游戏窗口聊天框
 // 区域 → Windows OCR → 文本行交回渲染层进翻译管线。复用 augment 的截图与
 // OCR worker; 截不到 (全屏独占/游戏未运行) 返回 null, 渲染层按失败静默。
+// 1.5.48: 优先**窗口级捕获** —— 整屏截图会把 Poro 浮窗提示条 (正好压在
+// 聊天框上) 和其他显示器/后台应用内容一起截进来, OCR 读到的全是杂音
+// (17:31 局 [GT OCR] 日志实证)。窗口捕获天然只含游戏画面。
 ipcMain.handle('game-translate:ocr-chat', async (e) => {
   try {
     if (process.platform !== 'win32' || !augmentOcr.isAvailable()) return null;
     const gameRect = winRect.getLeagueGameRect();
     if (!gameRect || !gameRect.width || !gameRect.height) return null;
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
+    let screenshot = null;
+    let via = '';
+    // 1) 窗口级捕获: 按游戏窗标题匹配 (RiotWindowClass 的标题固定为
+    //    "League of Legends (TM) Client"), 找不到再按名称宽松匹配
+    const wSources = await desktopCapturer.getSources({
+      types: ['window'],
       thumbnailSize: { width: 2560, height: 1440 },
       fetchWindowIcons: false
     });
-    if (!sources.length) return null;
-    let display = null;
-    try { display = electronScreen.getDisplayMatching(gameRect); } catch (e2) {}
-    const displayId = display ? String(display.id) : '';
-    const source = sources.find(x => String(x.display_id || '') === displayId) || sources[0];
-    let screenshot = source.thumbnail;
-    if (!screenshot || screenshot.isEmpty()) return null;
-    // 从屏幕截图裁出游戏窗口
-    if (display?.bounds) {
-      const size = screenshot.getSize();
-      const sx = size.width / Math.max(1, display.bounds.width);
-      const sy = size.height / Math.max(1, display.bounds.height);
-      const crop = {
-        x: Math.max(0, Math.round((gameRect.x - display.bounds.x) * sx)),
-        y: Math.max(0, Math.round((gameRect.y - display.bounds.y) * sy)),
-        width: Math.min(size.width, Math.max(1, Math.round(gameRect.width * sx))),
-        height: Math.min(size.height, Math.max(1, Math.round(gameRect.height * sy)))
-      };
-      crop.width = Math.min(crop.width, size.width - crop.x);
-      crop.height = Math.min(crop.height, size.height - crop.y);
-      if (crop.width > 300 && crop.height > 200) screenshot = screenshot.crop(crop);
+    const title = String(gameRect.title || '').trim();
+    const wSrc = (title && wSources.find(s => String(s.name || '').trim() === title))
+      || wSources.find(s => /league of legends/i.test(String(s.name || '')));
+    if (wSrc && wSrc.thumbnail && !wSrc.thumbnail.isEmpty()) {
+      screenshot = wSrc.thumbnail;
+      via = 'window:' + String(wSrc.name || '').substring(0, 40);
+    }
+    // 2) 回退: 整屏截图再裁游戏窗口 (会被浮窗/其他窗口遮挡, 仅兜底)
+    if (!screenshot) {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 2560, height: 1440 },
+        fetchWindowIcons: false
+      });
+      if (!sources.length) return null;
+      let display = null;
+      try { display = electronScreen.getDisplayMatching(gameRect); } catch (e2) {}
+      const displayId = display ? String(display.id) : '';
+      const source = sources.find(x => String(x.display_id || '') === displayId) || sources[0];
+      screenshot = source.thumbnail;
+      via = 'screen';
+      if (!screenshot || screenshot.isEmpty()) return null;
+      // 从屏幕截图裁出游戏窗口
+      if (display?.bounds) {
+        const size = screenshot.getSize();
+        const sx = size.width / Math.max(1, display.bounds.width);
+        const sy = size.height / Math.max(1, display.bounds.height);
+        const crop = {
+          x: Math.max(0, Math.round((gameRect.x - display.bounds.x) * sx)),
+          y: Math.max(0, Math.round((gameRect.y - display.bounds.y) * sy)),
+          width: Math.min(size.width, Math.max(1, Math.round(gameRect.width * sx))),
+          height: Math.min(size.height, Math.max(1, Math.round(gameRect.height * sy)))
+        };
+        crop.width = Math.min(crop.width, size.width - crop.x);
+        crop.height = Math.min(crop.height, size.height - crop.y);
+        if (crop.width > 300 && crop.height > 200) screenshot = screenshot.crop(crop);
+      }
     }
     const size = screenshot.getSize();
     // 聊天框固定在左上 (1.5.46 误定为左下 y40-58%, 用户截图实证 LoL 对局聊天
@@ -1255,7 +1278,7 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     try { text = String(await requestAugmentOcr(imagePath) || ''); }
     finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
     // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到
-    const diagLine = `[GT OCR] len=${text.length} text=${text.replace(/\s+/g, ' ').trim().substring(0, 120)}`;
+    const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} len=${text.length} text=${text.replace(/\s+/g, ' ').trim().substring(0, 120)}`;
     if (periodicLog.shouldLog('gt-chat', diagLine)) logErr(diagLine);
     return text;
   } catch (err) {

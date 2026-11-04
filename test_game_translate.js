@@ -254,6 +254,25 @@ function msg(id, body, fromId) {
     ok('OCR 行数正确', lines.length === 3, lines);
   }
   {
+    // 1.5.48: 浮窗提示条/后台应用杂音行整行丢弃 (17:31 局 OCR 日志实证)
+    const e = makeEnv({});
+    const raw = 'Ctrl+F10 打字 - 回车发给队友 · 可拖动/滚轮回看 · Esc 取消\n'
+      + '行情 SNXXUSDT Tradr 2x Long SNDK ETF game\n'
+      + '00:02 [All] Rain: luck game\n'
+      + 'nice escape mid';
+    const lines = await e.run('gtParseOcrChatLines')(raw);
+    ok('OCR 杂音行 (浮窗提示/混杂行情) 丢弃', lines.length === 2 && lines[0] === 'luck game' && lines[1] === 'nice escape mid', lines);
+    // "WorkBuddy 新建任务..." 这类含中文的杂音行在解析层保留 (无关键词),
+    // 由 gtOcrScan 的 GT_ZH_RE (含中文即丢) 在管线层挡住
+    const lines2 = await e.run('gtParseOcrChatLines')('WorkBuddy 新建任务 专家 连接器 资料库\nluck game');
+    ok('OCR 纯中文杂音行留待管线层过滤', lines2.length === 2, lines2);
+    const e2 = makeEnv({});
+    e2.ctx.lolAPI.gameTranslateOcrChat = async () => 'WorkBuddy 新建任务 专家 连接器 资料库\n00:03 [All] Rain: luck game';
+    await e2.run('gtOcrScan')();
+    await flushAsync();
+    ok('OCR 含中文杂音行不进翻译管线', e2.translated.length === 1 && e2.translated[0].texts[0] === 'luck game', e2.translated);
+  }
+  {
     const e = makeEnv({});
     e.ctx.lolAPI.gameTranslateOcrChat = async () => '00:02 [All] Rain: Good Luck\n0:05 雨未散：连败衰神';
     await e.run('gtOcrScan')();
