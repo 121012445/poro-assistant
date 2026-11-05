@@ -730,9 +730,21 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 .live-decision { margin: 0 0 4px; }
 .live-decision summary { min-height: 30px; padding-top: 3px; padding-bottom: 3px; }
 
-/* 页头右侧的「展开全部战绩」: 全局按钮最小高度是 38px，会把页头撑高、整页下移，这里限定高度 */
-#liveExpandBtn { margin-left: auto; min-height: 0; height: 28px; padding: 0 12px; font-size: var(--fs-sm); }
+/* 队伍栏右端的「展开全部战绩」: 全局按钮最小高度 38px, 直接放进来会把 28px 的
+   队伍栏撑高。压成 18px 的小幽灵按钮, 和右边 10px 的「N 名玩家」同一视觉层级,
+   平时几乎看不见, 悬停才浮出描边 —— 它只是战绩列表的展开开关, 不该抢注意力。 */
+#liveExpandBtn {
+  margin-left: 6px; min-height: 0; height: 18px; padding: 0 7px;
+  font-size: 10px; line-height: 1; border-radius: 999px;
+  color: var(--text-muted); border: 1px solid transparent; background: transparent;
+}
+#liveExpandBtn:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-card); }
+#liveExpandBtn.is-selected {
+  color: var(--accent-deep); border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
 #liveExpandBtn[hidden] { display: none; }
+body.dark #liveExpandBtn:hover { border-color: rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .05); }
 
 /* 展开全部战绩: 不再把两队压进一屏，每张卡完整显示最近 10 场，由 #liveGameArea 整体滚动 */
 #page-live.live-expanded .lp-wrap { flex: 0 0 auto; overflow: visible; }
@@ -743,13 +755,13 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 /* 展开后不再有"被裁断"的问题, 底部渐隐必须撤掉, 否则会压暗最后一场 */
 #page-live.live-expanded .lp-row::after { content: none; }
 
-/* 实时对局页头部压缩成一行: 「实时对局」小标题 + 作战计划摘要 + 展开按钮并排。
-   原来 22px 大标题占 52px、作战计划条占 54px, 合计 109px —— 这两块只是「当前在哪一页」
-   和「这局建议」的背景信息, 真正要看的是下面两队十个人的战绩。合并后顶部只剩 28px。
+/* 实时对局页头: 1.5.66 起只剩作战计划槽位。
+   原来那行是「13px 小标题 + 作战计划 + 展开按钮」, 标题和左侧导航完全重复,
+   纯占 30px。现在标题删了、按钮挪进蓝方队伍栏, 没有作战计划 (非真实对局) 时
+   整行直接隐藏, 那 30px 全部还给下面的队伍卡。
    只作用于 #page-live, 其它页面的标题层级不动。 */
 #page-live .page-header { margin-bottom: 8px; gap: 8px; align-items: center; }
-#page-live .page-header h2 { font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--text-secondary); }
-#page-live .page-header .btn-secondary { font-size: 10px; line-height: 1; padding: 4px 8px; }
+#page-live .page-header:has(.live-head-slot:empty) { display: none; }
 
 /* 作战计划摘要挤进页头后, 建议文字只留一行、超出省略; 点开时以浮层盖在阵容上方,
    不把下面的队伍顶下去 —— 否则展开一次就把省下来的高度又还回去了。 */

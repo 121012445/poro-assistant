@@ -125,8 +125,12 @@ const body = makeEl('liveGameArea');
   assert.doesNotThrow(() => { els.liveExpandBtn = null; context.syncLiveExpandButton(true); }, '按钮缺失时不得抛错');
   els.liveExpandBtn = btn;
 
-  // 接线: 按钮在 index.html 里、默认隐藏、点击调用的函数存在; 离开对局 / 无阵容时会隐藏
-  assert.ok(/<button[^>]*id="liveExpandBtn"[^>]*\bhidden\b[^>]*onclick="toggleLiveRecentExpanded\(\)"/.test(html), '页头应有默认隐藏的展开按钮');
+  // 接线: 按钮由 live.js 渲染进蓝方队伍栏 (页头那行已经删掉, 不能再占一行高度);
+  // 默认隐藏的属性不再需要 —— 没有阵容时按钮根本不存在。
+  assert.ok(/<button[^>]*class="lp-expand-btn"[^>]*id="liveExpandBtn"[^>]*onclick="toggleLiveRecentExpanded\(\)"/.test(liveSrc), '「展开全部战绩」应由 live.js 渲染进队伍栏');
+  assert.ok(!/id="liveExpandBtn"/.test(html), 'index.html 里不应再有展开按钮 (否则会重新占一行高度)');
+  assert.ok(!/id="page-live"[\s\S]{0,400}<h2>实时对局<\/h2>/.test(html), '实时对局页不应再有重复的页面标题');
+  assert.ok(/withExpand/.test(liveSrc) && /teamPanel\(blue, '蓝方', 'lp-blue', true\)/.test(liveSrc), '展开按钮只挂在第一个队伍栏上');
   assert.ok(liveSrc.includes('syncLiveExpandButton(false);'), '离开对局时应隐藏按钮');
   assert.ok(/syncLiveExpandButton\(!!body\.querySelector\('\.lp-wrap'\)\)/.test(liveSrc), '渲染结束后应按是否有阵容校准按钮');
 
@@ -157,10 +161,10 @@ const body = makeEl('liveGameArea');
   assert.strictEqual(px(rule(block, '.lp-row'), 'padding'), '6px 8px');
   assert.strictEqual(px(rule(block, '.lp-champ'), 'width'), '38px');
   const btnBlock = premium.slice(premium.indexOf('实时对局：紧凑布局'));
-  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高页头');
-  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'height'), '28px');
+  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高队伍栏');
+  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'height'), '18px', '按钮要压到 18px 才塞得进 28px 的队伍栏');
   assert.ok(/#liveExpandBtn\[hidden\]\s*\{\s*display:\s*none/.test(btnBlock), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
-  assert.ok(!/\bcolor\s*:|\bbackground\s*:/.test(btnBlock.slice(0, btnBlock.indexOf('#page-live.live-expanded'))), '紧凑块不应改颜色，保证深色主题规则照常生效');
+  assert.ok(/body\.dark #liveExpandBtn:hover/.test(premium), '深色下按钮 hover 要单独提亮');
 
   // 展开模式: 去掉"一屏内"的约束
   for (const [sel, prop, val] of [['.lp-wrap', 'overflow', 'visible'], ['.lp-recent', 'overflow', 'visible'], ['.lp-row', 'height', 'auto'], ['.lp-recent', 'flex', '0 0 auto']]) {
@@ -184,9 +188,10 @@ const body = makeEl('liveGameArea');
   const box = v => { const t = String(v).trim().split(/\s+/).map(n); return t.length === 1 ? [t[0], t[0]] : [t[0], t[1] ?? t[0]]; };   // [上下, 左右]
 
   const barH = 44, mainPadTop = 24, mainPadBottom = 32;
-  // 1.5.61 起页头只剩一行: 13px 小标题 + 22px 作战计划摘要 + 展开按钮并排。
-  // 行高取标题行高与摘要条较高者, 再 +8px 下边距; 作战计划不再单独占高度。
-  const headerH = n(val('#page-live .page-header h2', 'font-size')) * 1.6 + n(val('#page-live .page-header', 'margin-bottom')) + 8;
+  // 1.5.66 起实时对局页头整行删除 (标题与左侧导航重复), 只剩作战计划槽位;
+  // 没有作战计划时 :has(.live-head-slot:empty) 直接 display:none, 高度为 0。
+  assert.match(premium, /#page-live \.page-header:has\(\.live-head-slot:empty\)\s*\{\s*display:\s*none/, '没有作战计划时页头整行要隐藏');
+  const headerH = 0;
   const decisionH = 0;
   const [wrapPadTop, , wrapPadBottom] = val('.lp-wrap', 'padding').split(/\s+/).map(n);
   const wrapGap = n(val('.lp-wrap', 'gap'));

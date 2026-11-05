@@ -793,7 +793,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   const blue = data.filter(isBlue), red = data.filter(isRed), unknown = data.filter(p => !isBlue(p) && !isRed(p));
   // 空位占位: 数据没到 / 人数不足时也保持 5 列形状，避免半屏空白看起来像页面坏了
   const emptySlot = () => '<div class="lp-row lp-empty"><span>等待数据</span></div>';
-  const teamPanel = (list, label, cls) => {
+  const teamPanel = (list, label, cls, withExpand) => {
     const matches = list.reduce((sum, p) => sum + p.recent.length, 0);
     const wins = list.reduce((sum, p) => sum + p.recent.filter(r => r.win === true || r.win === 'Win').length, 0);
     const kills = list.reduce((sum, p) => sum + p.recent.reduce((n, r) => n + r.k, 0), 0);
@@ -805,8 +805,14 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       ? `<span class="lp-team-rate${rate >= 50 ? ' positive' : ''}">${rate}%</span><span class="lp-team-kda">KDA <b>${kda}</b></span>`
       : '<span class="lp-team-kda">战绩加载中</span>';
     const slots = Math.max(0, 5 - list.length);
+    // 「展开全部战绩」放在队伍标题栏最右端: 页头那一行已经去掉 (标题纯占高度),
+    // 而这个开关只管战绩列表的展开, 贴在列表上方的队伍栏里正好, 且不额外占一行高度。
+    const expandBtn = withExpand
+      ? '<button type="button" class="lp-expand-btn" id="liveExpandBtn" onclick="toggleLiveRecentExpanded()"' +
+        ' title="默认让两队挤在一屏内，每人只露出几场；展开后每人完整显示最近 10 场，页面可滚动">展开全部战绩</button>'
+      : '';
     return `<section class="lp-team ${cls}">
-      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}<span class="lp-team-count">${list.length} 名玩家</span></div>
+      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}<span class="lp-team-count">${list.length} 名玩家</span>${expandBtn}</div>
       <div class="lp-team-grid">${list.map(playerRow).join('')}${Array.from({ length: slots }, emptySlot).join('')}</div>
     </section>`;
   };
@@ -814,7 +820,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   setLiveHeadPanel(buildLiveDecisionPanel(data, selfPuuid));
   body.innerHTML = `
     ${enemyIntelHtml(data, selfPuuid)}
-    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue')}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true)}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
   pushGameLiveBoard(data, premadeGroups);
   updateChampSelectCounterHint(data);
