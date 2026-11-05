@@ -17,6 +17,10 @@ function initFriendAssist() {
   // 初始快照
   lolAPI.lcuRequest('GET', '/lol-chat/v1/friends').then(fs => {
     if (Array.isArray(fs)) for (const f of fs) if (f?.id) friendAvail.set(f.id, String(f.availability || '').toLowerCase());
+    // 好友进本地玩家索引: 搜索时只输名字就能查到
+    if (Array.isArray(fs) && typeof playerIndexFromFriends === 'function') {
+      try { playerIndexFromFriends(fs); } catch (e) {}
+    }
   }).catch(() => {});
   if (lolAPI.onLcuEvent) {
     lolAPI.onLcuEvent(({ uri, data }) => {

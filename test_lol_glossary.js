@@ -42,7 +42,15 @@ console.log('— 英→中 整句 —');
     ['care ss', ''], ['nvm', '算了'], ['ty', '谢谢'], ['afk', '挂机'],
     // 机翻会丢关键词的整句 (实测 2026-11-04: "they are doing baron" → 「他们正在做」)
     ['they are doing baron', '他们在打大龙'], ['our jg is inting', '我方打野在送'],
-    ['no ss top', '上路没闪'], ['no ss mid', '中路没闪']
+    ['no ss top', '上路没闪'], ['no ss mid', '中路没闪'],
+    // 机翻会把口语寒暄**原样吐回英文** (实测 2026-11-05: "whats up" → "whats up")
+    ['whats up', '在干嘛'], ["what's up", '在干嘛'], ['Wassup', '在干嘛'],
+    // 1.5.75: 高频寒暄走本地表 = 0 毫秒。游戏里机翻实测 2.9~6.8 秒
+    // (06:23 局日志 "用时 6828ms 源=机翻"), 用户报障"翻译过了 20s 才出来"。
+    // norm 抹空格和撇号, 一条 howareu 同时覆盖下面三种写法。
+    ['how are u', '你好吗'], ['How are you?', '你好吗'], ['how r u', '你好吗'],
+    ['u2', '你也是'], ['me too', '我也是'], ['good night', '晚安'],
+    ['see you', '回头见'], ['good job', '干得好'], ['thank you', '谢谢']
   ];
   for (const [en, cn] of cases) {
     if (!cn) continue;
@@ -113,7 +121,11 @@ console.log('— 中文译文纠正（接收方向）—');
     ['top很强', '上路很强'], ['mid太远了', '中路太远了'],
     // 带物主代词时机翻把 top 当成衣服 (2026-11-05 用户截图实测)
     ['我们的上衣太结实了', '我们的上路太强了'], ['我们的上衣很强', '我们的上路很强'],
-    ['你的上装不错', '你的上路不错']
+    ['你的上装不错', '你的上路不错'],
+    // 腾讯机翻实测产物 (2026-11-05): "bang is the best ad in the world"
+    // → 「bang是世界上最好的广告」。对局里的 ad 是射手位, 不是广告。
+    ['bang是世界上最好的广告', 'bang是世界上最好的ad'],
+    ['他是我们的广告位', '他是我们的ad位']
   ];
   for (const [from, to] of cases) ok(from + ' → ' + to, G.polish(from, 'zh-CN') === to, G.polish(from, 'zh-CN'));
   ok('正常中文不被改动', G.polish('我们抱团推中路', 'zh-CN') === '我们抱团推中路', G.polish('我们抱团推中路', 'zh-CN'));

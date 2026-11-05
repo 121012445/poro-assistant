@@ -51,6 +51,11 @@ const _gtEchoRecent = new Map(); // 译文 -> 上次发送时间, 5 秒内不重
 const GT_ECHO_GAP_MS = 1500;     // 两条补发之间最少 1.5 秒 (快了队友看不清)
 const GT_ECHO_MAX_GAME = 40;     // 每局上限, 只防失控
 const GT_ECHO_SAME_MS = 5000;    // 同一句 5 秒内不重发
+// 1.5.79: 翻译超过这么久还没回来, 浮窗上先挂一行"（翻译中…）"。
+// 本地短语表 0ms、正常机翻 300ms 上下 —— 600ms 还没结果说明这一条确实在等接口,
+// 用户需要看到"它在翻"而不是"它没了"。用 let 而不是 const: 测试里要把它调成 0
+// 才能验证占位行 (假时钟不推进真实毫秒)。
+let GT_PEND_MS = 600;
 
 // 击杀播报等系统消息: 会被 LCU 当成"某玩家发的消息"，而且经常挂着本人的名字。
 // 一旦当成"我发的消息"处理，就会把「杀人如麻」翻成 "on a killing streak" 再发回聊天 →
@@ -394,9 +399,14 @@ async function gtScan() {
     }
     if (fresh) gtFlush();
     // 1.5.46 OCR 兜底通道: 国服对局聊天不进 LCU (conv dump 实证), 进局 30s 后
-    // LCU 仍零新消息 → 每 4s OCR 一次游戏左下聊天框。LCU 恢复有数据则自动停。
+    // LCU 仍零新消息 → OCR 轮询游戏左下聊天框。LCU 恢复有数据则自动停。
+    // 1.5.80: 4s → 2.4s。这是"发出去到浮窗出现译文"里最大的一段固定延迟:
+    // 消息发出后要等下一轮扫描才被读到, 4s 的间隔意味着平均白等 2 秒。
+    // 扫描由 gtScan 的 900ms 轮询驱动, 所以这里填 2400 实际落在 2.7s (3 拍);
+    // 填 4000 会落到 4.5s (5 拍), 比标称值更慢 —— 之前一直是这样。
+    // 裁剪区只有 640x252, 单帧 OCR 一百多毫秒, 加密到 2.7s 一轮不会明显吃 CPU。
     if (gtInGame() && !_gtFreshTotal && Date.now() - _gtPhaseInAt > 30000 && Date.now() >= _gtOcrNextAt) {
-      _gtOcrNextAt = Date.now() + 4000;
+      _gtOcrNextAt = Date.now() + 2400;
       gtOcrScan();
     }
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
@@ -438,6 +448,12 @@ const GT_OCR_SHORT_OK = new Set([
   // 1.5.55: 完整单词不该被当成残片扣一轮 (真实帧里 11:04/11:20 两条 goodluck)
   'goodluck', 'congrats', 'congratulations', 'welcome'
 ]);
+// 1.5.102: 界面残渣黑名单。OCR 会把游戏画面上的**非聊天**文字切成独立一行:
+// WeGame 角标、WeGame 自动荣誉消息的"（技能分配：QWE）"尾巴。这类行是纯拉丁、
+// 长度够 5 个字母、还常带着上一行的时间戳键, 能一路闯过残片闸门进机翻; 机翻
+// 原样吐回后浮窗挂出 "WeGame /（未能翻译）"、"QWE /（未能翻译）" —— 14:07 局
+// 用户报障「翻译这把又在乱翻译」的实证。真实的单词聊天 (gg/wp/omw/…) 走 SHORT_OK。
+const GT_OCR_UI_JUNK_RE = /^(?:we ?game|wegame|wegan|e?game|qwe|asdf|wasd)$/i;
 // 本文件解析器的"丢弃留痕" (诊断用): 每轮重置, 只留前 4 条, 供 gtOcrScan 写日志
 let _gtOcrDropped = [];
 
@@ -486,20 +502,217 @@ function gtOcrNeedsConfirm(body) {
 }
 
 // OCR 把单词拆成单个字母: "the top very strong" → "th e to p very strong"。
-// Windows OCR 在字号小、背景花的时候会按字符框间隙断词, 05:19 局真实帧就是这样。
+// Windows OCR 在字号小、背景花的时候会按字符框间隙断词, 05:19 / 05:43 真实帧都是这样。
 // 机翻拿到 "th e to p very strong" 只能瞎猜 (实测译成"这是非常强大的"), 用户看到
-// 的就是"改意思了"。判据: 单字母 token 占比 ≥1/4 时把单字母并回前一个词;
-// i/I/a/A 是真词, 不并 ("i am good" 不能被拼成 "iam good")。
+// 的就是"改意思了"。
+//
+// 判据 (1.5.72): 英语里能**独立成词**的单个字母只有 a / i (聊天里再加 u r y k x),
+// 其余单字母 token 必然是断字的残片, 一律并回前一个词 —— "to p"→"top",
+// "th e"→"the", "stron g"→"strong"。前一个 token 不是字母词时不并, 于是
+// "1 v 1" 不会被拼成 "1 v1"。
+// 1.5.71 及以前用"单字母占比 ≥1/4"当闸门, 结果 "our to p too strong"
+// (1/5 = 0.2) 整条被放过, 机翻把 "our to p" 译成"我们的p" —— 05:43 帧
+// 悬浮窗上的"我们的p太强了"就是这么来的。逐 token 判定才是对的:
+// 残片该不该并不取决于同句里还有几个残片。
+const GT_OCR_REAL_LETTER = new Set(['i', 'a', 'u', 'r', 'y', 'k', 'x']);
+
 function gtOcrJoinSplitWords(s) {
   const toks = String(s || '').split(/\s+/).filter(Boolean);
-  if (toks.length < 3) return s;
-  const singles = toks.filter(t => t.length === 1 && /[A-Za-z]/.test(t)).length;
-  if (singles / toks.length < 0.25) return s;
+  if (toks.length < 2) return s;
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    const prev = out.length ? out[out.length - 1] : '';
+    const one = t.length === 1 && /[A-Za-z]/.test(t);
+    const fake = one && !GT_OCR_REAL_LETTER.has(t.toLowerCase());
+    // 尾巴残片: "stron g" → 并到**前一个** token
+    if (fake && /[A-Za-z]$/.test(prev)) {
+      out[out.length - 1] = prev + t;
+      continue;
+    }
+    // 1.5.75 头残片: "h ow are u" → "how are u"。OCR 也会把首字母切下来单独成 token,
+    // 它在词的**前面**, 上面那条只往前面并, 永远修不到 —— 06:23 局实证: 真实正文是
+    // "how are u", OCR 读成 "h ow are IJ", 机翻于是给出"U怎么样"(用户报障:
+    // "翻译过了20s才出来 而且还错了")。
+    // 判据与尾巴那条同源: 单字母且不是能独立成词的那几个 (i/a/u/r/y/k/x) 才算残片,
+    // 下一个 token 必须是纯字母且 ≥2 位 (这样 "1 v 1" 不会被拼成 "1 v1")。
+    // 合并后**只收短词** (≤5 字符): 头残片只发生在 how/what/have 这类窄短词上;
+    // 长词被切头时剩下的一长串 (真实帧里的 "h eryone" = hello everyone 被截断)
+    // 并起来得到 "heryone" 这种非词, 反而会把整行卡进"待确认"、15 秒后才吐出来。
+    // 长词靠下一帧读到完整版本来由去重升级修正。
+    const nxt = toks[i + 1] || '';
+    if (fake && /^[A-Za-z]{2,}$/.test(nxt) && t.length + nxt.length <= 5) {
+      out.push(t + nxt);
+      i++;
+      continue;
+    }
+    out.push(t);
+  }
+  return out.join(' ');
+}
+
+// "这句正文里还有几个可疑的断字残片" —— 单字母 token, 且不是能独立成词的那几个。
+// 去重层用它判断"后到的一版虽然长度一样, 但词边界更干净, 值得替换掉浮窗那一行"。
+// 必须看**去空格前的正文**: gtOcrNorm 会把空格抹掉, "our to p too strong" 与
+// "our top too strong" 归一化后完全一样, 光比长度永远分不出谁更干净。
+function gtOcrSplitBad(s) {
+  return String(s || '').split(/\s+/)
+    .filter(t => t.length === 1 && /[A-Za-z]/.test(t) && !GT_OCR_REAL_LETTER.has(t.toLowerCase()))
+    .length;
+}
+
+// 1.5.75: 去重升级用的"乱码分"。gtOcrSplitBad 只数**单字母**残片, 漏掉了另一类高频误读:
+// 小写句子中间夹一个全大写短词 —— "how are IJ" (字母 u 被读成 IJ)。
+// 这类 token 长度 ≥2, 旧判据完全不认, 于是先到的乱码版把后到的正确版锁死:
+// 06:23 局日志 `ocr lines +1 last="h ow are IJ@00:58"` 先入队, 8 秒后
+// `last="how are u@00:58"` 才到, 但 tidier 判定 0 < 0 不成立 → 浮窗上永久挂着
+// "IJ怎么样"。分数越低越干净, 平手时保持"先到者胜"不变。
+// 白名单是**真实存在的**大写缩写, 免得 "GG WP" / "OMG" 被误判成乱码。
+const GT_OCR_CAPS_OK = new Set([
+  'ok', 'gg', 'wp', 'ez', 'af', 'xd', 'ty', 'gl', 'hf', 'np', 'mb', 'jk', 'op',
+  'ad', 'ap', 'jg', 'sup', 'id', 'hp', 'mp', 'xp', 'cs', 'cd', 'tp', 'ff',
+  'ns', 'bk', 'mf', 'dc', 'rk'
+]);
+function gtOcrGarbage(s) {
+  const toks = String(s || '').split(/\s+/).filter(Boolean);
+  let n = 0;
+  for (const t of toks) {
+    if (t.length === 1 && /[A-Za-z]/.test(t)) {
+      if (!GT_OCR_REAL_LETTER.has(t.toLowerCase())) n += 1;
+      continue;
+    }
+    if (t.length <= 2 && /^[A-Z]+$/.test(t) && !GT_OCR_CAPS_OK.has(t.toLowerCase())) n += 1;
+  }
+  return n;
+}
+
+// OCR 把字母 o 读成数字 0: "t00 strong" / "t0P" / "s0rry"。
+// 英文正文里 0 不会**紧跟在字母后面** —— 紧跟字母的那个 0 一定是 o。
+// 真数字不受影响: "100 dmg" 的 0 前面是 0、"top10" 的 0 后面是数字、"1v1" 没有 0。
+// 05:44 局实证: 降到 2x 之后词边界全对了, 只剩 "t00"/"t0P" 这种 o→0 的误读。
+// 顺序有讲究: 先修大小写再换 0 —— "t0P" 换完 0 就成了 "toP", 那时 token 里已经
+// 没有数字, 判据就失效了。
+// 真·驼峰词, 不能整条转小写
+const GT_OCR_KEEP_CASE = new Set(['iOS', 'iPadOS', 'macOS', 'iMac', 'eSport']);
+
+function gtOcrFixZero(s) {
+  return String(s || '')
+    // 含数字的 token 结尾还挂着一个大写字母 ("t0P") = 误读, 把它放回小写。
+    // 真词不受影响: "iOS" 不含数字, "LoL" 不以小写开头, "MacBook" 大写不在结尾。
+    .replace(/\b([a-z][a-z0-9]*[0-9][a-z0-9]*)([A-Z])\b/g, (m, head, tail) => head + tail.toLowerCase())
+    // 1.5.75: 小写开头 + 全大写尾巴 ("tOO") —— "oo" 被读成两个大写 O。
+    // 06:36 局真实帧: "teammates are to 0 strong" 里的 too 就是这么废的,
+    // 机翻拿到 "are to 0 strong" 给出"队友对0强" (用户报障: 又出现错误翻译)。
+    // 聊天里"小写开头 + ≥2 个大写"基本只有 OCR 误读这一种来源 (真词是 iOS/macOS
+    // 这类驼峰, 用白名单放过), 所以整条转小写是安全的。
+    .replace(/\b([a-z])([A-Z]{2,})\b/g, (m, head, tail) => (GT_OCR_KEEP_CASE.has(m) ? m : head + tail.toLowerCase()))
+    .replace(/(?<=[A-Za-z])0+(?![0-9])/g, m => 'o'.repeat(m.length));
+}
+
+// "what's" 里的 t' 经常被读成 ff: 05:44 帧 "what's wrong" → "whaffs wrong",// 机翻于是给了个"错了"。这是**字形**误读, 不是断词, 只能逐条修 —— 但修完就能
+// 命中本地短语表/机翻的 what's 分支, 译文立刻正常。
+const GT_OCR_WORD_FIX = [
+  [/\bwh[ae]ff?s\b/gi, "what's"],
+  // 1.5.75: 字母 u 被读成 "IJ" (06:23 局真实帧 "how are IJ")。u 的两笔在低分辨率
+  // 放大后正好落在 I 和 J 的字形上, 是**字形**误读, 和 whaffs 同一类。
+  // 不修的话整句落到机翻手里 → "IJ怎么样" (用户报障"而且还错了"), 而且短语表
+  // howareu 也因此命中不了。只认全大写的两字符 IJ, 不碰 "ij"/"Ij" 和更长的词。
+  [/\b[IJ]{2}\b/g, 'u'],
+  // 1.5.75: "too" 被切成 "to 0" (06:36 局真实帧 "teammates are to 0 strong")。
+  // 尾巴那个 0 前面是空格, gtOcrFixZero 的"0 紧跟字母"判据够不着, 机翻于是
+  // 按字面翻成"队友对0强"。只在 to 后面这种位置修, 不碰 "has 0 kills"。
+  [/\bto\s+0(?=\s+[A-Za-z])/g, 'too']
+];
+function gtOcrFixWords(s) {
+  let out = String(s || '');
+  for (const [re, to] of GT_OCR_WORD_FIX) out = out.replace(re, to);
+  return out;
+}
+
+// ===== 1.5.79: 用词表把"混了非 ASCII 字符的假词"修回真词 =====
+// 根因: 这台机器只装了中文 OCR 引擎 (`zh-Hans-CN`), 英文是靠中文模型硬读的。
+// 结果就是 everyone → eyÄryone / eye,ryone / eVe 这种**半字母半乱码**的词。
+// 前面那些正则只能逐条修已知的字形误读 (IJ / tOO / whaffs), 换个词就失效;
+// 而"这个 token 里混进了非 ASCII 字符"本身就是**确定性证据**: 英文聊天里不可能有。
+// 所以对这类 token 直接按编辑距离在词表里找最近的词 —— 这比丢弃强得多,
+// "hello eyÄryone" 能整句还原成 "hello everyone", 而不是只剩半句"你好"。
+const GT_OCR_WORDS = ('hello hi hey everyone everybody someone somebody anyone anybody '
+  + 'good bad best worst nice great awesome terrible easy hard fast slow big small '
+  + 'job work game play team player enemy ally friend noob pro smurf bot '
+  + 'thank thanks please sorry sry welcome luck luckily congrats congratulations '
+  + 'yes yeah nope sure maybe okay fine ready wait stop go going come coming run running '
+  + 'push group split dive freeze shove roam rotate gank invade ward vision visionward '
+  + 'top mid middle bot bottom jungle support adc sup carry tank mage assassin marksman '
+  + 'baron nashor dragon drake herald rift soul elder buff red blue gromp krugs raptors wolves scuttle '
+  + 'tower turret inhibitor nexus minion wave camp scuttle crab '
+  + 'flash ignite heal exhaust barrier cleanse smite teleport ghost ult ultimate ability '
+  + 'level experience gold item build shop buy sell recall back port '
+  + 'kill death assist streak shutdown bounty ace penta quadra triple double first blood '
+  + 'win lose lost won defeat victory surrender ff remake afk int feed feeding troll throwing '
+  + 'lag ping fps dc disconnect reconnect report mute unmute blame flame toxic '
+  + 'why what when where who how which whose '
+  + 'this that these those there here now later soon again more less very too much many '
+  + 'all some any none one two three four five first last next before after '
+  + 'can could will would should must might need want know think feel see look make take give '
+  + 'get got have has had are was were been being is am do does did done '
+  + 'you your yours we our us they them their he she it its me my mine '
+  + 'and but or so if then than because about with without from into over under '
+  + 'again always never sometimes today tomorrow yesterday tonight right wrong same different '
+  + 'real fake true false free open close safe dangerous careful danger help problem '
+  + 'time minute second hour late early quick quickly slow slowly forward backward '
+  + 'up down left right center middle side lane river base fountain spawn respawn '
+  + 'damage health mana armor magic resist shield stun root slow silence knockup knockback '
+  + 'combo trade fight engage disengage peel kite focus target chase escape survive '
+  + 'strong weak better worse insane broken op nerf buff patch meta rank lp promo '
+  + 'everyone something nothing everything anything '
+  + 'dont cant wont didnt doesnt isnt arent wasnt werent havent hasnt couldnt wouldnt shouldnt').split(/\s+/);
+
+// 编辑距离的变体: 正文里的 \u0001 是"OCR 读成乱码的那一个字符" ——
+// 那个位置本来就是一个字母, 只是被读坏了, 所以让它和任意字母**免费**对上。
+// 直接删掉乱码字符会丢长度: "jÖb" 删成 "jb", 距离 job 变成 1 还算得出来,
+// 但 "tÖo" 删成 "to" 就彻底认不出了。
+function gtOcrWeirdDistance(a, b) {
+  const A = String(a), B = String(b);
+  let prev = new Array(B.length + 1);
+  for (let j = 0; j <= B.length; j++) prev[j] = j;
+  for (let i = 1; i <= A.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= B.length; j++) {
+      const free = A[i - 1] === '\u0001' || A[i - 1] === B[j - 1];
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (free ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[B.length];
+}
+
+// 把"被读坏的 token"按编辑距离修回词表里最近的词; 修不了就不推这个词。
+// 只修**确定被读坏**的 token, 不做通用的拼写纠正 —— 后者会把玩家 ID 改成别的词:
+//   · 含非 ASCII 字符 (eyÄryone / jÖb / rëal): 英文聊天里不可能出现;
+//   · 词中间夹标点 (eye,ryone): 真词不会长这样。
+// **撇号不算标点**: "world's" / "don't" / "it's" 全是合法英文, 把它当"词中间夹标点"
+// 会触发一次没必要的编辑距离搜索 —— 实测 "world's" 被修成了 "would"
+// ("bang is world's best ad" → "bang is would best ad"), 把一句好话改坏。
+// 阈值: ≥6 字母允许差 2 个字符, 更短的只允许差 1; 短于 4 个字母不猜。
+function gtOcrRepairWeirdWords(s) {
+  const toks = String(s || '').split(/\s+/).filter(Boolean);
+  if (!toks.some(t => /[^\x20-\x7e]/.test(t) || /[A-Za-z][,;:"|][A-Za-z]/.test(t))) return s;
   const out = [];
   for (const t of toks) {
-    const prev = out.length ? out[out.length - 1] : '';
-    if (t.length === 1 && /[A-Za-z]/.test(t) && /[A-Za-z]$/.test(prev) && !/^[iIaA]$/.test(t)) out[out.length - 1] = prev + t;
-    else out.push(t);
+    const weird = /[^\x20-\x7e]/.test(t);
+    const punct = /[A-Za-z][,;:"|][A-Za-z]/.test(t);
+    if (!weird && !punct) { out.push(t); continue; }
+    const probe = t.replace(/[^\x20-\x7e]/g, '\u0001').replace(/[,;:"|]/g, '').toLowerCase();
+    if (probe.replace(/\u0001/g, '').length < 2) continue;    // 去掉乱码后几乎没东西了
+    let best = '', bestD = 99;
+    for (const w of GT_OCR_WORDS) {
+      if (Math.abs(w.length - probe.length) > 2) continue;
+      const d = gtOcrWeirdDistance(probe, w);
+      if (d < bestD) { bestD = d; best = w; }
+    }
+    const limit = probe.length >= 6 ? 2 : 1;
+    if (best && bestD <= limit) out.push(best);
+    // 修不出来就不推这个词 —— 留着它只会让机翻再吐一句"你好everyone"
   }
   return out.join(' ');
 }
@@ -521,9 +734,20 @@ function gtOcrStripBody(seg) {
   // 行尾残留的"半个聊天头" (裁剪边缘切断): "hello everyone 00:2"
   s = s.replace(/\s+\d{1,2}[:：]\d{0,1}$/, '').trim();
   s = s.replace(/\s+[\[\]【】()（）]+$/g, '').trim();
+  // 1.5.75: 行尾残留的引号 —— 玩家名那一行被读成 "rearrjrr “" 时, 那个 “ 会让
+  // "正文里有两个 token"的判据成立, 于是垃圾行混进浮窗。引号永远不会是正文的一部分,
+  // 先剥引号再剥标点, 这样 "ok ， “" 才能一路剥成 "ok" 并命中本地短语表。
+  s = s.replace(/^[\s"'“”‘’「」『』]+|[\s"'“”‘’「」『』]+$/g, '').trim();
   s = s.replace(/[\s，,、。;；:：·]+$/g, '').trim();
   s = s.replace(/^[^A-Za-z]+/, '').trim();
   s = gtOcrJoinSplitWords(s);
+  s = gtOcrFixZero(s);
+  s = gtOcrFixWords(s);
+  // 1.5.79: "混了非 ASCII 字符的假词"(eyÄryone) 的修复**不在这里做**。
+  // 这里是解析层, 它的职责是判断"这一行能不能用": 中文污染的行必须整条丢,
+  // 而在解析层把乱码词抹掉会让 "gra 卣 白 tion" 变成 "gra tion" 混过正文校验
+  // (1.5.51 就是为这个才改成整条丢的)。修复挪到 gtOcrScan 里, 那里能同时拿到
+  // 原文 (给去重判"这版更脏") 和修好的正文 (给浮窗和机翻)。
   return gtOcrBodyOk(s) ? s : '';
 }
 
@@ -618,7 +842,32 @@ function gtParseOcrChatLines(raw) {
       out.push({ ts, channel: h.channel, body });
     }
   }
-  return out;
+  return gtOcrDropFragments(out);
+}
+
+// 一帧里同一个词既作为"单独一条消息"出现、又是别的正文的**结尾词** —— 前者是后者
+// 的残片 (OCR 把一行切成两行, 尾巴被当成了独立消息)。
+// 05:44 局实证: "Our top is too strong" 被切成两行, 尾巴 "strong" 单独进管线,
+// 机翻把孤零零一个 strong 音译成"斯夫龙", 浮窗上就挂了一行看不懂的中文。
+// 判据只看**同一帧内部**: 断行的尾巴一定紧跟在完整那句后面, 所以它必然是结尾词;
+// 真正的独立消息不会有这种位置关系。
+function gtOcrDropFragments(items) {
+  if (items.length < 2) return items;
+  const keep = [];
+  for (let i = 0; i < items.length; i++) {
+    const body = items[i].body;
+    if (/^[A-Za-z]+$/.test(body)) {
+      const w = body.toLowerCase();
+      const isTail = items.some((o, j) => j !== i
+        && String(o.body || '').toLowerCase().endsWith(' ' + w));
+      if (isTail) {
+        if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(残片) ' + body);
+        continue;
+      }
+    }
+    keep.push(items[i]);
+  }
+  return keep;
 }
 
 // ===== OCR 消息去重: 模糊比对, 不依赖时间戳 =====
@@ -676,14 +925,24 @@ async function gtOcrScan() {
     const raw = await lolAPI.gameTranslateOcrChat();
     if (!raw) return;
     const parsed = gtParseOcrChatLines(raw);
-    let fresh = 0, dup = 0, held = 0;
+    let fresh = 0, dup = 0, held = 0, _gtOcrKeyless = 0;
     // 诊断用: 本轮最后一条进管线的正文+键。日志里只有 "+1" 的时候完全看不出
     // 进管线的是哪句话、键是什么, 排查"旧消息又冒出来"只能靠猜。
     let lastFresh = '';
     for (const item of parsed) {
-      const body = item.body;
+      // 1.5.79: 原文照旧留着 (去重要靠它判断"这版更脏"), 另取一份修好的正文
+      // 用于归一化/浮窗/机翻。修不出来 (整条都是乱码) 就退回原文 —— 让它走
+      // "翻不出来"的路径在浮窗上标出来, 而不是凭空消失。
+      const rawBody = item.body;
+      const body = gtOcrRepairWeirdWords(rawBody).replace(/\s+/g, ' ').trim() || rawBody;
+      const dirty = gtOcrDirty(rawBody);
       // 系统播报 (击杀/streak 类) 不处理
       if (GT_SYS_BODY_RE.test(body) || !gtLooksForeign(body)) continue;
+      // 1.5.102: 界面残渣 (WeGame/QWE 之类) 在进管线前掐掉 —— 见 GT_OCR_UI_JUNK_RE 注释
+      if (GT_OCR_UI_JUNK_RE.test(body)) {
+        if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(界面残渣) ' + body.slice(0, 30));
+        continue;
+      }
       const norm = gtOcrNorm(body);
       if (norm.length < 2) continue;
       // 去重键 = 聊天框里那行显示的时间戳 (mm:ss)。
@@ -696,11 +955,34 @@ async function gtOcrScan() {
       const key = item.ts ? String(item.ts) : '';
       const ch = item.channel || '';
       const ord = gtOrdOfTs(item.ts);
+      // 1.5.74: 没有时间戳 = 这一帧连聊天头都没读出来。这种正文既可能是真消息, 也可能是
+      // 断行残片。14:14 局实证: 同一条 "how are u" 在不同帧被读成 "how"(单独一行)、
+      // "hjO ZI"、"I)OW are u", 全都 @无键 —— 每一条都开了新行, 机翻把 "hjO ZI"
+      // 译成"公司简介"挂在浮窗上 (用户报障: "翻译的什么玩意")。
+      // 短正文里残片占绝大多数, 而错认一行的代价远大于漏一条 —— 它还在屏幕上,
+      // 下一帧通常就能带着时间戳读回来。真实短消息 (gg/wp/omw/ty…) 命中本地短语表,
+      // 根本走不到这里。
+      // 1.5.75: 词数只数**真词** (≥2 个字母的 token)。之前用 split(/\s+/) 把行尾
+      // 残渣也算一个词 —— 06:36 局 "rearrjrr “" 因此凑够两个 token 混进浮窗
+      // (用户报障截图里第三行就是它)。真正的长句 ("our top is too strong") 有 4 个
+      // 真词, 不受影响。
+      const realWords = body.split(/\s+/).filter(t => /[A-Za-z]{2,}/.test(t)).length;
+      if (!key && (norm.length < 8 || realWords < 2)) {
+        _gtOcrKeyless++;
+        if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无键残片) ' + body.slice(0, 30));
+        continue;
+      }
       // 同一条消息的多个 OCR 版本: 先按时间戳键找, 再按正文模糊比对 (时间戳读错时兜底)
       let rec = null;
       if (key) rec = gtOcrRecent.find(r => r.key === key && (!r.ch || !ch || r.ch === ch)) || null;
       if (!rec) {
         for (const r of gtOcrRecent) {
+          // 1.5.80: 正文**一字不差**但时间戳不同的, 是队友真的发了两遍同一句话
+          // (用户截图: 00:04 和 00:24 各一条 "hello everyone")。这种情况下时间戳
+          // 是"这是两条消息"的确凿证据, 模糊兜底不能把第二条吞掉 —— 聊天框里明明
+          // 有两行, 浮窗只显示一行就是漏消息。时间戳读不出来 (无 key) 或正文有差异
+          // (读烂了) 时才走模糊兜底。
+          if (key && r.key && r.key !== key && r.norm === norm) continue;
           // 1.5.55: 已发出的记录只认严格相似 (否则 "hello" 会被 "hello everyone" 吞掉);
           // 还没发出的"待确认"记录放宽到包含判定 —— 它就是靠"读到更完整的版本"来升级的。
           if (gtOcrSame(r.norm, norm)
@@ -708,8 +990,8 @@ async function gtOcrScan() {
         }
       }
       if (!rec) {
-        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ key, ch, ord, norm, body, sent: false, at: Date.now() }); held++; continue; }
-        gtOcrRecent.push({ key, ch, ord, norm, body, sent: true, at: Date.now() });
+        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ key, ch, ord, norm, body, dirty, sent: false, at: Date.now() }); held++; continue; }
+        gtOcrRecent.push({ key, ch, ord, norm, body, dirty, sent: true, at: Date.now() });
         gtQueue.push({ name: '聊天', body, k: key || undefined, ord });
         _gtOcrTotal++; fresh++; lastFresh = body + '@' + (key || '无键');
         continue;
@@ -722,15 +1004,25 @@ async function gtOcrScan() {
         // 浮窗靠 k 复用同一行, 键补齐之后后续版本才是"原地更新"而不是新开一行。
         if (!rec.key && key) rec.key = key;
         if (!rec.ch && ch) rec.ch = ch;
-        // 两个升级条件:
+        // 三个升级条件:
         //  a) 明显更完整 (+3 字符以上): "h eryone" → "hello everyone"
         //  b) 更干净: 上一条里还夹着 OCR 垃圾字符 ("Vhe № everyonq"), 这条没有。
         //     b 不看长度 —— 乱码版经常比正确版还长, 只比长度的话乱码会一直挂在浮窗上。
-        const cleaner = gtOcrDirty(rec.body) && !gtOcrDirty(body);
+        //  c) 词边界更整齐 (1.5.72): "our to p too strong" 与 "our top too strong"
+        //     归一化后**完全相同** (gtOcrNorm 抹掉空格), 所以 a/b 都判不出来,
+        //     先到的那版就把正确版锁死了。浮窗上"我们的p太强了"就是这么来的。
+        //  b 用**上一轮原文**的脏标记比: 正文在进管线前已经被 gtOcrRepairWeirdWords
+        //     修过了, 直接看 rec.body 永远"干净", 乱码版就锁死了那一行。
+        const cleaner = rec.dirty && !dirty;
         const longer = norm.length >= rec.norm.length + 3;
-        const better = rec.key && (longer || cleaner) && Date.now() - rec.at < 20000;
+        const tidier = gtOcrSplitBad(body) < gtOcrSplitBad(rec.body);
+        //  d) 乱码分更低 (1.5.75): "how are IJ" → "how are u" 长度只差 1, a/b/c 全判不出来。
+        //     只允许"不比原来短太多"的替换 (-3 与 a) 的 +3 对称), 防止把残句顶掉整句。
+        const degarbage = gtOcrGarbage(body) < gtOcrGarbage(rec.body)
+          && norm.length >= rec.norm.length - 3;
+        const better = rec.key && (longer || cleaner || tidier || degarbage) && Date.now() - rec.at < 20000;
         if (better) {
-          rec.norm = norm; rec.body = body; rec.at = Date.now();
+          rec.norm = norm; rec.body = body; rec.dirty = dirty; rec.at = Date.now();
           if (ord) rec.ord = ord;
           gtQueue.push({ name: '聊天', body, k: rec.key, ord: rec.ord || 0 });
           _gtOcrTotal++; fresh++; lastFresh = body + '@' + rec.key;
@@ -739,7 +1031,7 @@ async function gtOcrScan() {
       }
       // 上一轮是"待确认"的单字词: 这轮读到更完整的版本就用更完整的发出
       if (norm.includes(rec.norm) || gtOcrSame(rec.norm, norm)) {
-        rec.norm = norm; rec.body = body; rec.sent = true; rec.at = Date.now();
+        rec.norm = norm; rec.body = body; rec.dirty = dirty; rec.sent = true; rec.at = Date.now();
         if (!rec.key && key) rec.key = key;
         if (!rec.ch && ch) rec.ch = ch;
         if (ord) rec.ord = ord;
@@ -771,7 +1063,7 @@ async function gtOcrScan() {
       // 被过滤的必须留痕, 否则"OCR 读到了但一条都没进管线"和"OCR 什么都没读到"无法区分
       _gtOcrSkipLogAt = Date.now();
       try {
-        lolAPI.debugLog('[GT] ocr filtered: dup=' + dup + ' held=' + held
+        lolAPI.debugLog('[GT] ocr filtered: dup=' + dup + ' held=' + held + ' keyless=' + _gtOcrKeyless
           + ' drop=' + JSON.stringify(_gtOcrDropped.slice(0, 3)));
       } catch (e) {}
     }
@@ -789,7 +1081,9 @@ async function gtTranslateBatch(texts, target) {
     let fetched = null;
     let fetchErr = '';
     try {
-      const r = await lolAPI.translateText(need.map(i => texts[i]), target);
+      // 1.5.75: fast=true —— 游戏内聊天是实时通道, 主进程据此跳过慢速 AI 源。
+      // AI (agnes) 实测 2.7~6.3 秒, 一进这条路径用户就要多等 6 秒。
+      const r = await lolAPI.translateText(need.map(i => texts[i]), target, { fast: true });
       fetched = Array.isArray(r) ? r : null;
       if (!fetched) fetchErr = '返回结构异常';
     } catch (e) { fetchErr = (e && e.message) || String(e); }
@@ -811,6 +1105,58 @@ async function gtTranslateBatch(texts, target) {
   return out;
 }
 
+// 无效译文留痕 (诊断用): 浮窗丢了一行必须有据可查, 否则"这条消息怎么没显示"
+// 又变成猜谜。限频 20 秒一条, 每条最多带 6 个样本。
+let _gtTrDropped = [];
+let _gtTrDropLogAt = 0;
+function gtTrDropPush(body, out) {
+  if (_gtTrDropped.length < 6) {
+    _gtTrDropped.push(JSON.stringify(String(body || '')).slice(0, 40) + ' -> ' + JSON.stringify(String(out || '')).slice(0, 40));
+  }
+  const now = Date.now();
+  if (now - _gtTrDropLogAt < 20000) return;
+  _gtTrDropLogAt = now;
+  try { lolAPI.debugLog('[GT] 译文无效, 不上浮窗: ' + _gtTrDropped.join(' | ')); } catch (e) {}
+  _gtTrDropped = [];
+}
+
+// 一条译文能不能上浮窗 (接收方向: 目标永远是中文)。
+//   1) 空 / 等于原文 = 压根没翻出来;
+//   2) 一个中文字都没有 = 机翻把英文吐回来了;
+//   3) 中文里夹着一长串**原文里没有**的英文 = 半截译文。
+// 第 3 条是 06:58 局补的: "hello eyÄryone" → "你好everyone"。OCR 把 everyone 读成
+// eyÄryone, 机翻只翻了 hello, 剩下那串原样贴在中文后面。
+//
+// 1.5.81 修正: 原来是"中文里不许出现 4 个以上连续拉丁字母", 一刀切太狠 ——
+//   "bang is the best ad in the world" → "bang是世界上最好的广告"
+// 被判定成半截译文直接丢掉 (用户 16:24 报障"这句翻译不了")。可 bang 是玩家名,
+// 原文里就有, 译文保留它是**对的**。
+// 现在改成"这串拉丁字母在不在原文里": 在 → 是专有名词/ID, 放过; 不在 → 机翻自己
+// 吐出来的残渣, 拦下。两种情形都能分对:
+//   "bang是…" 里 bang ∈ 原文 → 收下
+//   "你好everyone" 的原文是 "hello eyÄryone" (只切得出 hello/ey) → everyone 不在 → 拦下
+function gtTrOk(body, out) {
+  const s = String(out || '');
+  if (!s || s === String(body || '')) return false;
+  if (!GT_ZH_RE.test(s)) return false;
+  const src = String(body || '').toLowerCase();
+  const srcWords = new Set(src.match(/[a-z]+/g) || []);
+  const runs = s.match(/[A-Za-z]{4,}/g) || [];
+  return runs.every(r => srcWords.has(r.toLowerCase()));
+}
+
+// 去掉正文里"混了非 ASCII 字符"的词 —— 那是 OCR 误读出来的假词 (eyÄryone)。
+// 只留纯 ASCII 的部分去重翻, 至少能翻出前半句。
+function gtCleanDirtyBody(body) {
+  const keep = String(body || '').split(/\s+/)
+    .filter(t => t && !/[^\x20-\x7e]/.test(t));
+  return keep.join(' ').trim();
+}
+
+// 队列条目的唯一序号。浮窗的"（翻译中…）"占位行和最终译文行靠它配对 ——
+// 不能靠 k (没时间戳的条目没有 k) 也不能靠正文 (两条相同的 "hello everyone" 会串)。
+let _gtItemSeq = 0;
+
 async function gtFlush() {
   if (gtBusy || !gtQueue.length) return;
   const now = Date.now();
@@ -818,17 +1164,93 @@ async function gtFlush() {
   gtFlushAt = now;
   gtBusy = true;
   const batch = gtQueue.splice(0, 8);
+  for (const it of batch) { if (!it.id) it.id = ++_gtItemSeq; }
+  let pendDone = false;
+  let pendTimer = null;
   try {
     const target = storeGet('translateTarget') || 'en';
     const foreignItems = batch.filter(it => !it.mine);
     const mineItems = batch.filter(it => it.mine);
     const lines = [];
+    // 1.5.79: 翻译**慢**的时候挂一行"（翻译中…）"占位。
+    // 用户 15:12 反馈: 浮窗上一片安静时, 分不清"还在翻"和"翻失败了" —— 现在三种
+    // 状态在浮窗上各有各的样子: 占位行 = 慢, "（未能翻译）" = 失败, 中文 = 成功。
+    // 延后 600ms 才推: 本地短语表 (0ms) 和正常机翻 (300ms 上下) 不该闪一下占位行,
+    // 而局内实测机翻要 2.9~6.8s, 真慢的时候用户马上能看到"这条在处理"。
+    // 1.5.80 修 bug: 这里原来写的是 `const pendTimer = ...`, 把外面的
+    // `let pendTimer` **遮住**了, 于是 finally 里的 clearTimeout 拿到的是 null ——
+    // 定时器永远不被取消, 翻译早就成功了它还会在 600ms 后补一条"（翻译中…）",
+    // 而且再没有任何后续 flush 去替换它 (用户截图: "大家好 / hello everyone" 下面
+    // 又挂了一条 "（翻译中…）/ hello everyone")。必须赋值给外层变量。
+    pendTimer = foreignItems.length ? setTimeout(function gtPendTimer() {
+      if (pendDone) return;
+      for (const it of foreignItems) {
+        const row = {
+          name: it.name, body: it.body, translated: '（翻译中…）',
+          ts: Date.now(), k: it.k, ord: it.ord || 0, id: it.id, pending: true
+        };
+        // 已经有结果的行绝不能被占位行盖掉 (兜底: 正常流程走不到这里)
+        const done = gtRecent.some(x => x && x.id === it.id && !x.pending);
+        if (done) continue;
+        const i = gtRecent.findIndex(x => x && x.id === it.id);
+        if (i >= 0) gtRecent[i] = row; else gtRecent.push(row);
+      }
+      gtRecent = gtRecent.slice(-10);
+      try { if (lolAPI.gameTranslatePush) lolAPI.gameTranslatePush({ lines: gtRecent, target }); } catch (e) {}
+    }, GT_PEND_MS) : null;
     // 别人的消息翻成中文放进浮窗；我的消息翻成目标语言补发给队友。
     // 两个方向目标语言不同必须分开请求, 但可以并行 —— 串行时两边各等一次接口, 白慢一倍。
     const jobs = [];
     if (foreignItems.length) {
-      jobs.push(gtTranslateBatch(foreignItems.map(it => it.body), 'zh-CN').then(tr => {
-        foreignItems.forEach((it, i) => lines.push({ name: it.name, body: it.body, translated: tr[i], ts: Date.now(), k: it.k, ord: it.ord || 0 }));
+      jobs.push(gtTranslateBatch(foreignItems.map(it => it.body), 'zh-CN').then(async tr => {
+        for (let i = 0; i < foreignItems.length; i++) {
+          const it = foreignItems[i];
+          let out = String(tr[i] || '');
+          // 1.5.75: **没翻出中文的行不上浮窗**。这是"垃圾行"的最后一道闸:
+          //   · 全源失败时 translateBatchCore 原样返回正文 → 浮窗上会出现
+          //     "rearrjrr / rearrjrr" 这种"译文就是原文"的行 (用户 06:36 报障截图第三行);
+          //   · 机翻把英文原样吐回时同理。
+          // 对中文用户来说, 一行英文"译文"没有任何信息量, 而一行假译文会让人以为
+          // 翻译坏了 —— 宁可这一行不出现 (原话还在游戏聊天框里)。
+          //
+          // 1.5.76: 再加一条 **半截译文** 判据 (06:58 局: "hello eyÄryone" → "你好everyone")。
+          // OCR 把 everyone 读成 eyÄryone (混进了非 ASCII 字母), 机翻只翻了 hello 就把
+          // 剩下那串原样贴在中文后面 —— 中文里夹一长串英文, 看着就是"翻译坏了"。
+          if (!gtTrOk(it.body, out)) {
+            // 把那几个混了非 ASCII 字符的词去掉再翻一次。
+            // "hello eyÄryone" → "hello" → "你好", 至少是一句说得通的话,
+            // 而且原文就在下面那行, 用户能自己对上。
+            // 判据不用 gtOcrDirty: 它为了西语/葡语把 \u00c0-\u024f 全放过了, 而
+            // eyÄryone 里的 Ä 正好落在这个区间 —— 用"去掉脏词后是否真的变了"更准。
+            const cleaned = gtCleanDirtyBody(it.body);
+            if (cleaned && cleaned !== it.body) {
+              try {
+                const again = await gtTranslateBatch([cleaned], 'zh-CN');
+                const out2 = String((again && again[0]) || '');
+                if (gtTrOk(cleaned, out2)) out = out2;
+              } catch (e) { /* 重翻失败就按原来的结果走下面的丢弃 */ }
+            }
+          }
+          if (!gtTrOk(it.body, out)) {
+            gtTrDropPush(it.body, out);
+            // 1.5.102: 单词行翻不出来 (=译文就是原文) 时不再挂"未能翻译"。
+            // 界面残渣 (WeGame/QWE) 闯到这里时, 挂一行"未能翻译"本身就是噪音
+            // (用户报障"乱翻译"看到的就是它); 真实单词聊天都在 SHORT_OK/短语表里,
+            // 走不到这条路径。整句翻不出来才值得在浮窗上占一行。
+            const solo = it.body && !/\s/.test(String(it.body).trim())
+              && !GT_OCR_SHORT_OK.has(String(it.body).trim().toLowerCase());
+            if (solo && !it.mine) continue;
+            // 1.5.79: **不再静默丢弃**。用户 15:12 反馈: 什么都不显示的话, 他分不清
+            // "还在翻译" 和 "翻译失败了"。浮窗上留一行"未能翻译", 原文照旧显示在下面,
+            // 至少能一眼看出"这条我看到了, 但没翻出来"。
+            lines.push({
+              name: it.name, body: it.body, translated: '（未能翻译）',
+              ts: Date.now(), k: it.k, ord: it.ord || 0, id: it.id, fail: true
+            });
+            continue;
+          }
+          lines.push({ name: it.name, body: it.body, translated: out, ts: Date.now(), k: it.k, ord: it.ord || 0, id: it.id });
+        }
       }));
     }
     if (mineItems.length) {
@@ -838,7 +1260,7 @@ async function gtFlush() {
           if (!gtEchoOk(it.body, out)) return;
           gtEchoSend({ body: it.body, translated: out, target });
           // 浮窗也显示一条：自己确认实际补发出去的是哪句话
-          lines.push({ name: '我（已补发）', body: it.body, translated: out, ts: Date.now(), k: it.k, ord: it.ord || 0 });
+          lines.push({ name: '我（已补发）', body: it.body, translated: out, ts: Date.now(), k: it.k, ord: it.ord || 0, id: it.id });
         });
       }));
     }
@@ -848,11 +1270,17 @@ async function gtFlush() {
       // 之前直接 concat, 于是同一句话在浮窗里出现两次, 且后一次是重新翻译的
       // —— 用户看到的就是"来新消息时旧消息又被翻了一遍"。
       for (const ln of lines) {
-        const i = ln.k ? gtRecent.findIndex(x => x && x.k === ln.k) : -1;
+        // 1.5.80: 先按条目序号配对 —— 占位行和译文行是同一批里的同一个条目,
+        // id 唯一, 不会被"两条一模一样的 hello everyone"或"都没有时间戳"搞混。
+        let i = ln.id ? gtRecent.findIndex(x => x && x.id === ln.id) : -1;
+        if (i < 0) i = ln.k ? gtRecent.findIndex(x => x && x.k === ln.k) : -1;
+        // 没时间戳的行 (这一帧连聊天头都没读出来) 靠正文找回自己的占位行,
+        // 否则"（翻译中…）"会永远挂在浮窗上
+        if (i < 0) i = gtRecent.findIndex(x => x && x.pending && x.body === ln.body);
         if (i >= 0) gtRecent[i] = ln; else gtRecent.push(ln);
       }
       // 按聊天框里的时间戳排序, 而不是按"我们什么时候读到它"。
-      // OCR 是每 4 秒重读整个聊天框, 一条消息这一帧读烂了 (整行没解析出来)、下一帧
+      // OCR 是每 2.7 秒重读整个聊天框, 一条消息这一帧读烂了 (整行没解析出来)、下一帧
       // 才读出来时, 它其实比刚推进来的新消息更早 —— 按到达顺序追加就会落在新消息
       // 中间 (用户报障: "marry me 和 good job 中间又插了一条旧消息")。
       // 拿不到时间戳的 (ord=0) 排最后, 互相之间保持到达顺序。
@@ -867,7 +1295,15 @@ async function gtFlush() {
     }
   } catch (e) {
     try { lolAPI.debugLog('[GT] flush error: ' + (e?.message || e)); } catch (e2) {}
+    // 整批翻挂了: 占位行不能一直挂着"（翻译中…）", 改成"（未能翻译）"
+    if (gtRecent.some(x => x && x.pending)) {
+      gtRecent = gtRecent.map(x => (x && x.pending
+        ? { name: x.name, body: x.body, translated: '（未能翻译）', ts: x.ts, k: x.k, ord: x.ord, fail: true }
+        : x));
+      try { if (lolAPI.gameTranslatePush) lolAPI.gameTranslatePush({ lines: gtRecent }); } catch (e3) {}
+    }
   } finally {
+    if (pendTimer) { pendDone = true; clearTimeout(pendTimer); }
     gtBusy = false;
     if (gtQueue.length) setTimeout(gtFlush, 350);
   }

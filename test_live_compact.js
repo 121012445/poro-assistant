@@ -229,5 +229,40 @@ const body = makeEl('liveGameArea');
   // Akari 在 1511x937 下露 8 场; 我们把页头压成一行后同尺寸应露出 9 场 (行高 24 + 间隙 1 = 25)
   assert.ok(budget(940).visible >= 9, `1500x940 下应露出 9 场, 实际 ${budget(940).visible} 场`);
 
+  // ---------- ⑤ 1.5.76 单场战绩详情浮窗 ----------
+  // 纯函数层: 有 gameId 的卡才可点, 没 gameId 的必须保持静态 (否则就是个点了没反应的假按钮)
+  const cardWithId = run('recentIcon({ gameId: 123456789, win: true, k: 3, d: 1, a: 9, champId: 266, mode: "单双排", ts: 0 }, { puuid: "p1", platformId: "HN1" })');
+  assert.ok(/data-game-id="123456789"/.test(cardWithId), '带 gameId 的战绩卡应挂 data-game-id: ' + cardWithId.slice(0, 120));
+  assert.ok(/onclick="openLiveMatchDetail\(this\)"/.test(cardWithId), '战绩卡应能点开详情');
+  assert.ok(/data-platform="HN1"/.test(cardWithId), '浮窗要知道去哪个平台拉这一局');
+  assert.ok(/data-puuid="p1"/.test(cardWithId), '浮窗要知道是哪个玩家');
+  assert.ok(/ri-clickable/.test(cardWithId), '可点的卡要有 cursor:pointer 的类');
+  assert.ok(/点击查看这一局详情/.test(cardWithId), '可点的卡要在 title 里说清楚能点');
+  const cardNoId = run('recentIcon({ win: true, k: 1, d: 2, a: 3, champId: 266, mode: "单双排", ts: 0 }, { puuid: "p1" })');
+  assert.ok(!/data-game-id/.test(cardNoId), '没有 gameId 的卡不应带 data-game-id');
+  assert.ok(!/ri-clickable/.test(cardNoId), '没有 gameId 的卡不应变成假按钮');
+  assert.ok(!/onclick=/.test(cardNoId), '没有 gameId 的卡不应挂 onclick');
+
+  // 两条取数路径都必须把 gameId 写进 recent, 否则上面这段永远拿不到 ID
+  assert.ok(/gameId: gj\.gameId/.test(liveSrc), 'SGP 路径要把 gameId 写进 recent');
+  assert.ok(/gameId: raw\.gameId/.test(liveSrc), 'LCU 兜底路径也要把 gameId 写进 recent');
+  // 详情链复用战绩页同一套渲染 —— 另写一份就会和战绩页慢慢分叉
+  assert.ok(/renderOpggGameDetail\(norm, holder\)/.test(liveSrc), '浮窗应复用 renderOpggGameDetail');
+  assert.ok(/sgpGameSummary/.test(liveSrc), '国服走 SGP 详情');
+  assert.ok(/lol-match-history\/v1\/games\/\$\{gameId\}/.test(liveSrc), '非国服/失败要回退 LCU 详情');
+  // 只取 innerHTML 的话「保存战报卡」按钮没有监听器, 必须摘掉
+  assert.ok(/holder\.querySelector\('\.ogd-actions'\)\?\.remove\(\)/.test(liveSrc), '浮窗里要摘掉没有监听器的「保存战报卡」');
+  // 同一局反复点不该反复打接口
+  assert.ok(/liveMatchDetailCache/.test(liveSrc) && /liveMatchDetailCache\.get\(gameId\)/.test(liveSrc), '详情应按 gameId 缓存');
+  // 浮窗样式: 没有 fixed 定位就会变成一个普通 div 掉在页面最底下
+  assert.match(style, /\.lmp\s*\{[^}]*position:\s*fixed/, '浮窗必须 fixed 定位');
+  assert.match(style, /\.lmp\s*\{[^}]*max-height:\s*78vh/, '浮窗要有高度上限, 否则长详情会超出屏幕');
+  assert.match(style, /\.ri-card\.ri-clickable\s*\{[^}]*cursor:\s*pointer/, '可点的战绩卡要有手型光标');
+  // 全局监听必须延迟到首次打开浮窗才挂, 不能做成顶层副作用
+  // (顶层 document.addEventListener 会让所有用 vm 加载 live.js 的单测直接炸)
+  assert.ok(/function bindLiveMatchPopDismiss\(\)/.test(liveSrc), '关闭逻辑要收进函数');
+  assert.ok(/^  document\.addEventListener\('keydown'/m.test(liveSrc), 'keydown 监听应在函数体内 (缩进 2 格), 不是顶层');
+  assert.ok(/bindLiveMatchPopDismiss\(\);/.test(liveSrc), 'ensureLiveMatchPop 里要真的调用绑定');
+
   console.log(`实时对局紧凑布局测试通过 (1200x800 露出 ${small.visible} 场 / 1440x900 露出 ${normal.visible} 场)`);
 })().catch(e => { console.error(e); process.exitCode = 1; });

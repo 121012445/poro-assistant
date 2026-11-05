@@ -95,13 +95,35 @@ function computeOverlayBounds(req) {
 //   4x → 0 条聊天; 5x → "hello everyone" + "hello" 都对; 8x → 也对但更慢。
 // 取 5x (实测单帧 278ms, 4x 是冷启动 1.9s, 8x 是 637ms)。
 const CHAT_OCR_RECT = { x: 0, y: 0.40, width: 0.25, height: 0.175 };
-const CHAT_OCR_SCALE = 5;          // 小字放大 5 倍再识别 (实测 4x 在亮色丛林背景上会把整段聊天读丢)
-// 1.5.56: 单档倍数在不同帧之间会互相打架 —— 5x 把某帧读成 "hello eve 吖 on e"(含中文
-// 直接被丢), 6x 又能读对; 换一帧 5x 对、6x 变成 "CJOOdlUCk"。两档都跑再合并,
-// 解析器按顺序收、模糊去重会自动择优。5x 在前 (深色背景更准), 6x 兜后。
-const CHAT_OCR_SCALES = [5, 6];
+// 1.5.72: 放大倍数改成"按目标宽度算", 不再写死 5/6 倍。
+// 05:44 局真实帧上按 1.5/2/2.5/3/3.5/4/5x 逐个跑真引擎 (zh-Hans), 结论很干脆:
+//   1.5x / 2x  → "our top too strong" / "Our top is too strong" 词边界全对
+//   2.5x 起    → 开始断词 "our t0P to 0 strong"
+//   5x         → 最差 "our to p 地 0 strong"
+// 高倍放大把抗锯齿后的字框间隙也放大了, 引擎于是按字符切开单词; 顺带把时间戳
+// "01:18" 读成 "山：18" —— 时间戳一丢, 去重键就没了, 同一条消息每 4 秒重进一次
+// 管线 (日志实证: `ocr lines +1 last="O 0 too strong@无键"`)。
+// 所以按**目标宽度**反推倍数: 不同分辨率下 OCR 拿到的字高恒定, 不随分辨率漂移。
+const CHAT_OCR_TARGET_W = 1280;
+const CHAT_OCR_SCALE_MIN = 1.5;
+const CHAT_OCR_SCALE_MAX = 3;
 const CHAT_OCR_OVERLAY_GAP = 6;    // 与浮窗留的缝 (像素)
 const CHAT_OCR_MIN_KEEP = 0.5;     // 浮窗最多吃掉一半高度, 再多就不裁 (宁可糊, 不能空)
+
+// 两档都跑 (1.5.56 的结论: 单档必然有一类帧读不对)。
+// 1.5.74: **大的一档排前面**。去重层只认先到的那条 (同一时间戳的后续版本会被判重),
+// 所以顺序就是"谁说了算"。14:14 局实证: 同一条 "how are u"
+//   2.0x → "hö/are u"  (机翻给"豪阿乌")
+//   2.4x → "how are u"  (正确)
+// 反过来时用户看到的就是音译。两档都覆盖 1.5~3 的"不断词"区间, 所以调换顺序不会
+// 把 05:44 那种帧读坏 (那帧 2.4 读 "our top too strong", 比 2.0 的 "our t0P" 还准)。
+function chatOcrScales(width) {
+  const w = Math.max(1, Number(width) || 0);
+  const k = Math.min(CHAT_OCR_SCALE_MAX, Math.max(CHAT_OCR_SCALE_MIN, CHAT_OCR_TARGET_W / w));
+  const main = Math.round(Math.min(CHAT_OCR_SCALE_MAX, k + 0.4) * 100) / 100;
+  const fallback = Math.round(k * 100) / 100;
+  return [main, fallback];
+}
 
 function chatOcrCrop(size, overlay) {
   const w = Math.max(1, Math.round((size && size.width) || 0));
@@ -127,4 +149,4 @@ function chatOcrCrop(size, overlay) {
   return rect;
 }
 
-module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop, CHAT_OCR_SCALE, CHAT_OCR_SCALES };
+module.exports = { OVERLAY_SIZE, OVERLAY_GAP, isUsableClientRect, defaultOverlayBounds, computeOverlayBounds, chatOcrCrop, chatOcrScales, CHAT_OCR_TARGET_W };

@@ -916,12 +916,43 @@ body {
 .home-search button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 9px 22px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .home-search button:hover { filter: brightness(1.1); }
 .home-search-msg { font-size: 12px; color: var(--negative); white-space: nowrap; }
-.home-search-card-popover { display: none; position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: fit-content; max-width: 100%; max-height: 250px; overflow-y: auto; padding: 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.16); }
-.home-search-card-popover.show { display: flex; flex-wrap: wrap; gap: 7px; }
+.home-search-card-popover { display: none; position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: fit-content; max-width: 100%; max-height: 420px; overflow-y: auto; padding: 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.16); }
+/* 候选多时是单列 + 四个字段, 给足宽度, 免得「名字」被压成省略号 */
+.home-search-card-popover.hs-pop-wide { min-width: min(400px, 100%); }
+.home-search-card-popover.show { display: block; }
+/* 候选分「本地玩家」「最近查询」两组, 用块级容器 + 内部 flex 换行代替原来的整块 flex */
+.hs-title { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 11px; color: var(--text-secondary); }
+.hs-title + .hs-row + .hs-title { margin-top: 9px; }
+.hs-count { font-size: 10px; opacity: .65; }
+.hs-row { display: flex; flex-wrap: wrap; gap: 7px; }
+/* 候选多时改单列: 每个 ID 独占一行, 区名/等级靠右对齐, 20 多个同名也不会糊成一片 */
+.hs-row.hs-list { display: block; }
+.hs-row.hs-list .home-search-record-card { display: flex; width: 100%; margin-bottom: 5px; }
+.hs-row.hs-list .home-search-record-card:last-child { margin-bottom: 0; }
+.hs-row.hs-list .home-search-record-card > .hs-pick-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-meta { flex-shrink: 0; padding: 1px 5px; font-size: 10px; color: var(--text-secondary); background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; }
+.hs-empty { font-size: 12px; line-height: 1.7; color: var(--text-secondary); padding: 1px 2px; }
+/* 空提示/候选文字比历史卡片短, 给个下限免得弹出框窄成一条 */
+.home-search-card-popover { min-width: min(260px, 100%); }
 .home-search-record-card { display: inline-flex; align-items: center; flex: 0 0 auto; width: max-content; max-width: 100%; gap: 6px; padding: 7px 9px; background: var(--bg-secondary); border: 1px solid transparent; border-radius: 6px; font-size: 12px; color: var(--text-primary); cursor: pointer; transition: all .12s; }
 .home-search-record-card:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
+/* 键盘 ↑↓ 高亮: 与 hover 同款, 但需要跟点击态一致到鼠标移开也看得出停在哪一项 */
+.home-search-record-card.hs-active { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+/* 其它大区的 ID: 列出来只是让人知道"有这个人", 本区查不到战绩, 视觉上压下去 */
+.home-search-record-card.hs-foreign { opacity: .55; }
+.home-search-record-card.hs-foreign:hover { border-color: var(--border); color: var(--text-secondary); }
+.hs-foreign-tag { color: var(--text-secondary); }
+/* 本区账号的区名: 用主色标出来, 一眼能和下面一排灰显的外区区分开 */
+.hs-meta.hs-region-here { color: var(--accent); border-color: var(--accent); opacity: .85; }
+.hs-hint { margin-top: 7px; font-size: 10px; color: var(--text-secondary); opacity: .8; }
+/* 完整「名字#Tag」时那一行"直接查询": 它不是历史记录而是动作入口, 用主色边框
+   和 ⏎ 图标把它和下面真正的人区分开 —— 否则会被当成"已经查到了" */
+.home-search-record-card.hs-go { border-color: var(--accent); color: var(--accent); }
+.home-search-record-card.hs-go .home-search-record-icon { color: var(--accent); }
 .home-search-record-card span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-search-record-icon { flex-shrink: 0; font-size: 16px; color: var(--accent); }
+/* 候选行头像 (对齐 Akari 结果行的 头像+名字+区+等级 布局) */
+.hs-avatar { width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0; object-fit: cover; background: var(--bg-hover, rgba(255,255,255,.06)); }
 .home-header { display: flex; align-items: center; gap: 16px; padding: 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; }
 .home-avatar img { width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--accent); }
 .home-info { flex: 1; }
@@ -1134,6 +1165,30 @@ body {
 .ri-empty, .ri-loading { display: grid; place-items: center; min-height: 80px; color: var(--text-muted); font-size: 11px; }
 .ri-loading { animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* ===== 1.5.76 实时页: 单场战绩详情浮窗 ===== */
+/* 只有带 gameId 的卡才可点 (老的缓存/取不到 ID 的模式保持静态, 不做假按钮) */
+.ri-card.ri-clickable { cursor: pointer; }
+.ri-card.ri-clickable:hover { outline: 1px solid var(--accent); outline-offset: -1px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.lmp {
+  position: fixed; z-index: 9000;
+  width: min(900px, 94vw); max-height: 78vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.lmp[hidden] { display: none; }
+.lmp-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+.lmp-title { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lmp-hint { flex: 0 0 auto; font-size: 10.5px; color: var(--text-muted); }
+.lmp-close { flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 15px; line-height: 1; cursor: pointer; }
+.lmp-close:hover { color: var(--text-primary); border-color: var(--accent); }
+.lmp-body { flex: 1 1 auto; overflow: auto; padding: 10px 12px 14px; }
+/* 详情里的操作按钮 (保存战报卡) 在浮窗里没有意义, 且会撑高首屏 */
+.lmp-body .ogd-actions { display: none; }
+.lmp-loading, .lmp-error { padding: 26px 8px; text-align: center; font-size: 12px; color: var(--text-muted); }
+.lmp-loading { animation: pulse 1.5s infinite; }
+.lmp-error { color: var(--negative); }
 .lp-self { background: color-mix(in srgb, var(--data-gold) 8%, var(--bg-card)); border-color: color-mix(in srgb, var(--data-gold) 42%, var(--border)); }
 .lp-self::before { background: var(--data-gold); }
 /* 实时对局页充满视口 (高度自适应 + 响应式宽度) */
@@ -1246,6 +1301,20 @@ body {
 .sidebar-footer { border-top-color: color-mix(in srgb, var(--border) 70%, transparent); }
 .main-content { padding: 22px 26px 30px; }
 .home-search { gap: 10px; margin-bottom: 16px; }
+/* 大区下拉: 与搜索框同高, 不抢 flex 空间 (auto), 名字长的大区靠省略号截断 */
+.home-search-region {
+  flex: 0 0 auto; min-height: 46px; max-width: 118px; padding: 0 8px;
+  box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; color: var(--text-primary); font-size: 12px; outline: none;
+  cursor: pointer; text-overflow: ellipsis;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.home-search-region:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.home-search-region:focus {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.home-search-region option { background: var(--bg-card); color: var(--text-primary); }
 .home-search input {
   min-height: 46px; padding: 11px 16px; border-radius: 12px;
   background: color-mix(in srgb, var(--bg-card) 94%, transparent);

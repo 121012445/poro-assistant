@@ -23,7 +23,15 @@ function makeEnv(opts = {}) {
   const urls = [];
   const ctx = {
     console, Promise, Number, String, Array, Set, Map, JSON, Math, Object,
-    setTimeout: (fn) => { if (typeof fn === 'function') Promise.resolve().then(fn); return 1; },
+    // 1.5.79: 假时钟把所有定时器都当"立刻执行"(节流重试/补发节流都靠它)。
+    // 唯一的例外是浮窗的"（翻译中…）"占位行定时器 —— 它要是立刻触发, 每一轮
+    // flush 都会先推一行占位, 后面所有断言都要改。专门验证它的用例把 GT_PEND_MS
+    // 调成 0, 那时这个分支不再拦, 占位行就会正常推出来。
+    setTimeout: (fn, ms) => {
+      if (typeof fn !== 'function') return 1;
+      if (fn.name === 'gtPendTimer' && Number(ms) > 0) return 2;
+      Promise.resolve().then(fn); return 1;
+    },
     clearTimeout: () => {},
     setInterval: () => 0,
     clearInterval: () => {},
@@ -49,12 +57,21 @@ function makeEnv(opts = {}) {
         translated.push({ texts, target });
         return texts.map((t) => {
           if (opts.failTranslate) return '';
+          // 1.5.75: 模拟"所有源都失败, translateBatchCore 原样返回正文"
+          if (opts.echoTranslate) return t;
+          // 1.5.76: 模拟"半截译文" —— 中文里夹着没翻掉的英文长词。
+          // 只对**脏正文**生效 (混了非 ASCII 字符), 这样"去掉脏词重翻"那一步能拿到干净结果。
+          if (opts.mixedTranslate && /[^\x20-\x7e]/.test(t)) return '你好' + String(t).split(/\s+/).pop();
           if (target === 'en') return opts.enResult !== undefined ? opts.enResult : ('EN[' + t.length + ']');
-          return '中文译文(' + t + ')';
+          // 译文里不能回显原文: gtTrOk 会判定"中文夹 4 个以上拉丁字母"为半截译文
+          return '中文译文' + t.length;
         });
       },
       sendGameChatNow: async (text) => { sent.push(text); return { ok: true }; },
-      gameTranslatePush: (payload) => pushed.push(payload),
+      // 真实链路是 IPC 结构化克隆: 传过去的是一份**快照**。这里必须深拷贝,
+      // 否则后续对 gtRecent 的原地替换会改写已经"推出去"的那一帧, 测试就看不见
+      // 占位行 → 译文的过程了 (1.5.79 踩过)。
+      gameTranslatePush: (payload) => pushed.push(JSON.parse(JSON.stringify(payload))),
       // OCR 通道: 每次调用取一帧, 帧用完返回 null (相当于"这一轮没读到东西")
       gameTranslateOcrChat: opts.ocr ? async () => (opts.ocr.length ? opts.ocr.shift() : null) : undefined,
       debugLog: () => {}
@@ -335,6 +352,19 @@ function msg(id, body, fromId) {
     ok('OCR 中文污染残片整条丢弃', lines.length === 0, lines);
   }
   {
+    // 1.5.102 真实报障夹具 (22:07 局): WeGame 自动荣誉消息是中文+英文混排,
+    // 中文被"切到第一个拉丁字母"剥掉后只剩 "WeGan", 又有时间戳键, 一路闯进机翻,
+    // 机翻原样吐回 → 浮窗挂出 "WeGame /（未能翻译）" (用户报障「翻译乱翻译」)。
+    const e = makeEnv({});
+    e.ctx.lolAPI.gameTranslateOcrChat = async () =>
+      '00:16 [队伍] 雨未散 (影流之主): hello everyone\n'
+      + '21:01 雨未散（影流之主）：（权威认证）超神已截图 —— WeGan\n'
+      + '00:18 雨未散（影流之主）：无形之刃，最为致命（技能分配：QWE）';
+    await e.run('gtOcrScan')(); await flushAsync();
+    const texts = e.translated.flatMap(t => t.texts || []);
+    ok('OCR 界面残渣 (WeGan/QWE) 不进翻译', texts.length === 1 && texts[0] === 'hello everyone', texts);
+  }
+  {
     // 1.5.51: 单个词可能是长词被截断的一半 —— 先待确认, 下一轮读到更完整的就用完整的
     const e = makeEnv({});
     let raw = '00:29 [队伍] 雨未散 (惩戒之箭): ulations';
@@ -364,7 +394,11 @@ function msg(id, body, fromId) {
       '25 ： [ 队 伍 ] 雨 未 散 （ 傲 之 追 猎 ： hi everyone itm from shenzhen'
     ].join('\n');
     const bodies = (await e.run('gtParseOcrChatLines')(raw)).map(l => l.body);
-    ok('OCR 逐行输出: 9 行里抽出 6 条真实消息', bodies.length === 6, bodies);
+    // 1.5.75: 7 条 (原来是 6)。第 7 条是 01:32 的 "ok ， “" —— 行尾那个 OCR 误读的
+    // 引号让 gtOcrBodyOk 整条否掉, 一条真实消息被无声吞掉。现在先剥引号再剥标点,
+    // 正文归一成 "ok", 命中本地短语表直接出"好的"。
+    ok('OCR 逐行输出: 9 行里抽出 7 条真实消息', bodies.length === 7, bodies);
+    ok('OCR 逐行输出: 行尾引号被剥掉, ok 不再被整条丢掉', bodies.includes('ok'), bodies);
     ok('OCR 逐行输出: 正文不再粘玩家名', bodies[0] === 'he everyone' && bodies[1] === 'hi', bodies);
     ok('OCR 逐行输出: 右括号丢失的行 ("[ 队 囿 ") 仍能认出', bodies.includes('he everyone'), bodies);
     ok('OCR 逐行输出: 最长一行不被裁剪切断', bodies.includes('hi everyone itm from shenzhen'), bodies);
@@ -713,6 +747,349 @@ function msg(id, body, fromId) {
     ok('正常的短句原样保留', join('nice try man') === 'nice try man', join('nice try man'));
     ok('两三个词的消息不参与拼接', join('ok gg') === 'ok gg', join('ok gg'));
     ok('数字不当字母并进去', join('1 v 1') === '1 v 1', join('1 v 1'));
+  }
+  {
+    // 1.5.72 —— 05:44 局真实帧。用户截图里聊天框原文是:
+    //   00:43 [队伍] 雨未散(百裂冥犬): our top too strong
+    //   01:18 [队伍] 雨未散(百裂冥犬): Our top is too strong
+    // 但 5x/6x 放大后引擎读成 "our to p 地 0 strong" / "Our to p is to 0 strong",
+    // 机翻把 "our to p" 译成"我们的p", 浮窗上就是"我们的p太强了"。
+    const e = makeEnv({});
+    const join = e.run('gtOcrJoinSplitWords');
+    // 1.5.71 的闸门是"单字母占比 ≥1/4", "our to p too strong" 只有 1/5 = 0.2 被放过。
+    // 现在逐 token 判定: p 不是能独立成词的字母, 一定并回前一个词。
+    ok('to p 也要并回 top',
+      join('our to p too strong') === 'our top too strong', join('our to p too strong'));
+    ok('两词消息里的断字也并 (以前 toks<3 直接跳过)',
+      join('to p') === 'top', join('to p'));
+    ok('hel l o 并回 hello',
+      join('hel l o') === 'hello', join('hel l o'));
+    // y 在聊天里是 "why", 属于能独立成词的字母, 不能并 —— 宁可少并, 不能拼错
+    ok('y 被保护 (ver y 不拼成 very)',
+      join('ver y stron g') === 'ver y strong', join('ver y stron g'));
+    // 能独立成词的单个字母不许被吃掉 —— 否则 "thank u" 会变成 "thanku"
+    ok('thank u 保留', join('thank u man') === 'thank u man', join('thank u man'));
+    ok('u r 保留 (聊天里的 you are)', join('u r good') === 'u r good', join('u r good'));
+    ok('ok k 保留', join('ok k gg') === 'ok k gg', join('ok k gg'));
+
+    // 1.5.75 —— 06:23 局真实帧。聊天框原文 "how are u", OCR 读成 "h ow are IJ":
+    // 首字母被切下来单独成 token (**在词前面**), 上面那条"并到前一个 token"永远修不到。
+    ok('头残片 h ow 并回 how', join('h ow are u') === 'how are u', join('h ow are u'));
+    ok('头残片 w hat 并回 what', join('w hat is it') === 'what is it', join('w hat is it'));
+    // 能独立成词的单字母不许被吃掉 —— "a good game" 拼成 "agood game" 就废了
+    ok('a 开头不并 (a good game)', join('a good game') === 'a good game', join('a good game'));
+    ok('i 开头不并 (i am good)', join('i am good') === 'i am good', join('i am good'));
+    ok('u 开头不并 (u r good)', join('u r good') === 'u r good', join('u r good'));
+    // 下一个 token 不是纯字母时不并 —— 否则 "1 v 1" 会变成 "1 v1"
+    ok('1 v 1 不被并', join('1 v 1') === '1 v 1', join('1 v 1'));
+
+    // 乱码分: 小写句子里夹的全大写短词 (u 被读成 IJ) 要算脏, 真实缩写不算
+    const garbage = e.run('gtOcrGarbage');
+    ok('how are IJ 乱码分 1', garbage('how are IJ') === 1, garbage('how are IJ'));
+    ok('how are u 乱码分 0', garbage('how are u') === 0, garbage('how are u'));
+    ok('our top too strong 乱码分 0', garbage('our top too strong') === 0, garbage('our top too strong'));
+    ok('GG WP / OMG 不算乱码', garbage('GG WP OMG') === 0, garbage('GG WP OMG'));
+
+    // 数字 0 被读成字母 o: "t00 strong" / "t0P"
+    const fix0 = e.run('gtOcrFixZero');
+    ok('t00 → too, t0P → top', fix0('our t0P t00 strong') === 'our top too strong', fix0('our t0P t00 strong'));
+    ok('真数字不动: 100 dmg', fix0('100 dmg') === '100 dmg', fix0('100 dmg'));
+    ok('真数字不动: top10', fix0('top10') === 'top10', fix0('top10'));
+    ok('真数字不动: 1v1', fix0('1v1') === '1v1', fix0('1v1'));
+    // 1.5.75 —— 06:36 局真实帧: "oo" 被读成两个大写 O ("tOO")。
+    // 不修的话机翻拿到 "teammates are to O strong" 给出"队友对0强"。
+    ok('tOO → too', fix0('are tOO strong') === 'are too strong', fix0('are tOO strong'));
+    ok('驼峰真词不动: iOS', fix0('iOS app') === 'iOS app', fix0('iOS app'));
+
+    // "what's" 的 t' 被读成 ff —— 不修的话机翻给"错了"
+    const fixw = e.run('gtOcrFixWords');
+    ok('whaffs wrong → what\'s wrong', fixw('whaffs wrong') === "what's wrong", fixw('whaffs wrong'));
+    ok('whafs 也修', fixw('whafs wrong') === "what's wrong", fixw('whafs wrong'));
+    ok('别的词不动', fixw('what a game') === 'what a game', fixw('what a game'));
+    // u 被读成 IJ (06:23 局真实帧) —— 不修就落到机翻手里变成 "IJ怎么样"
+    ok('IJ 修回 u', fixw('how are IJ') === 'how are u', fixw('how are IJ'));
+    ok('小写 ij 不动', fixw('how are ij') === 'how are ij', fixw('how are ij'));
+    // 1.5.75 —— "too" 被切成 "to 0" (06:36 局真实帧 "teammates are to 0 strong")。
+    // 尾巴那个 0 前面是空格, "0 紧跟字母"的判据够不着, 机翻按字面翻成"队友对0强"。
+    ok('to 0 → too', fixw('teammates are to 0 strong') === 'teammates are too strong',
+      fixw('teammates are to 0 strong'));
+    // 句尾的 0 是比分, 不是 o —— "3 to 0" 不能被改成 "3 too"
+    ok('比分 3 to 0 不动', fixw('score 3 to 0') === 'score 3 to 0', fixw('score 3 to 0'));
+
+    // 端到端: 2x 放大那一档的真实 OCR 原文 (逐字抄自 05:44 帧的实测输出)
+    const lines = await e.run('gtParseOcrChatLines')(
+      '00 ： 43 [ 队 伍 ] 雨 未 敢 （ 甴 裂 冥 犬 ） ： our t0P t00 strong\n'
+      + '01 ： 18 [ 队 伍 ] 雨 未 散 （ 百 裂 冥 犬 ） ： Our top is t00 strong'
+    );
+    ok('低倍放大的真实帧读出的正文是完整的',
+      lines.length === 2 && lines[0].body === 'our top too strong', lines.map(l => l.body));
+    ok('第二句也完整', lines[1] && lines[1].body === 'Our top is too strong', lines[1]);
+    ok('两条都拿到了时间戳 (丢了就每 4 秒重翻一遍)',
+      lines[0].ts === '00:43' && lines[1].ts === '01:18', lines.map(l => l.ts));
+  }
+  {
+    // 1.5.72: OCR 把一行切成两行, 尾巴被当成独立消息 —— 孤零零一个 strong 被
+    // 音译成"斯夫龙"挂在浮窗上 (用户截图里那一行)。同一帧里它是完整那句的结尾词,
+    // 说明就是残片。
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')(
+      '01 ： 18 [ 队 伍 ] 雨 未 散 （ 百 裂 冥 犬 ） ： Our top is too strong\n'
+      + '01 ： 18 [ 队 伍 ] 雨 未 散 （ 百 裂 冥 犬 ） ： strong'
+    );
+    ok('同一帧里作为结尾词的残片被丢掉',
+      lines.length === 1 && lines[0].body === 'Our top is too strong', lines.map(l => l.body));
+    // 不是结尾词就不算残片 —— 真的另说一句 "strong" 时不能吞
+    const lines2 = await e.run('gtParseOcrChatLines')(
+      '01 ： 18 [ 队 伍 ] 雨 未 散 （ 百 裂 冥 犬 ） ： strong\n'
+      + '03 ： 21 [ 队 伍 ] 雨 未 散 （ 百 裂 冥 犬 ） ： our top is strong now'
+    );
+    ok('不是结尾词的单字消息保留', lines2.length === 2, lines2.map(l => l.body));
+  }
+  {
+    // 1.5.72: 断词版与正确版**归一化后完全相同** (gtOcrNorm 抹空格), 所以
+    // 长度判定和脏字符判定都分不出来, 先到的那版会把正确版锁死。
+    const e = makeEnv({
+      ocr: [
+        '00:43 [队伍] 雨未散: our to p too strong',
+        '00:43 [队伍] 雨未散: our top too strong'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const first = e.pushed[e.pushed.length - 1].lines;
+    ok('断词版先到, 仍然只有一行', first.length === 1, first);
+    e.advance(4000);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('词边界更干净的版本原地替换掉断词版',
+      lines.length === 1 && lines[0].body === 'our top too strong', lines);
+  }
+  {
+    // 1.5.75 —— 06:36 局真实帧。浮窗第三行是 "rearrjrr / rearrjrr": 玩家名那一行被
+    // OCR 读成 "rearrjrr “", 那个行尾引号凑出第二个 token, 于是过了"短残片"守卫。
+    // 判据: 词数只数**真词** (≥2 个字母)。
+    const e = makeEnv({ ocr: ['[ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： rearrjrr “'] });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('无键的玩家名残渣 (rearrjrr “) 不进管线', lines.length === 0, lines);
+
+    // 同一条带上时间戳就会被收下 —— 守卫只管"没键"的情况。
+    // 这里用两个词, 因为单词正文会走"待确认"分支 (见 gtOcrNeedsConfirm)。
+    const keyed = makeEnv({ ocr: ['09:52 [ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： rearrjrr wgre'] });
+    await keyed.run('gtOcrScan')();
+    await flushAsync();
+    ok('带时间戳的同样正文照收 (守卫不越权)',
+      keyed.pushed.length === 1 && keyed.pushed[0].lines.length === 1, keyed.pushed);
+  }
+  {
+    // 1.5.75 —— 最关键的兜底: 所有翻译源都挂了时 translateBatchCore 原样返回正文,
+    // 旧代码把它当"译文"推给浮窗 → 屏幕上就是 "rearrjrr / rearrjrr" 这种假译文
+    // (用户报障"又出现错误翻译了")。没有中文就不该上浮窗。
+    const e = makeEnv({
+      echoTranslate: true,
+      ocr: ['09:52 [ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： rearrjrr wgre']
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    // 1.5.79: 从"静默丢弃"改成"显式标出"。用户 15:12 反馈: 浮窗上什么都不出现时,
+    // 他分不清"还在翻"和"翻失败" —— 现在留一行"（未能翻译）"+ 原文, 一眼可辨。
+    ok('译文等于原文时标成"未能翻译" (不再出现 rearrjrr/rearrjrr)',
+      lines.length === 1 && lines[0].fail === true && lines[0].translated === '（未能翻译）', lines);
+    ok('失败行仍带原文, 用户能自己对上', lines.length === 1 && lines[0].body === 'rearrjrr wgre', lines[0]);
+    ok('但翻译确实被请求过 (不是根本没走链路)', e.translated.length === 1, e.translated.length);
+  }
+  {
+    // 1.5.76 —— 06:58 局真实帧: OCR 把 everyone 读成 eyÄryone (混进非 ASCII 字母),
+    // 机翻只翻了 hello, 把剩下那串原样贴在中文后面 → 浮窗上是 "你好everyone"。
+    const okFn = makeEnv({}).run('gtTrOk');
+    ok('纯中文译文可用', okFn('how are u', '你好吗') === true, okFn('how are u', '你好吗'));
+    ok('译文等于原文不可用', okFn('rearrjrr', 'rearrjrr') === false, okFn('rearrjrr', 'rearrjrr'));
+    ok('没有中文不可用', okFn('how are u', 'how are you') === false, okFn('how are u', 'how are you'));
+    ok('半截译文不可用 (你好everyone)', okFn('hello eyÄryone', '你好everyone') === false,
+      okFn('hello eyÄryone', '你好everyone'));
+    ok('缩写不算半截 (ADC/KDA/GG)', okFn('adc', 'ADC 和 KDA 还有 GG') === true, okFn('adc', 'ADC 和 KDA 还有 GG'));
+    // 1.5.81 真实报障 (16:24 截图): "bang is the best ad in the world" 被整条丢掉。
+    // 机翻给的是 "bang是世界上最好的广告", 里面那个 bang 是玩家名、原文就有,
+    // 保留它是**正确**的 —— 只有"原文里没有"的拉丁串才算残渣。
+    ok('专有名词保留可用 (bang是世界上最好的ad)',
+      okFn('bang is the best ad in the world', 'bang是世界上最好的ad') === true,
+      okFn('bang is the best ad in the world', 'bang是世界上最好的ad'));
+    ok('原文没有的拉丁串仍然拦下', okFn('hello everyone', '你好xqzw') === false,
+      okFn('hello everyone', '你好xqzw'));
+
+    const cleanFn = makeEnv({}).run('gtCleanDirtyBody');
+    ok('脏词被去掉 (hello eyÄryone → hello)', cleanFn('hello eyÄryone') === 'hello', cleanFn('hello eyÄryone'));
+    ok('干净正文原样保留', cleanFn('hello everyone') === 'hello everyone', cleanFn('hello everyone'));
+    ok('全脏时返回空串', cleanFn('eyÄryone') === '', cleanFn('eyÄryone'));
+  }
+  {
+    // 1.5.79 —— 只装了中文 OCR 引擎时, 英文会被读成"半字母半乱码"(eyÄryone)。
+    // "token 里混进非 ASCII 字符"是确定性证据 (英文聊天里不可能有), 所以按编辑
+    // 距离把它修回词表里最近的词, 而不是丢掉整句。
+    const fix = makeEnv({}).run('gtOcrRepairWeirdWords');
+    ok('乱码词修回真词 (eyÄryone → everyone)', fix('hello eyÄryone') === 'hello everyone', fix('hello eyÄryone'));
+    ok('词中间夹标点也能修 (eye,ryone → everyone)',
+      fix('hello eye,ryone') === 'hello everyone', fix('hello eye,ryone'));
+    ok('短词同样修 (jÖb → job)', fix('good jÖb') === 'good job', fix('good jÖb'));
+    ok('干净的句子原样返回', fix('hello everyone') === 'hello everyone', fix('hello everyone'));
+    // 撇号是合法英文, 不能当"词中间夹标点"去搜索最近的词 ——
+    // 实测会把 "world's" 修成 "would" ("bang is would best ad"), 把好话改坏。
+    ok("撇号不算脏 (world's 不动)", fix("bang is world's best ad") === "bang is world's best ad",
+      fix("bang is world's best ad"));
+    ok('玩家 ID 不瞎改 (faker is good)', fix('faker is good') === 'faker is good', fix('faker is good'));
+    ok('含中文的行不当乱码词处理 (交给正文校验整条丢)',
+      fix('gra 卣 白 tion') === 'gra tion', fix('gra 卣 白 tion'));
+  }
+  {
+    // 1.5.79 —— 翻译慢的时候浮窗上先挂"（翻译中…）", 翻完原地替换。
+    // 用户要能区分"慢"和"失败": 占位行 = 慢, "（未能翻译）" = 失败。
+    const e = makeEnv({ ocr: ['00:54 [队伍] 雨未散（北地之怒）: hello everyone'] });
+    e.set('GT_PEND_MS', 0);      // 让占位定时器立刻触发 (假时钟不推进真实毫秒)
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const frames = e.pushed;
+    ok('慢的时候先推一行"翻译中"',
+      frames.length >= 2 && frames[0].lines.length === 1
+      && frames[0].lines[0].translated === '（翻译中…）' && frames[0].lines[0].pending === true,
+      frames.map(f => f.lines.map(l => l.translated)));
+    ok('翻完原地替换成译文, 不多出一行',
+      frames.length >= 2 && frames[frames.length - 1].lines.length === 1
+      && frames[frames.length - 1].lines[0].translated === '中文译文14'
+      && !frames[frames.length - 1].lines[0].pending,
+      frames[frames.length - 1].lines);
+  }
+  {
+    // 1.5.80 真实报障 (用户截图): "大家好 / hello everyone" 下面又挂了一条
+    // "（翻译中…）/ hello everyone"。两条一模一样的正文, 占位行必须靠条目 id
+    // 配对 —— 靠正文会串行, 靠时间戳两条都有 k 但占位行和译文行本来就该是同一条。
+    const e = makeEnv({
+      ocr: ['00:04 [队伍] 雨未散（北地之怒）: hello everyone\n'
+        + '00:24 [队伍] 雨未散（北地之怒）: hello everyone']
+    });
+    e.set('GT_PEND_MS', 0);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('两条相同正文各占一行', lines.length === 2, lines);
+    ok('翻译成功后不留占位行', lines.every(l => !l.pending), lines.map(l => l.translated));
+    ok('两行都拿到译文', lines.every(l => /^中文译文/.test(l.translated)), lines.map(l => l.translated));
+    ok('两行的时间戳没有串', lines.map(l => l.k).join('|') === '00:04|00:24', lines.map(l => l.k));
+  }
+  {
+    // 1.5.80 回归守卫: 占位行定时器必须赋值给**外层** pendTimer。
+    // 写成 `const pendTimer = ...` 会遮蔽外层变量, finally 里的 clearTimeout 拿到
+    // null → 定时器永远不取消, 翻译成功后 600ms 再补一条"（翻译中…）"且无人替换。
+    // 假时钟复现不了"翻译完成之后才触发"的时序, 所以这里直接查源码。
+    const src = fs.readFileSync(path.join(__dirname, 'renderer/js/translate.js'), 'utf8');
+    ok('占位行定时器不被 const 遮蔽', !/^\s*const pendTimer\s*=/m.test(src));
+    ok('finally 里会取消占位行定时器',
+      /if \(pendTimer\) \{ pendDone = true; clearTimeout\(pendTimer\)/.test(src));
+    ok('占位行按条目 id 配对', /x\.id === it\.id/.test(src) && /x\.id === ln\.id/.test(src));
+  }
+  {
+    // 端到端: 脏正文先翻出半截译文 → 去掉脏词重翻 → 拿到干净中文, 上浮窗
+    const e = makeEnv({
+      mixedTranslate: true,
+      ocr: ['00:54 [队伍] 雨未散（北地之怒）: hello eyÄryone']
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('半截译文被重翻成干净中文', lines.length === 1 && !/[A-Za-z]{4,}/.test(lines[0].translated), lines);
+    // 1.5.79: 现在不靠"去掉脏词再翻一次", 而是翻之前就按词表把假词修回真词
+    // (eyÄryone → everyone), 所以第一次请求拿到的就是干净正文, 只发一次请求。
+    ok('翻译前先把读坏的词修好 (hello eyÄryone → hello everyone)',
+      e.translated.length === 1 && e.translated[0].texts[0] === 'hello everyone', e.translated);
+    ok('浮窗上显示修好的正文', lines.length === 1 && lines[0].body === 'hello everyone', lines);
+  }
+  {
+    // 重翻也救不回来时 (正文整条都是脏的) 就不上浮窗
+    const e = makeEnv({
+      mixedTranslate: true,
+      ocr: ['00:54 [队伍] 雨未散（北地之怒）: eyÄryone']
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('救不回来的脏正文不上浮窗', lines.length === 0, lines);
+  }
+  {
+    // 1.5.75 —— 06:23 局真实帧, 日志原文:
+    //   06:23:22  ocr lines +1 last="h ow are IJ@00:58"
+    //   06:23:30  ocr lines +1 last="how are u@00:58"
+    // 先到的乱码版长度更长 (10 > 9), 脏字符判定也不成立, 单字母残片 0 对 0 ——
+    // a/b/c 三个升级条件全部失效, 浮窗上就永久挂着机翻的 "IJ怎么样"。
+    const e = makeEnv({
+      ocr: [
+        '00:58 [队伍] 雨未散（暴怒骑士）: h ow are IJ',
+        '00:58 [队伍] 雨未散（暴怒骑士）: how are u'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const first = e.pushed[e.pushed.length - 1].lines;
+    ok('头残片 + IJ 字形一起修好, 首帧就是 how are u',
+      first.length === 1 && first[0].body === 'how are u', first);
+    e.advance(4000);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('第二帧同一句不再多出一行', lines.length === 1 && lines[0].body === 'how are u', lines);
+  }
+  {
+    // 字形修不掉的那种乱码 (u 被读成 UJ) 靠"乱码分"顶掉: 长度只差 1, a/b/c 全失效。
+    const e = makeEnv({
+      ocr: [
+        '00:58 [队伍] 雨未散（暴怒骑士）: how are UJ',
+        '00:58 [队伍] 雨未散（暴怒骑士）: how are u'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const first = e.pushed[e.pushed.length - 1].lines;
+    ok('乱码版先占一行', first.length === 1 && first[0].body === 'how are UJ', first);
+    e.advance(4000);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('乱码分更低的版本原地替换掉 UJ 版',
+      lines.length === 1 && lines[0].body === 'how are u', lines);
+  }
+  {
+    // 1.5.74 —— 14:14 局真实帧。聊天框只有一条 "how are u", 但 OCR 在不同帧把它读成
+    // "how ar&u" / "hjO ZI" / "I)OW are u" 并且**丢了时间戳** (@无键)。每一条都开新行,
+    // 机翻把 "hjO ZI" 译成"公司简介"、把 "how ar&u" 音译成"豪阿乌"。
+    // 判据: 没有时间戳 = 这一帧连聊天头都没读出来, 短正文里残片占绝大多数。
+    const short = makeEnv({ ocr: ['[ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： hjO ZI'] });
+    await short.run('gtOcrScan')();
+    await flushAsync();
+    ok('无键短残片不进管线 (不再出现"公司简介")',
+      (short.pushed.length ? short.pushed[short.pushed.length - 1].lines : []).length === 0,
+      short.pushed);
+
+    const short2 = makeEnv({ ocr: ['[ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： how are u'] });
+    await short2.run('gtOcrScan')();
+    await flushAsync();
+    ok('无键的短英文句也不进管线 (等下一帧带时间戳再收)',
+      (short2.pushed.length ? short2.pushed[short2.pushed.length - 1].lines : []).length === 0,
+      short2.pushed);
+
+    // 长正文即使没时间戳也要收 —— 长句不可能是断行残片, 丢了就是真丢消息
+    const long = makeEnv({ ocr: ['[ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： our top is too strong'] });
+    await long.run('gtOcrScan')();
+    await flushAsync();
+    const longLines = long.pushed.length ? long.pushed[long.pushed.length - 1].lines : [];
+    ok('无键长句照收', longLines.length === 1 && longLines[0].body === 'our top is too strong', longLines);
+
+    // 同一句话带上时间戳就正常收 —— 规则只针对"没键"
+    const keyed = makeEnv({ ocr: ['00:58 [ 队 伍 ] 雨 未 散 （ 暴 怒 骑 士 ） ： how are u'] });
+    await keyed.run('gtOcrScan')();
+    await flushAsync();
+    const keyedLines = keyed.pushed.length ? keyed.pushed[keyed.pushed.length - 1].lines : [];
+    ok('带时间戳的短句正常收', keyedLines.length === 1 && keyedLines[0].body === 'how are u', keyedLines);
   }
 
   console.log(`\n聊天翻译: ${pass} 通过 / ${fail} 失败`);

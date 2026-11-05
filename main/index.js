@@ -87,8 +87,8 @@ const safeModeActive = process.env.PORO_DISABLE_GPU === '1'
   || process.argv.includes(SAFE_MODE_ARG)
   || rendererCompatActive
   || previousStartupInterrupted;
-// 解说语音用 <audio> 播放合成结果: 默认策略下窗口长时间无交互 (打游戏时没人点 Poro)
-// 会让 play() 抛 NotAllowedError, 表现成"解说突然不响了"。这里一次性放开。
+// 对局提示用 <audio> 播放合成结果: 默认策略下窗口长时间无交互 (打游戏时没人点 Poro)
+// 会让 play() 抛 NotAllowedError, 表现成"提示突然不响了"。这里一次性放开。
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 if (safeModeActive) {
   app.disableHardwareAcceleration();
@@ -108,6 +108,7 @@ if (hasSingleInstanceLock) {
 }
 
 const lcu = require('./lcu');
+const riotClient = require('./riot-client');
 const sgp = require('./sgp');
 const lcuWs = require('./lcu-ws');
 const gameSettings = require('./game-settings');
@@ -958,17 +959,22 @@ async function freeTranslateBatch(texts, target) {
   return null;
 }
 
-// ========== 解说语音合成 ==========
+// ========== 对局提示语音合成 ==========
 // 实现放在 main/tts.js (纯模块, 可在 node 里单测);
 // 这里只做 IPC 绑定 + 失败计数, 超过阈值就让渲染层整体退回本机音色。
 const ttsService = require('./tts');
 let ttsFailStreak = 0;
 
-ipcMain.handle('tts:synthesize', async (e, text, speed) => {
+// 音色表给渲染层用: 只在主进程维护一份, 免得设置里列出服务端根本不认的音色
+ipcMain.handle('tts:voices', () => ttsService.voiceList());
+
+ipcMain.handle('tts:synthesize', async (e, text, opts) => {
   if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) {
     return { ok: false, error: '无效来源' };
   }
-  const res = await ttsService.synthesize(text, speed);
+  // 用户刚换过音色时清掉神经通道的失败冷却, 否则要干等 90 秒才听到新声音
+  if (opts && typeof opts === 'object' && opts.reset) ttsService.resetCooldown();
+  const res = await ttsService.synthesize(text, opts);
   if (!res.ok) {
     ttsFailStreak++;
     return { ok: false, error: res.error, streak: ttsFailStreak };
@@ -997,7 +1003,8 @@ function aiItemOk(one, lang) {
   return lang === 'zh-CN' ? /[\u4e00-\u9fff]/.test(s) : !/[\u4e00-\u9fff]/.test(s);
 }
 
-async function translateBatchCore(texts, target) {
+async function translateBatchCore(texts, target, opts) {
+  const fast = !!(opts && opts.fast);
   const list = (Array.isArray(texts) ? texts : [])
     .map(t => String(t || '').trim().substring(0, 300))
     .filter(Boolean)
@@ -1019,7 +1026,14 @@ async function translateBatchCore(texts, target) {
     let results = null;
     let src = 'ai';
     const t0 = Date.now();
-    try { results = await aiTranslateBatch(pending, lang); } catch (e) { results = null; }
+    // 1.5.75: **实时通道直接跳过 AI**。游戏内聊天是"说完就要看到"的场景, 而
+    // agnes 实测 2.7~6.3 秒 (14:23 局日志: AI 失败后机翻才跑, 端到端 6.8 秒;
+    // 用户报障"翻译过了 20s 才出来")。AI 在这里不是"更好", 是"更慢", 而且
+    // 它的预算闸门只在**事后**才学乖 —— 每 5 分钟放出来一次就又白等 6 秒。
+    // 发送方向 (中→英) 和主窗口手动翻译仍然用 AI。
+    if (!fast) {
+      try { results = await aiTranslateBatch(pending, lang); } catch (e) { results = null; }
+    }
     if (results) {
       // 逐条挑出"语种不对"的 (模型把英文原样吐回来), 只把这几条重翻一次
       const bad = [];
@@ -1050,9 +1064,9 @@ async function translateBatchCore(texts, target) {
   return out;
 }
 
-ipcMain.handle('translate:text', async (e, texts, target) => {
+ipcMain.handle('translate:text', async (e, texts, target, opts) => {
   if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
-  return translateBatchCore(texts, target);
+  return translateBatchCore(texts, target, opts);
 });
 
 // ---------- 外服聊天翻译浮窗 (点击穿透, 贴游戏窗口聊天区上方) ----------
@@ -1108,6 +1122,65 @@ function gameTranslateMetrics() {
 // 程序自己 setBounds 也会触发 'moved', 用这个锁把"程序摆的"和"用户拖的"区分开
 let _gtBoundsLock = false;
 
+// ===== 1.5.73: 浮窗 z 序看门狗 =====
+// 用户报障: "这把游戏悬浮窗不见了, 切出游戏又能看到"。窗口一直在 (日志里
+// overlay=yes, OCR 也读得到), 只是**被游戏压在下面**。
+// 原因: 置顶只在 show() 那一刻设过一次。进游戏时游戏自己会 SetWindowPos 抢 z 序,
+// 之后聊天框空着就再没有 push → showGameTranslateWindow 不会再被调 → 没人拉回来。
+// 所以需要一个低频看门狗: 游戏在前台时, 每 2 秒把浮窗重新插到 topmost 带的最前面。
+const GT_GAME_WINDOW_CLASS = 'RiotWindowClass';
+const GT_TOP_TICK_MS = 2000;
+const GT_TOP_LOG_MS = 30000;
+let _gtTopTimer = null;
+let _gtTopLogAt = 0;
+let _gtTopDiagAt = 0;
+let _gtTopLost = 0;
+
+function gtOverlayOnTopTick() {
+  const w = gameTranslateWindow;
+  if (!w || w.isDestroyed() || !w.isVisible()) return;
+  let cls = '';
+  try { cls = gtForeground.foregroundClass(); } catch (e) { cls = ''; }
+  // 游戏不在前台就别抢 —— 用户切去浏览器看攻略时, 浮窗不该压在最上面
+  if (cls !== GT_GAME_WINDOW_CLASS) return;
+  const hadFlag = gtForeground.isTopmost(w);
+  // 无条件抬一手: WS_EX_TOPMOST 还在、却被别的 topmost 窗口压住是最常见的情况
+  // (游戏窗口自己也是 TOPMOST), 只看标志位会漏掉它。
+  gtForeground.raiseTopmost(w);
+  if (!hadFlag) {
+    _gtTopLost++;
+    if (Date.now() - _gtTopLogAt > GT_TOP_LOG_MS) {
+      _gtTopLogAt = Date.now();
+      try { logErr('[TRANSLATE OVERLAY] 置顶被系统清掉, 已拉回 (累计 ' + _gtTopLost + ' 次)'); } catch (e) {}
+    }
+  }
+  // 一分钟留一条现场: 下次再"不见了"就有据可查, 而不是靠猜
+  if (Date.now() - _gtTopDiagAt > 60000) {
+    _gtTopDiagAt = Date.now();
+    let game = null;
+    try { game = winRect.getLeagueGameRect(); } catch (e) {}
+    let b = null;
+    try { b = w.getBounds(); } catch (e) {}
+    try {
+      logErr('[TRANSLATE OVERLAY] 现场 vis=1 topmost=' + (gtForeground.isTopmost(w) ? 1 : 0)
+        + ' cls=' + cls
+        + ' bounds=' + (b ? [b.x, b.y, b.width, b.height].join(',') : '?')
+        + ' game=' + (game ? [game.x, game.y, game.width, game.height].join(',') : '?'));
+    } catch (e) {}
+  }
+}
+
+function startGtTopWatch() {
+  if (_gtTopTimer) return;
+  _gtTopTimer = setInterval(gtOverlayOnTopTick, GT_TOP_TICK_MS);
+  if (_gtTopTimer && typeof _gtTopTimer.unref === 'function') _gtTopTimer.unref();
+}
+function stopGtTopWatch() {
+  if (!_gtTopTimer) return;
+  clearInterval(_gtTopTimer);
+  _gtTopTimer = null;
+}
+
 function showGameTranslateWindow() {
   if (!gameTranslateWindow || gameTranslateWindow.isDestroyed()) return;
   try {
@@ -1121,6 +1194,7 @@ function showGameTranslateWindow() {
     if (!gameTranslateInputMode) gameTranslateWindow.setIgnoreMouseEvents(true, { forward: false });
     gameTranslateWindow.show();
     try { gameTranslateWindow.moveTop(); } catch (e) {}
+    startGtTopWatch();
   } catch (error) { logErr('[TRANSLATE OVERLAY] show failed: ' + error.message); }
 }
 
@@ -1181,6 +1255,7 @@ function setGameTranslateInput(on) {
 }
 
 function hideGameTranslateWindow() {
+  stopGtTopWatch();
   if (gameTranslateInputMode) setGameTranslateInput(false);
   if (gameTranslateWindow && !gameTranslateWindow.isDestroyed() && gameTranslateWindow.isVisible()) gameTranslateWindow.hide();
 }
@@ -1429,9 +1504,10 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     // 5x 能把 "goodluck" 读对而把另一帧读成 "hello eve 吖 on e"(含中文直接废掉),
     // 6x 恰好相反。所以两档都跑, 结果拼在一起交回渲染层:
     // 解析器按出现顺序收, 同一句话的第二个版本会被模糊去重吃掉 —— 等于自动择优。
-    // 5x 排前面 (深色背景帧上更准), 6x 兜后 (亮色背景帧上才读得出来)。
     // 代价: 每 4 秒多一次 OCR, 实测每次 ~250ms。
-    const scales = overlayPosition.CHAT_OCR_SCALES || [5, 6];
+    // 1.5.72: 倍数不再写死 5/6, 改成按目标宽度反推 (见 overlay-position.chatOcrScales)。
+    // 05:44 局实证 5x/6x 会把 "top" 切成 "to p"、把 "01:18" 读成 "山：18"。
+    const scales = overlayPosition.chatOcrScales(cs.width);
     const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const texts = [];
     for (let si = 0; si < scales.length; si++) {
@@ -1880,6 +1956,30 @@ ipcMain.handle('lcu:request', async (e, method, urlPath, body) => {
   } catch (err) { return { __error: err.message }; }
 });
 
+// 按精确名字查全部 Riot ID (Riot Client 的别名服务): 只输名字就能列出该名字下
+// 所有 Tag, 用于"陌生玩家不用输完整 Tag"。名字做长度/字符上限校验, 防止被当成
+// 任意 URL 透传 (路径固定, 只有 gameName 进 query)。
+ipcMain.handle('player:aliasLookup', async (e, gameName) => {
+  const name = typeof gameName === 'string' ? gameName.trim() : '';
+  if (!name || name.length > 64) return { ok: false, list: [], error: '名字为空或过长' };
+  try {
+    // aliasLookupEx 把"通道没通"和"没有这个人"分开返回, 渲染层据此给不同文案
+    return await riotClient.aliasLookupEx(name);
+  } catch (err) {
+    return { ok: false, list: [], error: err.message };
+  }
+});
+
+// 一批 puuid → 名字#Tag (Riot Client nameset 接口, 任意大区都有效)。
+// 用于: PUUID 直查、跨区档案补名 (SGP 对外区账号只回 unnamed:true)。
+ipcMain.handle('player:namesets', async (e, puuids) => {
+  try {
+    return await riotClient.namesetsByPuuidsEx(puuids);
+  } catch (err) {
+    return { ok: false, map: {}, error: err.message };
+  }
+});
+
 ipcMain.handle('game-settings:capture-full', async () => {
   try { return gameSettings.capture(await lcu.getGameConfigDir(), USER_DATA); }
   catch (error) { logErr('[GS FULL] capture failed: ' + error.message); return { ok: false, error: error.message }; }
@@ -2296,12 +2396,8 @@ ipcMain.handle('live:playerlist', async () => {
     return await lcu.liveRequest('/liveclientdata/playerlist');
   } catch (err) { return { __error: err.message }; }
 });
-// 对局事件流 (一血/大小龙/团灭/多杀): 解说模式用, 与 gameData 分开取, 失败不影响主数据
-ipcMain.handle('live:eventData', async () => {
-  try {
-    return await lcu.liveRequest('/liveclientdata/eventdata');
-  } catch (err) { return { __error: err.message }; }
-});
+// 对局事件流接口在 1.5.82 随解说模式一起删掉了 (事件播报是它唯一的消费者)。
+// 对局提示只需要 allgamedata, 走 live:gameData。
 
 // ---------- 系统 ----------
 // 修复客户端窗口: 走 win-rect (koffi 直调 user32), 与贴边读矩形共用同一套类名与 DPI 处理。
@@ -2447,6 +2543,23 @@ ipcMain.handle('sgp:invalidateMatchHistory', (e, puuid) => ({
   ok: true,
   removed: sgpHistoryCache.invalidatePuuid(puuid)
 }));
+
+// 一批 Riot ID 各自属于哪个大区: 8 个合区网关并行批量查, 每条只回 platformId/等级/头像。
+// 别名服务是跨大区的, 不查这一下就无法告诉用户"同名 16 个里哪个是本区的"。
+// platforms 可选: 只查指定大区 (搜索框选定大区时只发 1 条请求)。
+// 不传 / 传空 = 问全部 8 个合区入口 (全部大区模式)。
+ipcMain.handle('player:resolveRegions', async (e, puuids, platforms) => {
+  if (!Array.isArray(puuids)) return { ok: false, map: {}, queried: [] };
+  const list = puuids.filter(p => typeof p === 'string' && p && p.length <= 64).slice(0, 64);
+  if (!list.length) return { ok: true, map: {}, queried: [] };
+  const pids = Array.isArray(platforms)
+    ? platforms.filter(p => typeof p === 'string' && sgp.SGP_HOSTS[p]).slice(0, 8)
+    : [];
+  try {
+    const r = await sgp.resolveRegions(list, pids.length ? { platforms: pids } : undefined);
+    return { ok: true, map: r.map, queried: r.queried };
+  } catch (err) { return { ok: false, map: {}, queried: [], error: err.message }; }
+});
 
 ipcMain.handle('sgp:summonerByPuuid', async (e, platformId, puuid) => {
   if (!sgp.SGP_HOSTS[platformId]) return { __error: '不支持的大区: ' + platformId };

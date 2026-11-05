@@ -1248,13 +1248,84 @@ function applyMatchPremadeBadges(container, info, loading = false) {
   summary.textContent = parts.length ? `组队关系：${parts.join(' · ')}` : '组队关系：未发现近 30 场至少 3 次同队的组合';
   summary.classList.toggle('is-loading', !!loading);
 }
-function homeSearch() {
-  const v = (document.getElementById("homeSearchInput") || {}).value || '';
-  homeSearchDraft = v.trim();
+async function homeSearch() {
+  const input = document.getElementById("homeSearchInput");
+  const v = (input || {}).value || '';
+  const raw = v.trim();
+  homeSearchDraft = raw;
+  // 手动查询/回车了, 就别再让"停手自动查"补一刀
+  if (typeof homeSearchCancelAutoGo === 'function') homeSearchCancelAutoGo();
   const msg = document.getElementById("homeSearchMsg");
-  if (!v.trim()) { if (msg) msg.textContent = '请输入 名字#Tag'; return; }
+  if (!raw) { if (msg) msg.textContent = '请输入名字 (如 雨未散，或 雨未散#1234)'; return; }
   if (msg) msg.textContent = '';
-  searchPlayerByName(v.trim());
+  // PUUID 直查 (Akari 同款): 粘贴一串 puuid 回车, 不当名字处理
+  if (typeof looksLikePuuid === 'function' && looksLikePuuid(raw)) {
+    await searchPlayerByPuuidRaw(raw);
+    return;
+  }
+  // 搜索框左侧选的是别的大区: 只把这个区的同名 ID 列出来。点候选会跨区查
+  // (SGP 各合区网关都通), 但这里不做自动补全 —— 名字再像, 也不该替用户决定查谁。
+  const pickRegion = (typeof homeRegionPickRegion === 'function') ? homeRegionPickRegion() : '';
+  const currentRegion = (typeof cachedPlatformId === 'string' && cachedPlatformId) ? cachedPlatformId : '';
+  if (pickRegion && currentRegion && pickRegion !== currentRegion) {
+    if (msg) msg.textContent = '查询中...';
+    if (typeof homeSearchFetchAlias === 'function') await homeSearchFetchAlias(raw, { render: false, awaitRegion: true });
+    if (typeof renderHomeSearchCards === 'function') renderHomeSearchCards();
+    if (msg) {
+      const regionName = (typeof homeRegionName === 'function' && homeRegionName(pickRegion)) || pickRegion;
+      msg.textContent = `已列出「${regionName}」的账号，点候选即可查看该区战绩`;
+    }
+    return;
+  }
+  // 模糊路径: 没输 #Tag 时先用本地玩家索引补全 (国服没有前缀联想接口, 见 player-index.js)。
+  // 补到唯一一个人才跳过去; 有多个候选时让用户点选 —— 名字相近的另一个人查错的代价
+  // 比多点一下大得多。
+  if (typeof playerIndexDecide === 'function') {
+    let d = playerIndexDecide(raw);
+    // 本地索引只涵盖见过的人。陌生玩家先用 Riot Client 的别名服务按"完整名字"补一次:
+    // 它返回该名字下全部 Riot ID (实测 16 条), 合并进索引后重新决策 —— 这就是
+    // 不用输完整 Tag 也能查到的原因。服务端不可用/名字不完整时 added=0, 行为不变。
+    //
+    // 只输名字时**无条件**补一次: 本地索引里可能只躺着同名 16 个账号中的 1 个,
+    // 直接跳过去就会查错人; 让服务端把全部 Tag 摆出来更安全。已经输了完整 #Tag
+    // 说明用户自己指定了账号, 只有本地确定不了时才补。
+    const typedTag = /[#＃]/.test(raw);
+    // 完整「名字#数字」已经精确指定了账号: 直接交给 LCU 查, 不必先花几秒把
+    // 500 条同名全拉一遍 —— 服务端对同名有 500 条上限, tagLine 靠后的账号
+    // 压根不在那批结果里, 白等一场还会让人误以为"查不到"。
+    const fullTag = typeof playerIndexFullTag === 'function' && playerIndexFullTag(raw);
+    if (!fullTag && (!typedTag || d.action !== 'exact') && typeof homeSearchFetchAlias === 'function') {
+      if (msg) msg.textContent = '查询中...';
+      // 回车路径等归属解析完: 只有确认在本区的账号才能自动补全, 否则会跳到别的区
+      await homeSearchFetchAlias(raw, { render: false, awaitRegion: true });
+      if (msg) msg.textContent = '';
+      d = playerIndexDecide(raw);
+    }
+    if (d.action === 'exact') {
+      if (input) input.value = d.label;
+      homeSearchDraft = d.label;
+      searchPlayerByName(d.label);
+      return;
+    }
+    if (d.action === 'choose') {
+      if (msg) msg.textContent = `匹配到 ${d.candidates.length} 个玩家，请从下拉选择`;
+      if (typeof renderHomeSearchCards === 'function') renderHomeSearchCards();
+      return;
+    }
+    // passthrough: 交给下面的精确查询 (带完整 #Tag 或索引里还没这个人)
+  }
+  // 索引里标了"其它大区"的: LCU 按名字查不到, 但索引里有 puuid, 可以拿它去
+  // 目标大区的 SGP 网关查 (国服 8 个合区都开了 SGP)。以前这里直接放弃,
+  // 用户点开只能看到一句"查不到战绩"。
+  // 用户输的是完整 #Tag 时不能只信这个标记 —— 归属可能过期 (转区了, 或者当初
+  // 只查了本区网关就下结论), 直接查一次更可靠。
+  const fullTagQuery = typeof playerIndexFullTag === 'function' && playerIndexFullTag(raw);
+  const found = (!fullTagQuery && typeof playerIndexFind === 'function') ? playerIndexFind(raw) : null;
+  if (found && found.foreign && found.puuid && typeof homeOpenIndexedPlayer === 'function') {
+    if (msg) msg.textContent = '';
+    if (homeOpenIndexedPlayer(raw)) return;
+  }
+  searchPlayerByName(raw);
 }
 // 国服 LCU 召唤师查询: name 参数要求完整 Riot ID (名字#Tag), 只传名字会 422
 const summonerLookupCache = new Map();
@@ -1344,6 +1415,117 @@ async function resolveSummonerByName(input) {
   if (!raw.includes('#')) return { __error: '未找到: ' + raw + ' (国服需完整 名字#Tag, 如 召唤师#0000)' };
   return { __error: '未找到该召唤师，请检查名字与 Tag 是否完全一致' };
 }
+// PUUID 形状判断 (Akari search-area.ts isPuuid 同款正则)。36 位标准 UUID。
+function looksLikePuuid(s) {
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(String(s || '').trim());
+}
+// PUUID 直查 (Akari 搜索框支持粘贴 puuid, 我们以前不支持)。顺序对齐它的
+// handleSearchByPuuid: 本区 LCU 直查; 查不到 (跨区账号) → Riot Client 的 nameset
+// 接口拿名字 (任意大区都有效, 这是我们 1.5.103 新接的接口) → 8 区网关定位 →
+// 目标区 SGP 开档案。以前就算拿到 puuid 也没有名字可显示。
+async function searchPlayerByPuuidRaw(puuid) {
+  const id = String(puuid || '').trim();
+  const msg = document.getElementById('homeSearchMsg');
+  if (!looksLikePuuid(id)) {
+    if (msg) msg.textContent = '这不是有效的 PUUID';
+    return false;
+  }
+  if (msg) msg.textContent = '查询中...';
+  const local = await lolAPI.lcuRequest(
+    'GET', '/lol-summoner/v2/summoners/puuid/' + encodeURIComponent(id)
+  ).catch(() => null);
+  if (local && !local.__error && local.puuid) {
+    if (msg) msg.textContent = '';
+    searchPlayerByPuuid(id, '', local, {});
+    return true;
+  }
+  // 本区没有: nameset 补名 + 网关定位大区, 两步并行发
+  let label = '';
+  let platform = '';
+  const [ns, rg] = await Promise.all([
+    typeof lolAPI.playerNamesets === 'function'
+      ? lolAPI.playerNamesets([id]).catch(() => null) : Promise.resolve(null),
+    typeof lolAPI.playerResolveRegions === 'function'
+      ? lolAPI.playerResolveRegions([id], null).catch(() => null) : Promise.resolve(null)
+  ]);
+  const hit = ns && ns.ok && ns.map && ns.map[id];
+  if (hit && hit.gameName) label = hit.gameName + (hit.tagLine ? '#' + hit.tagLine : '');
+  if (rg && rg.ok && rg.map && rg.map[id]) platform = rg.map[id].platformId || '';
+  if (!platform && !label) {
+    if (msg) msg.textContent = '客户端查不到这个 PUUID（不在本区，网关也没定位到大区）';
+    return false;
+  }
+  if (msg) msg.textContent = '';
+  if (platform && typeof rememberPlayerPlatform === 'function') {
+    try { rememberPlayerPlatform(id, platform); } catch (e) { /* 缓存失败无碍 */ }
+  }
+  if (label && typeof rememberHomeSearch === 'function') rememberHomeSearch(label);
+  searchPlayerByPuuid(id, label, null, platform ? { platformId: platform } : {});
+  return true;
+}
+// 精确名字查询的第二段 (LCU 找不到时走这里)。
+// LCU 只认本区, 其它大区的人只能:
+//   1) Riot 别名接口 (全局, 完整同名精确匹配) → puuid
+//   2) 8 个合区网关并行 summoner-ledge → 命中的那个就是所属大区 (顺带回等级/头像)
+// 这就是 LeagueAkari 的做法 (useSummonerFetch.searchSummonerByAlias + 逐区 FIXED_TENCENT_SGP_SERVERS),
+// 关键好处是**完全不依赖本地索引**: 索引只是缓存, 没收录过的人也能一次查到。
+// 以前这条路径依赖「索引里已经有这个人」, 索引一旦没写进去/被淘汰就报"未找到",
+// 于是出现"明明有这个人却查不到"。
+async function searchPlayerByAliasCrossRegion(name, msg) {
+  const raw = String(name || '').trim().replace(/[＃﹟]/g, '#');
+  const at = raw.lastIndexOf('#');
+  const gameName = (at > 0 ? raw.slice(0, at) : raw).trim();
+  const tagLine = at > 0 ? raw.slice(at + 1).trim() : '';
+  if (!gameName) return false;
+  if (!lolAPI || typeof lolAPI.playerAliasLookup !== 'function') return false;
+  const res = await lolAPI.playerAliasLookup(gameName).catch(() => null);
+  // ok=false 是通道没通 (Riot Client 未起/端口没解析), 不等于没有这个人
+  if (!res || !res.ok) return false;
+  let list = Array.isArray(res.list) ? res.list : [];
+  if (tagLine) {
+    list = list.filter(x => String(x.tagLine || '').toUpperCase() === tagLine.toUpperCase());
+  }
+  if (!list.length) return false;
+  if (typeof lolAPI.playerResolveRegions !== 'function') return false;
+  const ids = list.slice(0, 16).map(x => x.puuid).filter(Boolean);
+  if (!ids.length) return false;
+  const r = await lolAPI.playerResolveRegions(ids, null).catch(() => null);
+  if (!r || !r.ok) return false;
+  const map = r.map || {};
+  const mine = (typeof cachedPlatformId === 'string') ? cachedPlatformId : '';
+  // 同名多账号时优先本区 (那多半就是他要找的人), 否则取第一个定位到的大区
+  const resolved = list.filter(x => map[x.puuid]);
+  const target = resolved.find(x => map[x.puuid].platformId === mine) || resolved[0] || null;
+  if (!target) return false;
+  const meta = map[target.puuid] || {};
+  const platform = meta.platformId || '';
+  const label = target.gameName + (target.tagLine ? '#' + target.tagLine : '');
+  if (platform && typeof rememberPlayerPlatform === 'function') {
+    try { rememberPlayerPlatform(target.puuid, platform); } catch (e) { /* 缓存失败无碍 */ }
+  }
+  // 顺手写回索引 (带大区): 下次前缀候选里就能直接点开
+  if (typeof playerIndexFromAliases === 'function') {
+    try {
+      const metas = {};
+      metas[target.puuid] = { inRegion: false, level: meta.level, icon: meta.icon, platform };
+      playerIndexFromAliases([target], metas, {});
+    } catch (e) { /* 索引写失败不影响查询 */ }
+  }
+  if (msg) msg.textContent = '';
+  rememberHomeSearch(label);
+  homeSearchDraft = '';
+  const input = document.getElementById('homeSearchInput');
+  if (input) input.value = '';
+  searchPlayerByPuuid(target.puuid, label, {
+    puuid: target.puuid,
+    gameName: target.gameName,
+    tagLine: target.tagLine,
+    displayName: label,
+    profileIconId: meta.icon || -1,
+    summonerLevel: meta.level || ''
+  }, { platformId: platform });
+  return true;
+}
 async function searchPlayerByName(name) {
   if (!name) return;
   // 通过LCU按名字查puuid, 然后在首页档案页显示
@@ -1354,27 +1536,60 @@ async function searchPlayerByName(name) {
     if (sum && !sum.__error && sum.puuid) {
       if (msg) msg.textContent = '';
       // 携带 名字#Tag (输入含#时 LCU 可能不回 tagLine, 需补全用于档案头显示)
-      const displayName = sum.gameName || sum.displayName || sum.name || '';
-      const fullTag = (displayName.includes('#') ? displayName : displayName + '#' + (sum.tagLine || (name.includes('#') ? name.split('#')[1] : '')));
+      // LCU 在 Riot ID 化之后 gameName 恒为空，displayName 才是真名；两者都没有时
+      // 直接沿用用户输入的完整 ID —— 不能拼出一个只有「#77843」的标签。
+      const typed = String(name || '').trim().replace(/[＃﹟]/g, '#');
+      const shown = (typeof summonerDisplayName === 'function') ? summonerDisplayName(sum) : '';
+      const displayName = /^未知玩家/.test(shown) ? '' : (shown || sum.gameName || sum.displayName || sum.name || '');
+      const fullTag = displayName
+        ? (displayName.includes('#') ? displayName : displayName + '#' + (sum.tagLine || (typed.includes('#') ? typed.split('#')[1] : '')))
+        : typed;
       rememberHomeSearch(fullTag);
+      // 这次查询拿到了 LCU 的权威档案 (真实等级/头像), 顺手写回本地索引:
+      // 候选里原本可能是空的, 或者是以前写错的英雄等级, 查过一次就该显示对的。
+      if (typeof playerIndexUpsert === 'function') {
+        try {
+          const parts = fullTag.lastIndexOf('#');
+          playerIndexUpsert([{
+            name: parts > 0 ? fullTag.slice(0, parts) : fullTag,
+            tag: parts > 0 ? fullTag.slice(parts + 1) : '',
+            puuid: sum.puuid,
+            level: sum.summonerLevel || 0,
+            icon: sum.profileIconId || 0
+          }], 'search');
+        } catch (e) { /* 索引写失败不影响查询结果 */ }
+      }
       // 查询成功后清空输入框；失败时保留原值，便于用户修正后重试。
       homeSearchDraft = '';
       const input = document.getElementById('homeSearchInput');
       if (input) input.value = '';
       searchPlayerByPuuid(sum.puuid, fullTag, sum);
     } else {
+      // LCU 按名字查不到: 最常见的原因是这个人根本不在本区 (LCU 只认本区)。
+      // 先按 Akari 的方式跨区定位 (别名 → puuid → 逐区探针, 不依赖索引),
+      // 定位不到才退回"索引里已知 puuid"的老办法。
+      if (await searchPlayerByAliasCrossRegion(name, msg)) return;
+      if (typeof homeOpenIndexedPlayer === 'function' && homeOpenIndexedPlayer(name)) {
+        if (msg) msg.textContent = '';
+        return;
+      }
       if (msg) msg.textContent = sum?.__error || `未找到召唤师: ${name}`;
     }
   } catch (e) { if (msg) msg.textContent = '查询失败, 请确认客户端正在运行'; }
 }
 // 点击玩家 → 首页档案页显示该玩家 (右上角"回到我的"返回)
-async function searchPlayerByPuuid(puuid, name, summoner) {
+async function searchPlayerByPuuid(puuid, name, summoner, opts) {
   if (!puuid) return;
+  // 名字必须在进入查询前就补齐。LCU 对外区账号 404、SGP 档案对部分账号只回
+  // name:""，能用的只有调用方传进来的 Riot ID；漏掉这一步档案页就会显示
+  // 「未知玩家#77843」（Tag 有名字没有）。
+  if (typeof fillSummonerName === 'function') summoner = fillSummonerName(summoner, name);
+  const hintPlatform = (opts && opts.platformId) || '';
   // 必须在替换旧档案为“查询中”之前保存滚动位置，否则页面高度收缩会先把
   // 外层滚动条夹回顶部，等新档案渲染完成时已经无法恢复。
   preserveHomeScroll(puuid);
   // 先同步设置目标: 消除 await 期间的竞态窗口 (轮询此时插入读到的也是正确目标, 不会闪回自己)
-  profileOverride = { puuid, name: name || '', summoner: summoner || null };
+  profileOverride = { puuid, name: name || '', summoner: summoner || null, platformId: hintPlatform };
   // 目标一旦切换，立即废弃上一轮首页请求。不能等 PUUID 档案解析完成后再由
   // loadHomeStats 增加代次，否则旧请求可能在这段窗口内把本人/上一位玩家整页写回来。
   homeStatsToken++;
@@ -1384,10 +1599,32 @@ async function searchPlayerByPuuid(puuid, name, summoner) {
   const panel = document.getElementById("playerPanel");
   if (panel) panel.innerHTML = '<div class="meta-loading">正在查询该召唤师战绩...</div>';
   if (!hasSummonerLevel(summoner) || !summoner?.profileIconId) {
-    const resolved = await resolveSummonerByPuuid(puuid, summoner).catch(() => summoner || null);
+    let resolved = null;
+    const selfPlatform = (typeof cachedPlatformId === 'string' && cachedPlatformId) ? cachedPlatformId : '';
+    // 跨区: LCU 两条按 puuid 查询都只认本区 (404 No summoner name for puuid),
+    // 直接把请求打到目标大区的召唤师网关, 一次就拿到等级与头像。
+    if (hintPlatform && hintPlatform !== selfPlatform && typeof lolAPI.sgpSummonerByPuuid === 'function') {
+      const remote = await lolAPI.sgpSummonerByPuuid(hintPlatform, puuid).catch(() => null);
+      if (remote && !remote.__error) {
+        // SGP 档案行的名字字段是 name(完整 Riot ID)，且部分账号是 name:"" + unnamed:true
+        // (彩虹海#77843 就是)。有值就补进来，没有就靠上层传下来的 label 兜底。
+        const remoteName = typeof splitRiotId === 'function' ? splitRiotId(remote.name || '') : { gameName: '', tagLine: '' };
+        resolved = {
+          ...(summoner || {}),
+          puuid,
+          gameName: remoteName.gameName || summoner?.gameName || '',
+          tagLine: remoteName.tagLine || summoner?.tagLine || '',
+          summonerLevel: remote.level || '',
+          profileIconId: remote.profileIconId == null ? -1 : remote.profileIconId
+        };
+      }
+    }
+    if (!resolved) resolved = await resolveSummonerByPuuid(puuid, summoner).catch(() => summoner || null);
     // 用户可能在请求期间又点了另一名玩家；迟到结果不能覆盖新目标。
     if (!profileOverride || profileOverride.puuid !== puuid) return;
-    profileOverride.summoner = resolved;
+    // 最后一道: LCU/SGP 都没给名字时，用调用方传入的 Riot ID 补齐，
+    // 否则下面的 branch 只会补 tagLine，名字永远是「未知玩家」。
+    profileOverride.summoner = typeof fillSummonerName === 'function' ? fillSummonerName(resolved, name) : resolved;
   }
   homeStatsLoaded = false;
   loadHomeStats(true);

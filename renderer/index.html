@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026110509">
-<link rel="stylesheet" href="css/extras.css?v=2026110509">
-<link rel="stylesheet" href="css/dark.css?v=2026110509">
-<link rel="stylesheet" href="css/premium.css?v=2026110509">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026110509">
+<link rel="stylesheet" href="css/style.css?v=2026110529">
+<link rel="stylesheet" href="css/extras.css?v=2026110529">
+<link rel="stylesheet" href="css/dark.css?v=2026110529">
+<link rel="stylesheet" href="css/premium.css?v=2026110529">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026110529">
 </head>
 <body>
 
@@ -306,60 +306,42 @@
         </div>
       </div>
       <div class="tool-card">
-        <h3>解说模式</h3>
-        <p>实时解说：击杀阵亡、多杀、推塔、大小龙、团灭、五分钟小结。默认在线语音，只发播报文本，连不上自动回退本机音色；音色可选柔和（默认，降调并削掉刺耳高频）/ 原声 / 深沉。</p>
-        <div class="tool-row">
-          <span id="commentaryState" class="tool-state">已关闭</span>
-          <label class="switch"><input type="checkbox" id="commentaryToggle" onchange="toggleCommentary(this.checked)"><span class="slider"></span></label>
-        </div>
-        <div class="tool-row">
-          <select id="commentaryTone" class="tool-select" onchange="setCommentaryOption('tone', this.value)">
-            <option value="caster">风格: 解说</option>
-            <option value="coach">风格: 教练</option>
-            <option value="tough">风格: 毒舌</option>
-          </select>
-          <select id="commentaryRate" class="tool-select" onchange="setCommentaryOption('rate', this.value)">
-            <option value="0.85">语速: 慢</option>
-            <option value="1">语速: 正常</option>
-            <option value="1.15">语速: 快</option>
-          </select>
-        </div>
-        <div class="tool-row" style="gap:8px;">
-          <select id="commentaryEngine" class="tool-select" onchange="setCommentaryOption('engine', this.value)">
-            <option value="online">语音: 在线 (更自然)</option>
-            <option value="local">语音: 本机 (离线)</option>
-          </select>
-          <select id="commentaryVoice" class="tool-select" onchange="setCommentaryOption('voice', this.value)"></select>
-        </div>
-        <div class="tool-row" style="gap:8px;">
-          <select id="commentaryStyle" class="tool-select" onchange="setCommentaryOption('style', this.value)">
-            <option value="soft">音色: 柔和 (推荐)</option>
-            <option value="clear">音色: 原声</option>
-            <option value="deep">音色: 深沉</option>
-          </select>
-          <button class="btn-secondary" onclick="testCommentaryVoice()" style="font-size:12px;">试听</button>
-        </div>
-        <div class="tool-row" style="gap:8px;">
-          <span class="tool-state">音量</span>
-          <input type="range" id="commentaryVolume" min="0" max="100" step="5" value="90" oninput="setCommentaryOption('volume', this.value)" style="flex:1">
-        </div>
-        <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvPhase" checked onchange="setCommentaryEvent('phase', this.checked)"> 阶段</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvKill" checked onchange="setCommentaryEvent('kill', this.checked)"> 击杀</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvObjective" checked onchange="setCommentaryEvent('objective', this.checked)"> 目标物</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvSwing" checked onchange="setCommentaryEvent('swing', this.checked)"> 局势</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="cmtEvSummary" checked onchange="setCommentaryEvent('summary', this.checked)"> 五分钟小结</label>
-        </div>
-        <p id="commentaryHint" class="tool-state" style="margin-top:6px;">未开启</p>
-      </div>
-      <div class="tool-card">
         <h3>对局提示</h3>
-        <p>对局中播报三类局面信息: 对面成装进度、你所在对位的经济差、十分钟补刀。语音共用「解说模式」的音色和语速, 但开关互相独立 —— 只开这张卡也会出声。经济按装备原价加补刀折金估算, 只用于双方相对比较; 位置无法确定时不做对位比较, 也不会给出数字。</p>
+        <p>对局中播报三类局面信息: 对面成装进度、你所在对位的经济差、十分钟补刀。经济按装备原价加补刀折金估算, 只用于双方相对比较; 位置无法确定时不做对位比较, 也不会给出数字。</p>
+        <div class="tool-row" style="display:flex;align-items:center;gap:12px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;"><input type="checkbox" id="liveTipsMaster" onchange="toggleLiveTipsMaster(this.checked)"> 对局提示语音</label>
+          <span id="liveTipsState" class="tool-state">已关闭</span>
+        </div>
         <div class="tool-row" style="gap:12px;flex-wrap:wrap;">
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipItemSpike" onchange="setLiveTip('itemSpike', this.checked)"> 对面成装</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipMatchup" onchange="setLiveTip('matchup', this.checked)"> 对位经济</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="tipCreep10" onchange="setLiveTip('creep10', this.checked)"> 十分钟补刀</label>
         </div>
+        <div class="tool-row" style="gap:8px;">
+          <select id="voiceEngine" class="tool-select" onchange="setVoiceOption('engine', this.value)">
+            <option value="online">语音: 神经语音 (推荐)</option>
+            <option value="local">语音: 本机 (离线)</option>
+          </select>
+          <select id="voiceStyle" class="tool-select" onchange="setVoiceOption('style', this.value)">
+            <option value="soft">语气: 柔和</option>
+            <option value="clear">语气: 原声</option>
+            <option value="deep">语气: 深沉</option>
+          </select>
+        </div>
+        <div class="tool-row" style="gap:8px;">
+          <select id="voiceRate" class="tool-select" onchange="setVoiceOption('rate', this.value)">
+            <option value="0.85">语速: 慢</option>
+            <option value="1">语速: 正常</option>
+            <option value="1.15">语速: 快</option>
+          </select>
+          <select id="voiceVoice" class="tool-select" onchange="setVoiceOption('voice', this.value)"></select>
+        </div>
+        <div class="tool-row" style="gap:8px;">
+          <span class="tool-state">音量</span>
+          <input type="range" id="voiceVolume" min="0" max="100" step="5" value="90" oninput="setVoiceOption('volume', this.value)" style="flex:1">
+          <button class="btn-secondary" onclick="testVoice()" style="font-size:12px;">试听</button>
+        </div>
+        <p id="liveTipsHint" class="tool-state" style="margin-top:6px;">未开启</p>
         <div class="tool-row">
           <label class="switch-row"><input type="checkbox" id="liveBoardToggle" checked onchange="toggleLiveBoard(this.checked)"> F9 战报浮窗里显示本局经济与对位</label>
         </div>
@@ -712,52 +694,52 @@
   <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
 </div>
 
-<script src="js/utils.js?v=2026110509"></script>
-<script src="js/local-cache.js?v=2026110509"></script>
-<script src="js/icons.js?v=2026110509"></script>
-<script src="js/data-model.js?v=2026110509"></script>
-<script src="js/session-state.js?v=2026110509"></script>
-<script src="js/performance.js?v=2026110509"></script>
-<script src="js/diagnostics.js?v=2026110509"></script>
-<script src="js/balance.js?v=2026110509"></script>
-<script src="js/behavior-tags.js?v=2026110509"></script>
-<script src="js/bench.js?v=2026110509"></script>
-<script src="js/champions.js?v=2026110509"></script>
-<script src="js/progress-report.js?v=2026110509"></script>
-<script src="js/home.js?v=2026110509"></script>
-<script src="js/ai-markdown.js?v=2026110509"></script>
-<script src="js/review.js?v=2026110509"></script>
-<script src="js/theme.js?v=2026110509"></script>
-<script src="js/hex.js?v=2026110509"></script>
-<script src="js/history.js?v=2026110509"></script>
-<script src="js/enemy-intel.js?v=2026110509"></script>
-<script src="js/growth-model.js?v=2026110509"></script>
-<script src="js/growth.js?v=2026110509"></script>
-<script src="js/battle-card.js?v=2026110509"></script>
-<script src="js/live.js?v=2026110509"></script>
-<script src="js/weekly.js?v=2026110509"></script>
-<script src="js/friends.js?v=2026110509"></script>
-<script src="js/compliance.js?v=2026110509"></script>
-<script src="js/blacklist.js?v=2026110509"></script>
-<script src="js/social.js?v=2026110509"></script>
-<script src="js/chat.js?v=2026110509"></script>
-<script src="js/translate.js?v=2026110509"></script>
-<script src="js/autobp.js?v=2026110509"></script>
-<script src="js/pick-guard.js?v=2026110509"></script>
-<script src="js/lcu-events.js?v=2026110509"></script>
-<script src="js/opgg-loadout.js?v=2026110509"></script>
-<script src="js/update.js?v=2026110509"></script>
-<script src="js/autoflow.js?v=2026110509"></script>
-<script src="js/chat-status.js?v=2026110509"></script>
-<script src="js/settings.js?v=2026110509"></script>
-<script src="js/persist.js?v=2026110509"></script>
-<script src="js/hotkeys.js?v=2026110509"></script>
-<script src="js/live-metrics.js?v=2026110509"></script>
-<script src="js/commentary-script.js?v=2026110509"></script>
-<script src="js/commentary.js?v=2026110509"></script>
-<script src="js/autoreturn.js?v=2026110509"></script>
-<script src="js/sona-extra.js?v=2026110509"></script>
-<script src="js/tools-nav.js?v=2026110509"></script>
-<script src="js/app.js?v=2026110509"></script>
+<script src="js/utils.js?v=2026110529"></script>
+<script src="js/player-index.js?v=2026110529"></script>
+<script src="js/local-cache.js?v=2026110529"></script>
+<script src="js/icons.js?v=2026110529"></script>
+<script src="js/data-model.js?v=2026110529"></script>
+<script src="js/session-state.js?v=2026110529"></script>
+<script src="js/performance.js?v=2026110529"></script>
+<script src="js/diagnostics.js?v=2026110529"></script>
+<script src="js/balance.js?v=2026110529"></script>
+<script src="js/behavior-tags.js?v=2026110529"></script>
+<script src="js/bench.js?v=2026110529"></script>
+<script src="js/champions.js?v=2026110529"></script>
+<script src="js/progress-report.js?v=2026110529"></script>
+<script src="js/home.js?v=2026110529"></script>
+<script src="js/ai-markdown.js?v=2026110529"></script>
+<script src="js/review.js?v=2026110529"></script>
+<script src="js/theme.js?v=2026110529"></script>
+<script src="js/hex.js?v=2026110529"></script>
+<script src="js/history.js?v=2026110529"></script>
+<script src="js/enemy-intel.js?v=2026110529"></script>
+<script src="js/growth-model.js?v=2026110529"></script>
+<script src="js/growth.js?v=2026110529"></script>
+<script src="js/battle-card.js?v=2026110529"></script>
+<script src="js/live.js?v=2026110529"></script>
+<script src="js/weekly.js?v=2026110529"></script>
+<script src="js/friends.js?v=2026110529"></script>
+<script src="js/compliance.js?v=2026110529"></script>
+<script src="js/blacklist.js?v=2026110529"></script>
+<script src="js/social.js?v=2026110529"></script>
+<script src="js/chat.js?v=2026110529"></script>
+<script src="js/translate.js?v=2026110529"></script>
+<script src="js/autobp.js?v=2026110529"></script>
+<script src="js/pick-guard.js?v=2026110529"></script>
+<script src="js/lcu-events.js?v=2026110529"></script>
+<script src="js/opgg-loadout.js?v=2026110529"></script>
+<script src="js/update.js?v=2026110529"></script>
+<script src="js/autoflow.js?v=2026110529"></script>
+<script src="js/chat-status.js?v=2026110529"></script>
+<script src="js/settings.js?v=2026110529"></script>
+<script src="js/persist.js?v=2026110529"></script>
+<script src="js/hotkeys.js?v=2026110529"></script>
+<script src="js/live-metrics.js?v=2026110529"></script>
+<script src="js/live-tips.js?v=2026110529"></script>
+<script src="js/autoreturn.js?v=2026110529"></script>
+<script src="js/sona-extra.js?v=2026110529"></script>
+<script src="js/tools-nav.js?v=2026110529"></script>
+<script src="js/app.js?v=2026110529"></script>
 </body>
 </html>

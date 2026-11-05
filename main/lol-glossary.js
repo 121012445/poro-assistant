@@ -94,6 +94,25 @@ const IN = {
   'ourjgisinting': '我方打野在送', 'jgisinting': '打野在送',
   'nosstop': '上路没闪', 'nossmid': '中路没闪', 'nossbot': '下路没闪', 'nossjg': '打野没闪',
   'carecare': '小心', 'go': '上', 'gogo': '上上上',
+  // 口语寒暄 —— 机翻会把它们**原样吐回英文** (实测 2026-11-05: "whats up" → "whats up",
+  // "wassup" → "Wassup")。浮窗上于是挂着一行英文, 用户报障"翻译还是英文"。
+  // norm 会去掉空格和撇号, 所以 whatsup 同时命中 "whats up" / "what's up"。
+  'whatsup': '在干嘛', 'wassup': '在干嘛', 'whatsnew': '有什么新鲜事',
+  // 1.5.75: 高频寒暄整句。游戏里 90% 的聊天就是这几句, 而机翻在游戏里实测要
+  // 2.9~6.8 秒 (06:23 局日志: "用时 6828ms 源=机翻") —— 用户报障"翻译过了20s才出来"。
+  // 短语表是**纯本地查表**, 命中即 0 毫秒, 不排队、不等接口。
+  // norm 抹掉空格和撇号, 所以一条 howareu 同时覆盖 "how are u" / "how r u" / "How are you?"。
+  'howareu': '你好吗', 'howareyou': '你好吗', 'howru': '你好吗', 'howryou': '你好吗',
+  'howisitgoing': '最近怎么样', 'howareyoudoing': '你好吗', 'howsitgoing': '最近怎么样',
+  'imfine': '我很好', 'imgood': '我很好', 'imok': '我没事', 'doinggood': '挺好的',
+  'u2': '你也是', 'youtoo': '你也是', 'me2': '我也是', 'same': '一样', 'metoo': '我也是',
+  'goodmorning': '早上好', 'goodnight': '晚安', 'goodluck': '好运', 'havefun': '玩得开心',
+  'seeyou': '回头见', 'cya': '回头见', 'later': '待会儿见', 'g2g': '我得走了',
+  'nicemove': '好操作', 'wellplayed': '打得好', 'goodjob': '干得好',
+  'letsgo': '走起', 'comeon': '来吧', 'what': '什么', 'why': '为什么', 'who': '谁',
+  'how': '怎么', 'when': '什么时候', 'where': '在哪', 'help': '帮忙', 'helpme': '帮帮我',
+  'thanks': '谢谢', 'thankyou': '谢谢', 'yep': '嗯', 'yeah': '对', 'nope': '不',
+  'nvmty': '算了，谢谢', 'yes': '是', 'no': '不', 'ok': '好的', 'k': '好的',
   // 投降/状态
   'ff': '投降', 'ff15': '15 分钟投降', 'ff20': '20 分钟投降', 'noff': '不投降',
   'otw': '我在路上', 'omw': '马上到', 'brb': '马上回来', 'afk': '挂机', 'dc': '掉线',
@@ -197,6 +216,9 @@ const FIX_ZH = [
   [/地下通道|地下道/g, '下路'],
   [/拉古诺/g, '大龙'],
   [/男爵(?!夫人)/g, '大龙'],
+  // 实测腾讯机翻 (2026-11-05): "bang is the best ad in the world" → 「bang是世界上最好的广告」。
+  // 对局聊天里的 ad 指射手位, 不是广告 —— 归位成 ad 比"广告"清楚得多。
+  [/广告/g, 'ad'],
   [/他吃饱了/g, '他发育起来了'],
   [/伊姆奥特夫|伊姆·奥特夫/g, '我在路上'],
   [/关心\s*ss|关心闪现/gi, '注意对面闪现'],

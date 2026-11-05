@@ -67,4 +67,37 @@ context.highConvertTeam = [context.highConvertPlayer,
 const highConvertTags = JSON.parse(vm.runInContext('JSON.stringify(derivePerformanceTags(highConvertPlayer, highConvertTeam, 70, 31, 20))', context));
 assert.ok(highConvertTags.some(tag => tag.label === '伤转高'), '伤害转化显著高于队均时应生成伤转高标签');
 
+// ---- 档案名字兜底 (2026-11-05 用户报「明明有 id 为什么主页不显示」) ----
+// 现场: 彩虹海#77843 @ 联盟一区。LCU 按名字/按 puuid 都是 404，
+//       SGP summoner-ledge 只回 name:"" + unnamed:true，于是主页显示「未知玩家#77843」，
+//       可同一页的战绩列表里明明写着「彩虹海」。
+{
+  const fn = (profile, label) => JSON.parse(vm.runInContext(
+    `JSON.stringify(fillSummonerName(${JSON.stringify(profile)}, ${JSON.stringify(label)}))`, context));
+
+  const fromLabel = fn({ puuid: 'p-cai', tagLine: '77843' }, '彩虹海#77843');
+  assert.strictEqual(fromLabel.gameName, '彩虹海', '只有 Tag 的档案要用调用方的 Riot ID 补名字');
+  assert.strictEqual(fromLabel.tagLine, '77843');
+
+  const fromDisplay = fn({ puuid: 'p-cai', gameName: '', displayName: '彩虹海#77843' }, '');
+  assert.strictEqual(fromDisplay.gameName, '彩虹海', 'LCU 的 gameName 为空时要退回 displayName');
+  assert.strictEqual(fromDisplay.tagLine, '77843', 'displayName 里的 Tag 也要拆出来');
+
+  const placeholder = fn({ puuid: 'p-cai', gameName: '未知', tagLine: '77843' }, '彩虹海#77843');
+  assert.strictEqual(placeholder.gameName, '彩虹海', '「未知」是占位符，不能当成真名');
+
+  const fullwidth = fn({ puuid: 'p-cai' }, '彩虹海＃77843');
+  assert.strictEqual(fullwidth.gameName, '彩虹海', '全角 # 要归一');
+  assert.strictEqual(fullwidth.tagLine, '77843');
+
+  const nameOnly = fn({ puuid: 'p-cai', gameName: '彩虹海' }, '');
+  assert.strictEqual(nameOnly.tagLine, undefined, '没有 Tag 时不要塞空串进档案');
+
+  const dn = label => vm.runInContext(`summonerDisplayName(${JSON.stringify(label)})`, context);
+  assert.strictEqual(dn({ gameName: '彩虹海', tagLine: '77843' }), '彩虹海#77843');
+  assert.strictEqual(dn({ displayName: '彩虹海#77843', tagLine: '77843' }), '彩虹海#77843', 'displayName 已是完整 ID 时不能再叠一次 Tag');
+  assert.strictEqual(dn({ tagLine: '77843' }), '未知玩家#77843', '连名字都没有时保持旧兜底，不能空着');
+  assert.strictEqual(dn(null), '未知玩家');
+}
+
 console.log('统一玩家数据模型测试通过');

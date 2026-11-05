@@ -672,29 +672,784 @@ function refreshHomeFunStats() {
   const html = buildHomeFunStats(homeGamesData, { puuid: homeGamesOwner });
   if (html) old.outerHTML = html;
 }
+// 搜索框的大区下拉: 决定"去哪个区找人", 也就决定了要问几个 SGP 网关。
+//   auto  跟随当前登录大区 (默认; 只发 1 条批量请求)
+//   all   全部大区 (8 条请求; 同名的人在各区都列出来, 其它区灰显)
+//   <pid> 指定大区 (1 条请求)
+// 这既省请求, 也让候选列表不再被十几个外区同名账号淹没。
+const HOME_REGION_STORE = 'poroHomeRegionPick.v1';
+let homeRegionPickCache = null;
+function homeRegionPickValue() {
+  if (homeRegionPickCache != null) return homeRegionPickCache;
+  let v = 'auto';
+  try {
+    const raw = localStorage.getItem(HOME_REGION_STORE);
+    if (raw === 'all') v = 'all';
+    else if (raw && typeof SGP_PLATFORM_IDS !== 'undefined' && SGP_PLATFORM_IDS.indexOf(raw) >= 0) v = raw;
+  } catch (e) { /* 隐私模式 */ }
+  homeRegionPickCache = v;
+  return v;
+}
+function homeCurrentRegion() {
+  return (typeof cachedPlatformId === 'string' && cachedPlatformId) ? cachedPlatformId : '';
+}
+// 实际生效的查询范围: '' = 全部大区
+function homeRegionPickRegion() {
+  const v = homeRegionPickValue();
+  if (v === 'all') return '';
+  if (v === 'auto') return homeCurrentRegion();
+  return v;
+}
+function homeRegionSelectHtml() {
+  const cur = homeRegionPickValue();
+  const parts = [`<option value="auto"${cur === 'auto' ? ' selected' : ''}>跟随当前大区</option>`];
+  const ids = (typeof SGP_PLATFORM_IDS !== 'undefined') ? SGP_PLATFORM_IDS : [];
+  for (const pid of ids) {
+    const name = (typeof SERVER_NAMES !== 'undefined' && SERVER_NAMES[pid]) || pid;
+    parts.push(`<option value="${pid}"${cur === pid ? ' selected' : ''}>${escapeHtml(name)}</option>`);
+  }
+  parts.push(`<option value="all"${cur === 'all' ? ' selected' : ''}>全部大区</option>`);
+  return `<select class="home-search-region" id="homeRegionSelect" title="选择在哪个大区找人：选定单个大区只查该区，比「全部大区」少 7 次请求" onchange="onHomeRegionChange(this.value)">${parts.join('')}</select>`;
+}
+function onHomeRegionChange(value) {
+  homeRegionPickCache = value || 'auto';
+  try { localStorage.setItem(HOME_REGION_STORE, homeRegionPickCache); } catch (e) { /* 忽略 */ }
+  // 范围变了, 之前解析出来的归属与候选不再适用于新范围
+  homeAliasCache.clear();
+  homeSearchAliasSeq++;
+  homeSearchCancelAutoGo();
+  homeSearchAutoFired = '';
+  renderHomeSearchCards();
+  // 用 draft 而不是 input.value: 整页重渲染后 input 可能是新节点, 值为空,
+  // 拿它判断会把"刚切完区"当成"没输入", 候选就一直不刷新。
+  const v = String(typeof homeSearchDraft === 'string' ? homeSearchDraft : '').trim();
+  if (v && homeAliasQueryName(v)) homeSearchScheduleAlias(v);
+}
+
 function homeSearchMarkup(placeholderText) {
   return `<div class="home-search">
+    ${homeRegionSelectHtml()}
     <div class="home-search-input-wrap">
-      <input id="homeSearchInput" value="${escapeHtml(homeSearchDraft)}" placeholder="${escapeHtml(placeholderText)}" autocomplete="off"
-        onfocus="showHomeSearchCards()" onclick="showHomeSearchCards()" oninput="homeSearchDraft=this.value"
-        onblur="setTimeout(hideHomeSearchCards,120)" onkeydown="if(event.key==='Enter')homeSearch()">
-      ${homeSearchHistory.length ? `<div class="home-search-card-popover" id="homeSearchCardPopover">
-        ${homeSearchHistory.map(value => `<div class="home-search-record-card" onmousedown="event.preventDefault();selectHomeSearchHistory(${inlineArg(value)})" title="查询 ${escapeHtml(value)}">
-          <span class="home-search-record-icon">⌕</span>
-          <span>${escapeHtml(value)}</span>
-        </div>`).join('')}
-      </div>` : ''}
+      <input id="homeSearchInput" value="${escapeHtml(homeSearchInputValue())}" placeholder="${escapeHtml(placeholderText)}" autocomplete="off"
+        onfocus="showHomeSearchCards()" onclick="showHomeSearchCards()" oninput="onHomeSearchInput(this.value, event)"
+        onblur="setTimeout(hideHomeSearchCards,120)" onkeydown="homeSearchKeydown(event)">
+      <div class="home-search-card-popover" id="homeSearchCardPopover"></div>
     </div>
     <button onclick="homeSearch()">查询</button>
     <button class="btn-secondary" onclick="openWeeklyReport()" title="统计最近 7 天的对局数据" style="font-size:12px;">生成周报</button>
     <span class="home-search-msg" id="homeSearchMsg"></span>
   </div>`;
 }
+// 搜索框候选: 本地玩家索引 (好友 / 最近对局遇到过的人 / 查过的人) + 查询历史。
+// 本地索引负责前缀与子串 (输入半个名字就能搜), 远端别名服务负责"陌生玩家 + 全部 Tag":
+// Riot Client 的 /player-account/aliases/v1/lookup 只给完整名字就能返回该名字下
+// 所有 Riot ID, 但**没有前缀联想** (输入 "雨未" 返回空), 两者互补。
+// 候选列表 + 命中总数。total 用于在候选被截断时明确告诉用户"还有几条没显示",
+// 否则像"23 个同名只露出 8 个"这种情况会被当成搜索结果缺失。
+// 「名字#Tag 前缀」里 Tag 那一段 (只留数字)。没有 # 或 # 后为空 → ''。
+function homeSearchTagPrefix(query) {
+  const s = String(query == null ? '' : query).replace(/[＃﹟]/g, '#').trim();
+  const at = s.lastIndexOf('#');
+  return at > 0 ? s.slice(at + 1).replace(/\D/g, '') : '';
+}
+
+function homeSearchCandidates(query) {
+  const q = String(query || '').trim();
+  if (!q || typeof playerIndexSearch !== 'function') return { list: [], total: 0, limit: 0, relax: false, outOfScope: 0, tagPrefix: '' };
+  // 打完 # 之后是在挑 Tag, 同名的 Tag 可能一大串
+  const limit = q.includes('#') ? HOME_ALIAS_TAG_LIMIT : HOME_ALIAS_NAME_LIMIT;
+  const region = typeof homeRegionPickRegion === 'function' ? homeRegionPickRegion() : '';
+  // 先取全量再筛再截断: 选定大区时若先截断, 前几条会被外区同名占满,
+  // 本区那个人根本露不出来; 全部大区时若先截断, total 也就不是真实命中数了
+  const raw = playerIndexSearch(q, HOME_SEARCH_SCAN_MAX);
+  const current = typeof homeCurrentRegion === 'function' ? homeCurrentRegion() : '';
+  const tagPrefix = homeSearchTagPrefix(q);
+  // Tag 前缀够具体时**不再按大区裁**: 用户在按 Tag 认人, 不是在按大区找人。
+  // 实测 彩虹海#778 在「艾欧尼亚」范围下 0 条, 而 彩虹海#77843 在联盟一区 ——
+  // 界面只回一句"该区没有匹配", 看起来就是 Tag 筛选坏了。放宽后逐条标出大区,
+  // 点开照样用该区服务器查战绩。
+  const relax = tagPrefix.length >= HOME_TAG_PREFIX_RELAX;
+  const inRegion = c => (!region || typeof playerIndexInRegion !== 'function')
+    ? true
+    : playerIndexInRegion(c, region, current);
+  const strict = (!region || typeof playerIndexInRegion !== 'function') ? raw : raw.filter(inRegion);
+  // 只打 1 位数字时先按大区筛; 但**筛成 0 条**就退回全部大区 —— 用户已经在按 Tag 认人,
+  // 这时候回一句"该区没有"只会让他以为筛选坏了。
+  const relaxed = relax || (tagPrefix.length === 1 && strict.length === 0);
+  const scoped = relaxed ? raw : strict;
+  return {
+    list: scoped.slice(0, limit),
+    total: scoped.length,
+    limit,
+    tagPrefix,
+    relax: relaxed,
+    // 放宽后有几个人其实不在当前选定的大区 (界面要说明"点开是去别的区查")
+    outOfScope: (relaxed && region) ? scoped.filter(c => !inRegion(c)).length : 0
+  };
+}
+// 兼容旧调用点 (只想要列表的地方)
+function homeSearchCandidateList(query) {
+  return homeSearchCandidates(query).list;
+}
+// 远端别名补全: 本地索引只涵盖"见过的人", 陌生玩家靠 Riot Client 的别名服务 ——
+// 给一个**完整名字**就返回该名字下的全部 Tag (实测 "雨未散" 16 条), 这正是
+// Akari 那种"不输完整 Tag 也能查"的能力。该接口只认完整名字, 前缀/子串仍由本地索引负责。
+const HOME_ALIAS_TTL = 5 * 60 * 1000;
+const HOME_ALIAS_DEBOUNCE = 260;
+// 空结果只信 20 秒: Riot Client 刚启动 (端口还没解析出来) 或客户端没登录时, 一次
+// 失败会被当成"这个名字没人"缓存 5 分钟, 期间怎么改 Tag 都是空的。缓存命中路径
+// 会重试到成功为止, 代价只是多一次本机请求。
+const HOME_ALIAS_FAIL_TTL = 20 * 1000;
+// 通道没通时 (客户端刚启动, --riotclient-app-port 还没写进日志) 当场重试, 别等 20 秒
+// 缓存过期: 2026-11-05 用户开机后搜 "小熊冰糖" (国服确有 8 个同名账号) 却看到
+// "本地索引里没有匹配的玩家", 就是这一次失败被当成了"没有这个人"。
+const HOME_ALIAS_RETRY_DELAY = 1200;
+const HOME_ALIAS_RETRY_MAX = 2;
+// 输入完整「名字#Tag」后自动查询前的停顿: 够用户打完下一位数字, 又不至于等太久
+const HOME_AUTOGO_DELAY = 700;
+// 同名不同 Tag 极常见 (实测一个名字下有 16~23 个账号)。上限压得太低会出现
+// "提示匹配 23 个、下拉只露 8 个"的情况 —— 用户既看不到剩下的，也点不到。
+// 现在一次性全列, 弹层自带滚动, 靠 # 前缀筛 Tag 仍然更快。
+const HOME_ALIAS_NAME_LIMIT = 60;
+const HOME_ALIAS_TAG_LIMIT = 60;
+const HOME_SEARCH_SCAN_MAX = 1200;    // 本地索引 1500 条上限内的扫描量
+// 打了几位 Tag 才允许"跨出当前大区": 1 位数字太宽 (彩虹海 315 个同名, 一半以上都以
+// 1/2/3 开头), 2 位开始命中数已经收敛到个位数, 这时还按大区把外区的裁掉, 界面上
+// 就只剩"该区没有匹配"——用户会以为 Tag 模糊查询坏了 (2026-11-05 实际反馈)。
+const HOME_TAG_PREFIX_RELAX = 2;
+const homeAliasCache = new Map();     // 小写名字 → { ts, list } (同一次会话不重复打网络)
+let homeSearchAliasTimer = null;
+let homeSearchAliasSeq = 0;
+let homeSearchAutoTimer = null;       // 完整 #Tag 的自动查询定时器
+let homeSearchAutoFired = '';         // 已经自动查过的 ID, 同一个值不反复触发
+
+function homeAliasQueryName(raw) {
+  const q = String(raw == null ? '' : raw).trim();
+  if (!q) return '';
+  // "名字#12" 也只用名字去问服务端, Tag 部分由本地筛选
+  const at = q.replace(/[＃﹟]/g, '#').lastIndexOf('#');
+  return (at > 0 ? q.slice(0, at) : q).trim();
+}
+
+// 别名接口是跨大区的: 同名 16 个账号里通常只有 1 个在本区。归属判定分两步:
+//   1) SGP 批量查 (8 个合区网关各一条, 实测 250ms 出全部 16 条的大区+等级+头像)
+//   2) SGP 不可用时退回逐个问 LCU (200=本区 / 404 "No summoner name" = 其它大区),
+//      只能分辨本区与否, 拿不到具体大区
+const HOME_ALIAS_RESOLVE_CONCURRENCY = 6;
+
+function homeSelfPuuid() {
+  try {
+    if (window._myPuuid) return window._myPuuid;
+    if (typeof cachedSummoner !== 'undefined' && cachedSummoner && cachedSummoner.puuid) return cachedSummoner.puuid;
+  } catch (e) { /* 未登录 */ }
+  return '';
+}
+
+// 逐个问 LCU (兜底): 200 顺便拿到等级/头像, 404 即其它大区
+async function homeAliasResolveByLcu(puuids) {
+  const metas = {};
+  const list = (puuids || []).filter(Boolean);
+  let at = 0;
+  async function worker() {
+    while (at < list.length) {
+      const puuid = list[at++];
+      const r = await lolAPI.lcuRequest('GET', '/lol-summoner/v2/summoners/puuid/' + encodeURIComponent(puuid)).catch(() => null);
+      if (r && !r.__error && r.puuid) {
+        metas[puuid] = { inRegion: true, level: r.summonerLevel || 0, icon: r.profileIconId || 0 };
+      } else if (r && (r.httpStatus === 404 || /No summoner name/i.test(r.__error || r.message || ''))) {
+        metas[puuid] = { inRegion: false };
+      }
+    }
+  }
+  const workers = Math.min(HOME_ALIAS_RESOLVE_CONCURRENCY, list.length);
+  await Promise.all(Array.from({ length: workers }, worker));
+  return metas;
+}
+
+async function homeAliasResolveMetas(puuids, opts) {
+  const ids = (puuids || []).filter(Boolean);
+  if (!ids.length) return {};
+  // opts.allRegions: 用户在按 Tag 前缀筛人, 命中者很可能不在当前大区, 必须问全部
+  // 网关才知道他到底属于哪个区 (否则那行只能显示"其它大区", 点开还要再猜一轮)。
+  const region = (opts && opts.allRegions) ? '' : homeRegionPickRegion();   // '' = 全部大区
+  const mine = homeSelfPuuid();
+  // 只查指定大区时, 当前大区如果已知就不用再拿自己当探针 (省一条无关查询)
+  const needProbe = !homeCurrentRegion() && mine && ids.indexOf(mine) < 0;
+  const probe = needProbe ? ids.concat(mine) : ids;
+  let map = {};
+  let queried = [];
+  if (lolAPI && typeof lolAPI.playerResolveRegions === 'function') {
+    const r = await lolAPI.playerResolveRegions(probe, region ? [region] : null).catch(() => null);
+    if (r && r.ok) { map = r.map || {}; queried = r.queried || []; }
+  }
+  let current = (needProbe && map[mine]) ? map[mine].platformId : homeCurrentRegion();
+  if (!current) current = await getPlatformId().catch(() => '');
+  if (current && current !== cachedPlatformId) cachedPlatformId = current;
+  const metas = {};
+  const allRegions = (typeof SGP_PLATFORM_IDS !== 'undefined') ? SGP_PLATFORM_IDS.length : 8;
+  for (const id of ids) {
+    const hit = map[id];
+    if (hit) {
+      metas[id] = { inRegion: hit.platformId === current, level: hit.level, icon: hit.icon, platform: hit.platformId };
+      continue;
+    }
+    // 没命中只有在"那个区确实查通了"时才敢下结论 —— 否则一次超时就会把本区
+    // 账号误标成"其它大区", 之后再也点不开。
+    if (!queried.length) continue;
+    if (region) {
+      // 查的就是本区: 没命中 = 不在本区, 可以标其它大区 (具体哪个区没查, 不知道)。
+      // 查的是别的大区: 没命中只说明"不在那个区", 完全可能是本区的人 → 保持未知,
+      // 绝不能标 foreign。
+      if (queried.indexOf(region) >= 0 && region === current) metas[id] = { inRegion: false };
+    } else if (queried.length >= allRegions) {
+      metas[id] = { inRegion: false };
+    }
+  }
+  if (!Object.keys(metas).length) return homeAliasResolveByLcu(ids);
+  return metas;
+}
+
+// 返回新增索引条数; opts.render=false 时不动下拉 (回车查询路径自己会处理展示),
+// opts.awaitRegion=true 时等归属解析完成再返回 (回车时用, 保证决策看到的是最终归属)。
+// Riot 的别名接口只做**完整名字精确匹配**: 实测 "小慕" → 0 条, "小慕冰" → 1 条,
+// 也没有 prefix / search 之类的参数(试过 400 Unknown argument)。
+// 以前这里会尾部裁字去"猜相近名字", 2026-11-05 起按 LeagueAkari 的口径取消 ——
+// 猜出来的名字会让用户以为系统认错了人, 比直接说查不到更糟。
+
+async function homeSearchFetchAlias(raw, opts) {
+  const name = homeAliasQueryName(raw);
+  if (!name || name.length > 64) return 0;
+  if (!lolAPI || typeof lolAPI.playerAliasLookup !== 'function') return 0;
+  if (typeof playerIndexFromAliases !== 'function') return 0;
+  const key = name.toLocaleLowerCase();
+  const quiet = !!(opts && opts.render === false);
+  const typed = String(raw == null ? '' : raw).trim();
+  // 用户已经打出的 Tag 前缀: 写入索引时优先保留这些 (他多半就在找它们)
+  const tagPrefix = (() => {
+    const i = typed.lastIndexOf('#');
+    return i > 0 ? typed.slice(i + 1).replace(/\D/g, '') : '';
+  })();
+  const seq = ++homeSearchAliasSeq;
+  const refresh = () => {
+    // 结果到手就顺手看一眼能不能自动查 (完整 #Tag 且已定位到本区账号)。
+    // quiet = 回车/点选路径自己会处理展示与查询, 别再自动补一刀重复查同一个人。
+    if (!quiet) homeSearchScheduleAutoGo();
+    // 期间又敲了字: 把重绘权交给最新那一轮, 避免旧结果把新候选顶掉
+    // 判断"用户还在等这一轮结果吗"用 draft 而不是 input.value: 首页数据加载完后
+    // 整页重渲染会把 input 换成新节点(值可能还没回填), 拿 DOM 判断会误判成"已改词"
+    // 而丢掉这次结果。
+    const live = String(typeof homeSearchDraft === 'string' ? homeSearchDraft : '').trim();
+    if (quiet || live !== typed || seq !== homeSearchAliasSeq) return;
+    const el = document.getElementById('homeSearchCardPopover');
+    if (el && el.classList.contains('show')) renderHomeSearchCards();
+  };
+
+  let list = null;
+  let added = 0;
+  let skipGenericResolve = false;
+  let cacheEntry = homeAliasCache.get(key);
+  // 空列表走短 TTL (见 HOME_ALIAS_FAIL_TTL)
+  const ttl = (cacheEntry && Array.isArray(cacheEntry.list) && !cacheEntry.list.length)
+    ? HOME_ALIAS_FAIL_TTL : HOME_ALIAS_TTL;
+  const freshHit = cacheEntry && Date.now() - cacheEntry.ts < ttl;
+  if (freshHit) {
+    list = cacheEntry.list;
+    // 缓存命中也要按**当前**的 Tag 前缀重写一遍索引。用户正常的操作顺序是
+    // "先打名字 → 看候选 → 接着补 #Tag": 第一轮是按空前缀截的 60 条 (实测同名
+    // 500 条上限), 精确那一条大概率没进去; 以前这里直接 return, 于是接着输
+    // 完整 Tag 时下拉永远停在"本地未收录", 只能回车才能查到。
+    // 这一步只动本地数据, 零网络成本。
+    if (Array.isArray(list) && list.length && typeof playerIndexFromAliases === 'function') {
+      if (playerIndexFromAliases(list, null, { tagPrefix }) > 0) refresh();
+    }
+    // 归属已经解析过就不必再问网关; 上次没解析成 (客户端没登录) 才补一次
+    // 注意不能直接 return: 下面还有"Tag 前缀命中的那些人要按全部大区定位"这一步,
+    // 它跟"这批名字查没查过归属"是两件独立的事 (缓存里解析的是本区, 前缀命中
+    // 的往往在别的区, 那时只会被标成"其它大区")。
+    if (cacheEntry.resolvedAt && Date.now() - cacheEntry.resolvedAt < HOME_ALIAS_TTL) skipGenericResolve = true;
+  } else {
+    let res = null;
+    for (let attempt = 0; ; attempt++) {
+      try { res = await lolAPI.playerAliasLookup(name); } catch (e) {
+        res = { ok: false, list: [], error: String((e && e.message) || e) };
+      }
+      if (res && res.ok) break;
+      if (attempt >= HOME_ALIAS_RETRY_MAX) break;
+      // 客户端刚启动时端口还没解析出来, 隔一会儿再问 —— 这条通道一秒钟内恢复很常见
+      await new Promise(r => setTimeout(r, HOME_ALIAS_RETRY_DELAY));
+      if (String(typeof homeSearchDraft === 'string' ? homeSearchDraft : '').trim() !== typed) return 0;
+    }
+    // ok=false 只表示"通道没通"(没开 Riot Client / 端口没解析出来), 不等于没有这个人
+    if (!res || !res.ok) {
+      try { lolAPI.debugLog && lolAPI.debugLog('[SEARCH] 别名通道未就绪 ' + name + ': ' + ((res && res.error) || '?')); } catch (e) { /* 日志失败无所谓 */ }
+      homeAliasCache.set(key, { ts: Date.now(), list: [], resolvedAt: 0, unready: true });
+      refresh();
+      return 0;
+    }
+    if (!Array.isArray(res.list) || !res.list.length) {
+      // 记成 miss: 下拉里要能说清"是服务端没有这个人", 而不是"本地没收录"
+      try { lolAPI.debugLog && lolAPI.debugLog('[SEARCH] 别名查无此人 ' + name); } catch (e) { /* 忽略 */ }
+      homeAliasCache.set(key, { ts: Date.now(), list: [], resolvedAt: 0, miss: name });
+      refresh();
+      return 0;
+    }
+    list = res.list;
+    cacheEntry = { ts: Date.now(), list, resolvedAt: 0 };
+    homeAliasCache.set(key, cacheEntry);
+    added = playerIndexFromAliases(list, null, { tagPrefix });
+    // 先把候选摆出来 (归属未知), 别让归属查询把列表卡住
+    if (added > 0) refresh();
+  }
+
+  // ---- Tag 前缀命中的人: 在**全部大区**里定位 ----
+  // 用户按 Tag 认人时, 命中者大概率不在当前选定的大区 (彩虹海#77843 在联盟一区,
+  // 而范围是艾欧尼亚)。只按当前区查归属的话, 那行只能显示"其它大区", 点开还得
+  // 再猜一轮; 而且 candidates 那边已经放宽了大区过滤, 这里必须给得出一致的信息。
+  if (tagPrefix.length >= 1) {
+    const prefixed = (list || [])
+      .filter(x => String((x && (x.tagLine || x.tag)) || '').startsWith(tagPrefix))
+      .map(x => x && x.puuid).filter(Boolean);
+    if (prefixed.length) {
+      // 已经知道具体大区的不用再问 (切一次前缀就会重走这里, 别每次都打 8 个网关)
+      const unknown = typeof playerIndexNeedRegion === 'function'
+        ? new Set(playerIndexNeedRegion(list, { needPlatform: true }))
+        : new Set(prefixed);
+      const todo = prefixed.filter(p => unknown.has(p));
+      if (todo.length) {
+        const job = homeAliasResolveMetas(todo, { allRegions: true }).then(metas => {
+          cacheEntry.resolvedAt = Date.now();
+          if (!Object.keys(metas).length) return;
+          playerIndexFromAliases(list, metas, { tagPrefix });
+          refresh();
+        }).catch(() => {});
+        if (opts && opts.awaitRegion) await job;
+      }
+      return added;
+    }
+  }
+  if (skipGenericResolve) return added;
+
+  // 全部大区模式要连"只判过不在本区、还没问出具体区名"的一起补 —— 否则切过来
+  // 只能看到一排"其它大区", 白费 8 条请求
+  const pending = typeof playerIndexNeedRegion === 'function'
+    ? playerIndexNeedRegion(list, { needPlatform: !homeRegionPickRegion() })
+    : [];
+  if (pending.length) {
+    const job = homeAliasResolveMetas(pending).then(metas => {
+      cacheEntry.resolvedAt = Date.now();
+      if (!Object.keys(metas).length) return;
+      playerIndexFromAliases(list, metas, { tagPrefix });
+      refresh();
+    }).catch(() => {});
+    if (opts && opts.awaitRegion) await job;
+  }
+  return added;
+}
+
+function homeSearchScheduleAlias(value) {
+  if (homeSearchAliasTimer) clearTimeout(homeSearchAliasTimer);
+  if (!homeAliasQueryName(value)) return;
+  homeSearchAliasTimer = setTimeout(() => {
+    homeSearchAliasTimer = null;
+    homeSearchFetchAlias(value);
+  }, HOME_ALIAS_DEBOUNCE);
+}
+
+// 完整「名字#Tag」= 用户已经把账号指定到唯一一个了, 不该再逼他按一次回车。
+// 判定条件全部满足才自动查, 缺一条都留给用户自己决定:
+//   1) 输入法/焦点还在搜索框里, 而且值没变 (人已经走了或改了字就别抢)
+//   2) 没有用 ↑↓ 手动高亮别的候选 (那说明他在挑, 不是在等自动跳)
+//   3) 本地索引能精确对到这条, 且不是明确在别的区 (查了也是空白)
+// 别名结果一回来就会重新调一次, 所以"先打名字、再补 Tag"这条路径也覆盖得到。
+function homeSearchCancelAutoGo() {
+  if (homeSearchAutoTimer) { clearTimeout(homeSearchAutoTimer); homeSearchAutoTimer = null; }
+}
+
+function homeSearchScheduleAutoGo() {
+  const raw = String(homeSearchLiveValue() || '').trim()
+    .replace(/[＃﹟]/g, '#');
+  if (!raw || typeof playerIndexAutoGoTarget !== 'function') return;
+  if (homeSearchAutoFired === raw) return;
+  homeSearchCancelAutoGo();
+  homeSearchAutoTimer = setTimeout(() => {
+    homeSearchAutoTimer = null;
+    const input = document.getElementById('homeSearchInput');
+    const live = String(homeSearchLiveValue() || '').trim().replace(/[＃﹟]/g, '#');
+    if (!input || document.activeElement !== input) return;
+    if (live !== raw || homeSearchActive >= 0) return;
+    const label = playerIndexAutoGoTarget(raw);
+    if (!label) return;
+    homeSearchAutoFired = raw;
+    selectHomeSearchCandidate(label);
+  }, HOME_AUTOGO_DELAY);
+}
+
+function homeServerLabel() {
+  return (typeof cachedPlatformId === 'string' && cachedPlatformId && typeof SERVER_NAMES !== 'undefined')
+    ? (SERVER_NAMES[cachedPlatformId] || cachedPlatformId) : '';
+}
+function homeRegionName(platformId) {
+  if (!platformId) return '';
+  return typeof SERVER_NAMES !== 'undefined' ? (SERVER_NAMES[platformId] || platformId) : platformId;
+}
+
+function homeSearchCardHtml() {
+  // 以输入框里真正显示的内容为准: draft 可能还停在输入法的拼音上
+  const raw = String(homeSearchLiveValue() || '').trim();
+  const q = raw;
+  const candPack = homeSearchCandidates(q);
+  const cands = candPack.list;
+  // 这一轮名字在别名服务上的结果: 空列表说明服务端确实没有这个完整名字,
+  // 只有 miss/unready 两种状态要在界面上说清楚 (不再有"近似名字"这条路径)。
+  const aliasName = typeof homeAliasQueryName === 'function' ? homeAliasQueryName(raw) : '';
+  const aliasEntry = aliasName ? homeAliasCache.get(aliasName.toLocaleLowerCase()) : null;
+  // 别名接口命中 = 线上确实存在这个完整名字的账号(可能多个区); 这是"同名账号"的唯一来源
+  const aliasHits = (aliasEntry && Array.isArray(aliasEntry.list)) ? aliasEntry.list : [];
+  const aliasMiss = !!(aliasEntry && aliasEntry.miss);
+  const aliasUnready = !!(aliasEntry && aliasEntry.unready);
+  const seen = new Set(cands.map(c => piNorm(c.label)));
+  const hist = homeSearchHistory
+    .filter(v => !seen.has(piNorm(v)) && (!q || piNorm(v).includes(piNorm(q))))
+    .slice(0, 6);
+  // "名字#" 末尾刚好一个井号: 提示可以继续输数字筛 Tag
+  const tagOpen = /[#＃]$/.test(raw);
+  let html = '';
+  if (cands.length) {
+    const srcText = c => c.src === 'friend' ? '好友' : c.src === 'match' ? '对局' : c.src === 'alias' ? '同名' : c.src === 'search' ? '查过' : '';
+    // 标题写明"正在哪个区找": 选定大区时只查这一个区, 不标清楚会让人以为
+    // 同名的人只在这个区有
+    const scope = homeRegionPickRegion();
+    const regionLabel = scope ? (homeRegionName(scope) || scope) : '全部大区';
+    // 按 Tag 前缀筛选时范围已经放宽到全部大区 (见 homeSearchCandidates.relax),
+    // 标题再写"· 艾欧尼亚"会自相矛盾 —— 底下明明列着别的区的人。
+    const scopeName = candPack.relax ? '按 Tag 前缀筛选' : regionLabel;
+    const curRegion = homeCurrentRegion();
+    // 每条候选属于哪个大区: 「全部大区」模式下必须逐条标出来, 否则 20 多个同名
+    // 账号排在一起完全分不清哪个是本区的、哪个点进去是空白。选定单一区时标题
+    // 已经写了区名, 只在"别的区"的条目上标(预防混合情况)。
+    const regionOf = c => {
+      if (c.platform) return homeRegionName(c.platform) || c.platform;
+      if (c.foreign) return '其它大区';
+      if (c.regionUnknown) return '归属待定';
+      return homeRegionName(curRegion) || '本区';
+    };
+    const showRegionAll = !scope;
+    // 候选一多, 横排换行会挤成一片, 改成单列竖排 (每行一个人 + 区名), 便于扫读
+    const rowClass = cands.length > 6 ? 'hs-row hs-list' : 'hs-row';
+    // 分组渲染 (对齐 Akari 的"搜索结果=线上验证过的账号"): 线上同名永远在第一组,
+    // 本地"最近遇到"降为第二组。以前单列表混排, alias 命中可能被一排本地记录
+    // 淹在中间, 看起来和 Akari 完全不一样。
+    const groups = [
+      { key: 'alias', title: '同名账号', hint: '', list: cands.filter(c => c.src === 'alias') },
+      { key: 'local', title: '最近遇到', hint: '本地记录，只包含遇到过的玩家', list: cands.filter(c => c.src !== 'alias') }
+    ].filter(g => g.list.length);
+    if (groups.length === 1 && groups[0].key === 'alias') {
+      groups[0].hint = aliasHits.length > 1 ? `线上同名 ${aliasHits.length} 个，按大区区分` : '线上查到的完整同名账号';
+    }
+    const rowHtml = (c, i) => {
+      const src = srcText(c);
+      // 放宽大区后, "不在当前大区"的条目必须标区名, 否则用户不知道自己点开的是别的区
+      const inScope = !scope || (typeof playerIndexInRegion === 'function' ? playerIndexInRegion(c, scope, curRegion) : true);
+      const region = (showRegionAll || c.foreign || (candPack.relax && !inScope)) ? regionOf(c) : '';
+      // 候选行带头像 (Akari 的结果行是头像+名字+区+等级): 索引条目存了 icon
+      const avatar = c.icon ? profileIcon(c.icon) : placeholder((c.name || '?')[0] || '?');
+      return `<div class="home-search-record-card${c.foreign ? ' hs-foreign' : ''}" data-hs-kind="player" data-hs-pick="${escapeHtml(c.label)}" data-hs-idx="${i}" onmousedown="event.preventDefault();selectHomeSearchCandidate(${inlineArg(c.label)})" title="${escapeHtml(c.foreign ? '这条 ID 在' + region + '，点开用该区服务器查战绩' : '查询 ' + c.label + (region ? '（' + region + '）' : ''))}">
+        <img class="hs-avatar" src="${avatar}" onerror="this.style.visibility='hidden'">
+        <span class="hs-pick-name">${escapeHtml(c.label)}</span>
+        ${region ? `<span class="hs-meta${c.foreign ? ' hs-foreign-tag' : ' hs-region-here'}">${escapeHtml(region)}</span>` : ''}
+        ${c.level ? `<span class="hs-meta">Lv${escapeHtml(String(c.level))}</span>` : ''}
+        ${!c.foreign && src ? `<span class="hs-meta">${src}</span>` : ''}
+      </div>`;
+    };
+    let idx = 0;
+    for (const g of groups) {
+      html += `<div class="hs-title">${g.title} · ${escapeHtml(g.key === 'alias' ? scopeName : '本地')}` 
+        + `<span class="hs-count">${escapeHtml(g.hint)}${g.key === 'alias' && candPack.total > cands.length ? ' · 匹配 ' + candPack.total + ' 条' : ''}</span></div>`;
+      html += `<div class="${rowClass}">` + g.list.map(c => rowHtml(c, idx++)).join('') + '</div>';
+    }
+    if (tagOpen) html += '<div class="hs-hint">继续输入数字可按 Tag 前缀筛选，↑↓ 选择，回车确认</div>';
+    else if (candPack.relax) {
+      // 说明"为什么这里会出现别的大区的人": 不解释的话, 选了艾欧尼亚却看到联盟一区
+      // 的账号会被当成筛选出错。
+      html += `<div class="hs-hint">Tag 前缀「${escapeHtml(candPack.tagPrefix)}」命中 ${candPack.total} 个`
+        + (candPack.outOfScope ? `，其中 ${candPack.outOfScope} 个不在${escapeHtml(regionLabel)}（点开即用该区服务器查战绩）` : '')
+        + '</div>';
+    }
+    else if (candPack.total > cands.length) html += `<div class="hs-hint">命中 ${candPack.total} 个，已显示前 ${cands.length} 个：输入 # 可按 Tag 筛选</div>`;
+    else if (cands.length >= 12) html += '<div class="hs-hint">候选较多，可滚动查看；输入 # 后跟数字可筛 Tag</div>';
+  }
+  if (hist.length) {
+    html += '<div class="hs-title">最近查询</div>';
+    html += '<div class="hs-row">' + hist.map(value => `<div class="home-search-record-card" data-hs-kind="hist" data-hs-pick="${escapeHtml(value)}" onmousedown="event.preventDefault();selectHomeSearchHistory(${inlineArg(value)})" title="${escapeHtml('查询 ' + value)}">
+      <span class="home-search-record-icon">↺</span>
+      <span>${escapeHtml(value)}</span>
+    </div>`).join('') + '</div>';
+  }
+  if (!html) {
+    const total = playerIndexSize();
+    const scope = homeRegionPickRegion();
+    // 输入已经是完整「名字#Tag」时, 本地没收录不等于"没有这个人" —— 回车就是
+    // 让客户端按 Riot ID 直查。旧文案在这里说"输入完整名字#Tag 仍可直接查询",
+    // 但用户明明已经输入完整了, 看起来就像在说"查无此人"。
+    const fullTag = typeof playerIndexFullTag === 'function' && playerIndexFullTag(q);
+    if (q) {
+      // 粘贴的是一串 PUUID: 不是名字, 给一条直查行 (Akari 的搜索框直接支持 puuid)
+      if (typeof looksLikePuuid === 'function' && looksLikePuuid(q)) {
+        html = '<div class="hs-title">按 PUUID 查询</div><div class="hs-row">'
+          + `<div class="home-search-record-card hs-go" data-hs-kind="go" data-hs-pick="${escapeHtml(q)}" onmousedown="event.preventDefault();selectHomeSearchCandidate(${inlineArg(q)})" title="向客户端查询这个 PUUID">`
+          + '<span class="home-search-record-icon">⏎</span>'
+          + `<span class="hs-pick-name">PUUID · ${escapeHtml(q.slice(0, 13))}…</span>`
+          + '<span class="hs-meta">回车直查</span>'
+          + '</div></div>';
+      } else if (fullTag) {
+        // 完整 ID 时把"回车"做成可点的一行: 光写一行文字, 鼠标用户会以为只是提示,
+        // 而键盘用户又不知道必须再按一次回车。自动查询 (homeSearchScheduleAutoGo)
+        // 成功跳走之前它会一直在这儿。
+        html = '<div class="hs-title">直接查询</div><div class="hs-row">'
+          + `<div class="home-search-record-card hs-go" data-hs-kind="go" data-hs-pick="${escapeHtml(q)}" onmousedown="event.preventDefault();selectHomeSearchCandidate(${inlineArg(q)})" title="向客户端查询 ${escapeHtml(q)}">`
+          + '<span class="home-search-record-icon">⏎</span>'
+          + `<span class="hs-pick-name">${escapeHtml(q)}</span>`
+          + '<span class="hs-meta">不在本地索引</span>'
+          + '</div></div>'
+          + '<div class="hs-hint">点击或按回车向客户端查询；也可以只输名字，从同名列表里挑</div>';
+      } else if (aliasUnready) {
+        html = '<div class="hs-empty">Riot Client 还没连上，现在只能搜遇到过的玩家<br>启动英雄联盟客户端后会自动恢复</div>';
+      } else if (aliasMiss) {
+        // 服务端明确回答"没有这个名字"。2026-11-05 起候选层只对完整名字负责
+        // (对齐 LeagueAkari): 这里必须说清"名字要完整", 不能让人以为是本地没收录。
+        html = aliasName.length <= 3
+          ? `<div class="hs-empty">「${escapeHtml(aliasName)}」太短，不可能是完整名字<br>只输一半只能匹配本地遇到过的玩家（上面没有就是没遇到过）</div>`
+          : `<div class="hs-empty">线上没有「${escapeHtml(aliasName)}」这个完整名字的账号<br>Riot ID 只按完整名字精确匹配（多一个字少一个字都查不到）<br>如果这只是一半的名字，那就只能匹配遇到过的玩家</div>`;
+      } else if (candPack.tagPrefix && candPack.tagPrefix.length >= HOME_TAG_PREFIX_RELAX && aliasHits.length) {
+        // 名字确实存在, 但这个名字下没有以该前缀开头的 Tag —— 这是"筛空了",
+        // 不是"查不到这个人"。把同名账号数量与样例列出来, 用户才知道该删几位。
+        const samples = aliasHits.slice(0, 3).map(x => aliasName + '#' + (x.tagLine || '')).join('、');
+        html = `<div class="hs-empty">「${escapeHtml(aliasName)}」名下没有以 ${escapeHtml(candPack.tagPrefix)} 开头的 Tag<br>线上同名 ${aliasHits.length} 个，例如 ${escapeHtml(samples)}<br>少输几位再试，或只输名字从同名列表里挑</div>`;
+      } else if (scope) {
+        html = `<div class="hs-empty">${escapeHtml(homeRegionName(scope) || scope)} 里没有匹配的账号<br>切到「全部大区」可以看其它区的同名 ID</div>`;
+      } else {
+        html = '<div class="hs-empty">遇到过的玩家里没有匹配的<br>输入完整「名字#Tag」后按回车可直接查询（会去线上查，不受本地记录限制）</div>';
+      }
+    } else if (!total) html = '<div class="hs-empty">还没有记录过任何玩家<br>打开首页加载一次战绩后，遇到过的人就能只输名字搜到</div>';
+    else html = `<div class="hs-empty">输入完整名字搜索线上账号；只输一半时匹配本地 ${total} 位遇到过的玩家</div>`;
+  }
+  return html;
+}
+let homeSearchActive = -1;
+function renderHomeSearchCards(noNet) {
+  const el = document.getElementById('homeSearchCardPopover');
+  if (!el) return;
+  el.innerHTML = homeSearchCardHtml();
+  // 候选多 = 单列 + 名字/区名/等级/来源四个元素挤在一行, 弹层太窄会把名字
+  // 压成省略号, 所以这时给弹层一个更宽的基准宽度
+  el.classList.toggle('hs-pop-wide', !!el.querySelector('.hs-row.hs-list'));
+  el.classList.add('show');
+  homeSearchActive = -1;   // 内容变了就清掉高亮, 免得高亮停在别的条目上
+  // noNet: 输入法合成期间的本地重渲染, 不补发网络请求 (值可能是拼音中间态)
+  if (!noNet) homeSearchEnsureAlias();
+}
+
+// 兜底再发一次别名请求: 名字已经在框里, 但这一轮从来没发出过请求 (输入法合成结束、
+// 首页整页重渲染都可能让最后一次 oninput 丢掉) 时, 下拉会永远停在"本地没收录"。
+// 只补发, 不重复打: 缓存里刚有结果的 (成功或失败) 一律放过。
+function homeSearchEnsureAlias() {
+  if (homeSearchAliasTimer) return;
+  const raw = String(homeSearchLiveValue() || '').trim();
+  const name = homeAliasQueryName(raw);
+  if (!name || name.length > 64) return;
+  const entry = homeAliasCache.get(name.toLocaleLowerCase());
+  if (entry) {
+    const ttl = (Array.isArray(entry.list) && entry.list.length) ? HOME_ALIAS_TTL : HOME_ALIAS_FAIL_TTL;
+    if (Date.now() - entry.ts < ttl) return;
+  }
+  homeSearchScheduleAlias(raw);
+}
 function showHomeSearchCards() {
-  document.getElementById('homeSearchCardPopover')?.classList.add('show');
+  renderHomeSearchCards();
 }
 function hideHomeSearchCards() {
   document.getElementById('homeSearchCardPopover')?.classList.remove('show');
+  homeSearchActive = -1;
+}
+// 输入法(拼音)合成状态。2026-11-05 实测事故: 用户打「巧丝绒」时, 输入框里依次
+// 出现 qiao'si'rong / 巧si'rong / 巧丝 / 巧丝rong'mao 这些**拼音串**, 每一次都被
+// 当成"名字"发去 Riot 别名服务, 于是满屏"查无此人"; 而上屏后的「巧丝绒」国服
+// 明明有 3 个账号(#28970/#55366/#71906), 界面却只剩两条按编辑距离凑出来的
+// 「巧克力」「巧遇記」。根因就是合成期间的 value 被当成了输入内容。
+let homeSearchComposing = false;
+
+// 合成事件**必须 addEventListener 绑定** (1.5.107 探针实证): Chromium 不支持
+// oncompositionstart/oncompositionend 内联内容属性 —— 属性写在标记上、
+// getAttribute 也拿得到, 但编译不出事件处理器 (inp.oncompositionend === undefined,
+// dispatchEvent 也不触发), Firefox 才支持。1.5.95~1.5.106 的内联绑定全是死代码,
+// 中文上屏后 compositionend 从未到达 → 上屏后的 alias 补发从未发生
+// (2026-11-06 用户输「黑凤体育生」零请求, 下拉只剩本地空态提示)。
+// 用 document 捕获委托: 输入框会被整页重渲染换掉, 委托不怕节点重建。
+if (typeof document !== 'undefined') {
+  document.addEventListener('compositionstart', e => {
+    if (e.target && e.target.id === 'homeSearchInput') homeSearchComposing = true;
+  }, true);
+  document.addEventListener('compositionend', e => {
+    if (e.target && e.target.id === 'homeSearchInput') {
+      homeSearchComposing = false;
+      // Chromium 的合成收尾顺序: 最后一个 input(isComposing=true) → compositionend,
+      // 之后**没有**普通 input 事件。这里是合成文本唯一能进"非合成"路径的入口。
+      onHomeSearchInput(typeof e.target.value === 'string' ? e.target.value : '');
+    }
+  }, true);
+}
+
+// 输入框里的真实值。整页重渲染、输入法合成都可能让 homeSearchDraft 落后于 DOM,
+// 所有"按什么搜"的判断都从这里取, 免得拿拼音或上一轮的值去查。
+function homeSearchLiveValue() {
+  const el = document.getElementById('homeSearchInput');
+  if (el && typeof el.value === 'string') {
+    if (el.value !== homeSearchDraft) homeSearchDraft = el.value;
+    return el.value;
+  }
+  return typeof homeSearchDraft === 'string' ? homeSearchDraft : '';
+}
+// 重绘模板时写回输入框的值: 优先用 DOM 里正在显示的内容(用户看得见的那个)
+function homeSearchInputValue() {
+  return homeSearchLiveValue();
+}
+
+function onHomeSearchInput(value, ev) {
+  // 统一规则 (1.5.106, 收掉 1.5.95/104/105 三次补丁):
+  //   本地渲染 —— 永远执行。渲染只读索引和别名缓存, 不出网, 合成态画下拉无害。
+  //   网络/自动查询 —— 只在非合成态执行。拼音中间态永远不 alias、不 autoGo。
+  // 以前是"合成态整件事都不做", 结果 1.5.104 (伊莉丝#5) 和 1.5.105 (baby#0)
+  // 先后被"数字也走合成""英文也走合成"咬到 —— 条件怎么收都有漏的输入法。
+  // 现在渲染与出网解耦, 不再依赖任何对输入法行为的猜测。
+  const composing = !!(ev && ev.isComposing === true);
+  homeSearchComposing = composing;
+  homeSearchDraft = value;
+  // 值变了就允许下一次自动查询 (同一个 ID 只自动跳一次, 否则他删了重打会跳不动)
+  if (!composing &&
+      String(value == null ? '' : value).trim().replace(/[＃﹟]/g, '#') !== homeSearchAutoFired) {
+    homeSearchAutoFired = '';
+  }
+  // 合成态补一步零网络重写: 名字已 alias 过 (缓存有 list) 且正在输 #Tag 时,
+  // 按新前缀重排索引 —— 否则同名一大堆 (实测 黑皮体育生 500 条, 索引只装下
+  // Tag 升序前 60) 时, 后输的 Tag 段命中的账号不在那 60 条里, 合成态本地
+  // 筛出 0 行, 上屏后才"突然蹦出来"。
+  if (composing) homeAliasRewriteFromCache(value);
+  renderHomeSearchCards(composing);   // 合成态 noNet
+  if (!composing) {
+    homeSearchScheduleAlias(value);
+    homeSearchScheduleAutoGo();
+  }
+}
+
+// 从别名缓存按**当前输入**的 Tag 前缀重写索引。纯本地 (读缓存+写索引), 不发请求;
+// 没缓存/没打到 # 时不做任何事。合成态与非合成态都安全。
+function homeAliasRewriteFromCache(raw) {
+  if (typeof homeAliasQueryName !== 'function' || typeof playerIndexFromAliases !== 'function') return false;
+  const name = homeAliasQueryName(raw);
+  if (!name) return false;
+  const entry = homeAliasCache.get(name.toLocaleLowerCase());
+  if (!entry || !Array.isArray(entry.list) || !entry.list.length) return false;
+  const typed = String(raw == null ? '' : raw).trim();
+  const at = typed.lastIndexOf('#');
+  const tagPrefix = at > 0 ? typed.slice(at + 1).replace(/\D/g, '') : '';
+  return playerIndexFromAliases(entry.list, null, { tagPrefix }) > 0;
+}
+// 键盘操作 (Akari 的手感): ↑↓ 在候选里移动, 回车选中高亮项, Esc 收起。
+// 没高亮时回车仍走 homeSearch 的原有决策。
+function homeSearchKeydown(ev) {
+  // 输入法选词时的回车/方向键属于输入法, 不能拿来选候选或直接查询。
+  // 只信事件自带的字段: 合成中的 keydown 恒为 isComposing/229 (Chromium 保证)。
+  // 不再用 homeSearchComposing 粘性标记 —— 输入法若不发 compositionend,
+  // 它会永远挂着, 之后回车全部失效 (2026-11-06 收口)。
+  if (ev.isComposing || ev.keyCode === 229) return;
+  const el = document.getElementById('homeSearchCardPopover');
+  const rows = el ? Array.from(el.querySelectorAll('.home-search-record-card')) : [];
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    if (!rows.length) return;
+    ev.preventDefault();
+    const step = ev.key === 'ArrowDown' ? 1 : -1;
+    const next = homeSearchActive < 0
+      ? (step > 0 ? 0 : rows.length - 1)
+      : (homeSearchActive + step + rows.length) % rows.length;
+    rows.forEach(r => r.classList.remove('hs-active'));
+    rows[next].classList.add('hs-active');
+    homeSearchActive = next;
+    if (rows[next].scrollIntoView) rows[next].scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  if (ev.key === 'Escape') { hideHomeSearchCards(); return; }
+  if (ev.key !== 'Enter') return;
+  const active = rows[homeSearchActive];
+  if (active) {
+    const pick = active.dataset.hsPick;
+    if (pick) {
+      ev.preventDefault();
+      if (active.dataset.hsKind === 'hist') selectHomeSearchHistory(pick);
+      else selectHomeSearchCandidate(pick);
+      return;
+    }
+  }
+  // Tag 前缀已经把范围收窄到唯一一个人 (彩虹海#778 → 只剩 彩虹海#77843) 时,
+  // 回车就该直接打开他。否则回车会去"按名字查", 反而不认这个半截 ID。
+  const tagPrefix = typeof homeSearchTagPrefix === 'function' ? homeSearchTagPrefix(homeSearchLiveValue()) : '';
+  const players = rows.filter(r => r.dataset.hsKind === 'player' && r.dataset.hsPick);
+  if (tagPrefix.length >= HOME_TAG_PREFIX_RELAX && players.length === 1) {
+    ev.preventDefault();
+    selectHomeSearchCandidate(players[0].dataset.hsPick);
+    return;
+  }
+  homeSearch();
+}
+// 其它大区(ID 归属在国服别的合区): LCU 只认本区 puuid, 按名字查必然 404, 但国服
+// 8 个合区网关都开放了 SGP, 拿索引里的 puuid 就能直接跨区取档案与战绩。
+// 以前这里一律放弃, 用户只能看到「在黑色玫瑰，当前是艾欧尼亚，查不到战绩」。
+// 返回 true 表示已经接手查询。
+function homeOpenIndexedPlayer(label) {
+  const hit = typeof playerIndexFind === 'function' ? playerIndexFind(label) : null;
+  if (!hit || !hit.puuid) return false;
+  const platform = hit.platform || '';
+  if (platform && typeof rememberPlayerPlatform === 'function') rememberPlayerPlatform(hit.puuid, platform);
+  const sp = piSplitName(label);
+  const input = document.getElementById('homeSearchInput');
+  homeSearchAutoFired = label;   // 已经按这个 ID 查了, 别再自动补一刀
+  homeSearchDraft = label;
+  if (input) input.value = label;
+  hideHomeSearchCards();
+  searchPlayerByPuuid(hit.puuid, label, {
+    puuid: hit.puuid,
+    gameName: sp.name || '',
+    tagLine: sp.tag || '',
+    displayName: label,
+    profileIconId: hit.icon || -1,
+    summonerLevel: hit.level || ''
+  }, { platformId: platform });
+  return true;
+}
+function selectHomeSearchCandidate(label) {
+  // 已经有人在查这个 ID 了, 取消待触发的自动查询, 避免同一个人被查两遍
+  homeSearchCancelAutoGo();
+  const norm = String(label == null ? '' : label).trim().replace(/[＃﹟]/g, '#');
+  const input = document.getElementById('homeSearchInput');
+  const msg = document.getElementById('homeSearchMsg');
+  // 点的是 PUUID 直查行: 不当名字查
+  if (typeof looksLikePuuid === 'function' && looksLikePuuid(norm)) {
+    hideHomeSearchCards();
+    searchPlayerByPuuidRaw(norm);
+    return;
+  }
+  // 其它大区的 ID: 本地索引里有 puuid, 直接跨区查; 连 puuid 都没有才提示
+  const hit = typeof playerIndexFind === 'function' ? playerIndexFind(label) : null;
+  if (hit && hit.foreign && hit.puuid && typeof homeOpenIndexedPlayer === 'function') {
+    if (msg) msg.textContent = '';
+    if (homeOpenIndexedPlayer(label)) return;
+  }
+  homeSearchAutoFired = norm;   // 已经按这个 ID 查了, 别再自动补一刀
+  homeSearchDraft = label;
+  if (input) input.value = label;
+  hideHomeSearchCards();
+  // 用户已经明确点了某一条, 直接按这个完整 ID 查 —— 不再走"猜测+自动补全"那条路,
+  // 否则归属还没解析出来的候选会被再弹一次选择框。
+  searchPlayerByName(label);
 }
 function selectHomeSearchHistory(value) {
   const input = document.getElementById('homeSearchInput');
@@ -709,6 +1464,11 @@ function rememberHomeSearch(value) {
   homeSearchHistory = homeSearchHistory.filter(x => x.toLocaleLowerCase() !== normalized.toLocaleLowerCase());
   homeSearchHistory.unshift(normalized);
   if (homeSearchHistory.length > HOME_SEARCH_HISTORY_LIMIT) homeSearchHistory.length = HOME_SEARCH_HISTORY_LIMIT;
+  // 顺手进本地索引: 查过的人下次可以只输名字
+  if (typeof playerIndexUpsert === 'function') {
+    const sp = piSplitName(normalized);
+    if (sp.name && sp.tag) playerIndexUpsert([{ name: sp.name, tag: sp.tag }], 'search');
+  }
 }
 function backToMe() {
   profileOverride = null;
@@ -1162,10 +1922,17 @@ function buildHomeMmr(qm,modeStats,wr,s) {
     if (aramAgg) mmrChips.push(["大乱斗·估算", mmrAram(aramAgg)]);
     return mmrChips;
 }
-function renderHomeMmr(chips, ranked, fromCache, pending) {
+// 当前档案是不是"其它大区"的人: 段位走的是 LCU 的 ranked 接口, 只认本区,
+// 跨区注定拿不到 —— 与其一直显示"段位同步中/暂未获取", 不如直接说清楚。
+function homeProfileCrossRegion() {
+  const p = (profileOverride && profileOverride.platformId) || '';
+  const cur = (typeof cachedPlatformId === 'string') ? cachedPlatformId : '';
+  return !!(p && cur && p !== cur);
+}
+function renderHomeMmr(chips, ranked, fromCache, pending, crossRegion) {
   const missing=['单双排','灵活组排'].filter(label=>!chips.some(c=>c[0]===label));
   return '<small>非官方匹配强度'+(fromCache?' · 历史段位缓存':'')+'</small>'+chips.map(([label,value,tip])=>'<span class="mmr-chip" title="'+escapeHtml(tip||'非官方估算')+'">'+escapeHtml(label)+' ~'+value+'</span>').join('')+
-    missing.map(label=>'<span class="mmr-chip">'+label+' · '+(pending?'段位同步中':hasRankedQueueData(ranked)?'暂无可用段位':'段位暂未获取')+'</span>').join('');
+    missing.map(label=>'<span class="mmr-chip">'+label+' · '+(crossRegion?'跨区不显示':(pending?'段位同步中':hasRankedQueueData(ranked)?'暂无可用段位':'段位暂未获取'))+'</span>').join('');
 }
 function rankLineOf(p) {
   const qm = rankCache[p.puuid];
@@ -1440,12 +2207,14 @@ function retryHomeStatsNow() {
   loadHomeStats(true, { skipCache: true });
 }
 function renderEmptyPlayerHome(panel, s, isSelf, server, ranked, message, canRetry) {
-  const displayName = (s.gameName || s.displayName || s.name || '未知玩家') + (s.tagLine ? '#' + s.tagLine : '');
+  const displayName = typeof summonerDisplayName === 'function'
+    ? summonerDisplayName(s)
+    : (s.gameName || s.displayName || s.name || '未知玩家') + (s.tagLine ? '#' + s.tagLine : '');
   const icon = s.profileIconId >= 0 ? profileIcon(s.profileIconId) : placeholder((s.gameName || '?')[0]);
   const rankHtml = renderRankCards(ranked?.queueMap || {});
   panel.innerHTML = `
     <div class="home-layout">
-      ${homeSearchMarkup('输入 名字#Tag 查询其他召唤师战绩')}
+      ${homeSearchMarkup('输入名字搜索 (好友/最近对局的人)；输 名字# 可按 Tag 筛选')}
       <div class="home-header">
         <div class="home-avatar"><img src="${icon}" onerror="this.src='${placeholder('?')}'"></div>
         <div class="home-info">
@@ -1552,15 +2321,15 @@ function buildHomeTemplate(v) {
   // 右侧对局列表
   return `
     <div class="home-layout">
-      ${homeSearchMarkup('输入 名字#Tag 查询其他召唤师战绩 (如 召唤师#0000)')}
+      ${homeSearchMarkup('输入名字搜索 (好友/最近对局的人)；输 名字# 可按 Tag 筛选')}
       <div class="home-header">
         <div class="home-avatar">
           <img src="${s.profileIconId >= 0 ? profileIcon(s.profileIconId) : placeholder((s.gameName||'?')[0])}" onerror="this.src='${placeholder((s.gameName||'?')[0])}'">
         </div>
         <div class="home-info">
-          <div class="home-name">${escapeHtml(s.gameName || s.displayName || s.name || '未知玩家')}${s.tagLine ? '#' + escapeHtml(s.tagLine) : ''}</div>
+          <div class="home-name">${escapeHtml(typeof summonerDisplayName === 'function' ? summonerDisplayName(s) : ((s.gameName || s.displayName || s.name || '未知玩家') + (s.tagLine ? '#' + s.tagLine : '')))}</div>
           <div class="home-server">大区: ${server} · 等级 ${s.summonerLevel || '-'} · ${includePractice ? '近 ' + n + ' 场统计' : (rawGameCount > n ? '拉取 ' + rawGameCount + ' 场 · 统计 ' + n + ' 场 (训练/自定义未计入)' : '近 ' + n + ' 场统计')}</div>
-          <div class="home-mmr">${renderHomeMmr(mmrChips,ranked,rankFromCache,rankPending)}</div>
+          <div class="home-mmr">${renderHomeMmr(mmrChips,ranked,rankFromCache,rankPending,homeProfileCrossRegion())}</div>
         </div>
         <div class="home-winrate">
           ${!isSelf ? '<button class="back-to-me" onclick="backToMe()">⟲ 回到我的</button>' : ''}
@@ -1697,6 +2466,8 @@ async function loadHomeStats(force, opts) {
       if(isSelf) s={...cached.s,...selfSummoner};
       // 查询档案接口返回的信息比旧缓存可靠，覆盖曾误存的“对局内等级”等占位值。
       if (profileOverride?.summoner?.puuid === s.puuid) s = mergeSummonerProfile(s, profileOverride.summoner);
+      // 旧缓存里可能已经把「未知玩家」存下来了；每次读缓存都用查询时的 Riot ID 纠正一次
+      if (profileOverride && typeof fillSummonerName === 'function') s = fillSummonerName(s, profileOverride.name);
       games = cached.games; ranked = cached.ranked || null;
       rawGameCount = cached.rawGameCount || cached.games.length;
       dataSource = cached.dataSource || 'SGP';
@@ -1713,8 +2484,12 @@ async function loadHomeStats(force, opts) {
       if (profileOverride && profileOverride.puuid && profileOverride.puuid !== selfSummoner.puuid) {
         isSelf = false;
         if (profileOverride.summoner?.puuid) {
-          s = { ...profileOverride.summoner };
-          if (!s.tagLine && profileOverride.name?.includes('#')) s.tagLine = profileOverride.name.split('#')[1];
+          // 以前这里只补 tagLine、不补 gameName，于是"外区账号 + 只有 Tag 的档案"
+          // 必然渲染成「未知玩家#77843」。名字的唯一来源是查询时的 Riot ID，
+          // 统一交给 fillSummonerName 处理（LCU gameName 恒空、SGP name 可能为空）。
+          s = typeof fillSummonerName === 'function'
+            ? fillSummonerName(profileOverride.summoner, profileOverride.name)
+            : { ...profileOverride.summoner };
         } else {
           const full = profileOverride.name || '';
           s = { puuid: profileOverride.puuid, gameName: full.split('#')[0], tagLine: full.includes('#') ? full.split('#')[1] : '', profileIconId: -1, summonerLevel: '' };
@@ -1758,13 +2533,19 @@ async function loadHomeStats(force, opts) {
           // 第 1 页先行 (同时拿到平台校验), 第 2 页与第 1 页并行: 大多数账号 2 页内凑满 100 场有效
           let r1;
           if (isProfileQuery) {
-            const located = await findSgpPlatform(s.puuid, selfPlatformId, BATCH, (done, total) => {
+            // 已知归属 (本地索引/搜索结果带来的 puuid+大区) 就把它排在探测队列最前,
+            // 跨区查询第一次探测就能命中, 不用白扫 8 个网关。
+            const preferredPlatform = (profileOverride && profileOverride.platformId) || selfPlatformId;
+            const located = await findSgpPlatform(s.puuid, preferredPlatform, BATCH, (done, total) => {
               if (!profileBackground && !stale() && panel) panel.innerHTML = `<div class="meta-loading">当前大区暂无记录，正在自动查找其他大区 (${done}/${total})...</div>`;
             });
             if (stale()) return;
             targetPlatformId = located.platformId;
             targetPlatformFound = located.found;
             if (located.summoner) s = mergeSummonerProfile(s, located.summoner);
+            // SGP 档案行只回 name(完整 Riot ID) 或干脆 name:""+unnamed:true，
+            // 都过一遍 fillSummonerName，名字和 Tag 才不会各缺一半。
+            if (typeof fillSummonerName === 'function') s = fillSummonerName(s, profileOverride?.name || '');
             r1 = located.response;
           } else {
             targetPlatformId = selfPlatformId;
@@ -2016,16 +2797,38 @@ async function loadHomeStats(force, opts) {
     const mmrChips = buildHomeMmr(qm,modeStats,wr,s);
 
     // 模板见前面的 buildHomeTemplate() —— 这里只负责"挂载"
+    // 整页重渲染会把搜索框换成新节点: 用户正在输名字时战绩刚好拉回来, 光标就掉了,
+    // 候选弹层也跟着消失 —— 之后他会以为"搜索框坏了", 而自动查询 (要求输入框仍在
+    // 焦点上) 也会静默失效。替换前记住焦点/弹层状态, 替换后原样恢复。
+    const prevInput = document.getElementById('homeSearchInput');
+    const hadSearchFocus = !!prevInput && document.activeElement === prevInput;
+    const popWasOpen = !!document.getElementById('homeSearchCardPopover')
+      && document.getElementById('homeSearchCardPopover').classList.contains('show');
     panel.innerHTML = buildHomeTemplate({
       s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
       mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
       totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
       champCount, champMeta, friendCount, tagCache, rankRows, modeStats
     });
+    if (hadSearchFocus) {
+      const nextInput = document.getElementById('homeSearchInput');
+      if (nextInput) {
+        nextInput.value = String(homeSearchDraft || '');
+        nextInput.focus();
+        const len = nextInput.value.length;
+        try { nextInput.setSelectionRange(len, len); } catch (e) { /* 不支持就算了 */ }
+        if (popWasOpen) { renderHomeSearchCards(); homeSearchScheduleAutoGo(); }
+      }
+    }
     // 模式筛选所需数据缓存
     // prevOwner: 用于"同一玩家重载时保留已展开条数"(见下方 homeGameVisible 的赋值)
     const prevOwner = homeGamesOwner;
     homeGamesData = games;
+    // 战绩里的所有参与者顺手进本地玩家索引: 打开一次首页就能攒下 20 场 × 10 人,
+    // 之后这些人可以只输名字查到 (国服没有别名模糊接口, 见 player-index.js)
+    if (typeof playerIndexFromGames === 'function') {
+      try { playerIndexFromGames(games); } catch (e) {}
+    }
     homeGamesOwner = s.puuid;
     // 画像页要能说明"这份画像属于谁" —— 查看其他玩家时是别人的数据。
     homeGamesOwnerLabel = String(s.gameName || s.displayName || s.name || '未知玩家')
@@ -2080,7 +2883,7 @@ async function loadHomeStats(force, opts) {
         if(ranksEl) ranksEl.innerHTML=renderRankCards(rv.queueMap);
       }
       const chipsEl=panel.querySelector('.home-mmr');
-      if(chipsEl) chipsEl.innerHTML=renderHomeMmr(buildHomeMmr(ranked?.queueMap||{},modeStats,wr,s),ranked,rankFromCache,false);
+      if(chipsEl) chipsEl.innerHTML=renderHomeMmr(buildHomeMmr(ranked?.queueMap||{},modeStats,wr,s),ranked,rankFromCache,false,homeProfileCrossRegion());
     }).catch(()=>{});
     try {
       lolAPI.debugLog(`[PERF] home path=${loadPath} target=${profileOverride ? 'profile' : 'self'} games=${games.length} render=${Math.round(performance.now() - loadStartedAt)}ms`);

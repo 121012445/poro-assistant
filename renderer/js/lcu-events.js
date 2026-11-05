@@ -99,6 +99,7 @@ function handleGameflowPhase(phase) {
     _currentGameKey = '';
     const liveBody = document.getElementById('liveGameArea');
     if (liveBody) liveBody.innerHTML = '<div class="meta-loading">正在读取本局选人阵容...</div>';
+    setLiveHeadPanel('');   // 上一局的作战计划条不留到新一局
     // 红蓝方提示由 bench.js handleChampSelectEvent → maybeAnnounceChampSelectSide 负责 (开关在 chat.js 内检查)
   }
   // 进入对局流程 (选人/加载/进行中) 自动跳一次"实时对局"页并刷新:
@@ -113,8 +114,8 @@ function handleGameflowPhase(phase) {
   } else if (activePage === "page-live") {
     updateLivePage(phase);
   }
-  // 解说模式: 阶段播报与轮询启停 (所有阶段都要收到, 否则结算时停不掉定时器)
-  if (typeof commentaryOnPhase === 'function') { try { commentaryOnPhase(phase); } catch (e) {} }
+  // 对局提示: 轮询启停 (所有阶段都要收到, 否则结算时停不掉定时器)
+  if (typeof liveTipsOnPhase === 'function') { try { liveTipsOnPhase(phase); } catch (e) {} }
   // 离开对局后重置"已跳转"标记, 下一局重新自动跳
   if (phase !== "ChampSelect" && phase !== "GameStart" && phase !== "InProgress") _autoLiveSwitched = false;
   if (phase !== "ChampSelect") _benchAlertReset();   // 离开选人即清掉备战区倒计时浮层

@@ -38,3 +38,6 @@ _debug_archive/*
 # 临时验证脚本与会话数据, 不入库
 .verify-*.js
 .workbuddy/
+# 1.5.9x 起的包内自检工具 (每次构建后跑 32 项断言), 长期复用
+!_debug_archive/verify_installed.js
+!_debug_archive/verify_cross_region_build.js

@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('lolAPI', {
   lcuStatus: () => ipcRenderer.invoke('lcu:status'),
   lcuReconnect: () => ipcRenderer.invoke('lcu:reset'),
   lcuRequest: (method, path, body) => ipcRenderer.invoke('lcu:request', method, path, body),
+  // 按精确名字查全部 Riot ID (Riot Client 别名服务; 国服客户端也有)
+  playerAliasLookup: (gameName) => ipcRenderer.invoke('player:aliasLookup', gameName),
+  // 一批 PUUID 分别属于哪个大区。第二个参数限定只查哪几个区 (省请求)
+  playerResolveRegions: (puuids, platforms) => ipcRenderer.invoke('player:resolveRegions', puuids, platforms),
+  // 一批 PUUID → 名字#Tag (Riot Client nameset 接口, 跨区有效; Akari 同款)
+  playerNamesets: (puuids) => ipcRenderer.invoke('player:namesets', puuids),
   captureFullGameSettings: () => ipcRenderer.invoke('game-settings:capture-full'),
   applyFullGameSettings: () => ipcRenderer.invoke('game-settings:apply-full'),
   fullGameSettingsStatus: () => ipcRenderer.invoke('game-settings:full-status'),
@@ -41,7 +47,6 @@ contextBridge.exposeInMainWorld('lolAPI', {
   // Live Client Data (对局内 2999 端口)
   liveGameData: () => ipcRenderer.invoke('live:gameData'),
   livePlayerlist: () => ipcRenderer.invoke('live:playerlist'),
-  liveEventData: () => ipcRenderer.invoke('live:eventData'),
   // 文件读写 (持久化配置, 仅限 userData 白名单目录)
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('fs:writeFile', path, content),
@@ -80,7 +85,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   aiChat: (messages) => ipcRenderer.invoke('ai:chat', messages),
   listAiModels: () => ipcRenderer.invoke('ai:listModels'),
   // 外服聊天翻译: 文本翻译 + 游戏内浮窗数据通道
-  translateText: (texts, target) => ipcRenderer.invoke('translate:text', texts, target),
+  // opts.fast = 实时通道 (游戏内聊天): 主进程会跳过慢速的 AI 源, 直接走机翻
+  translateText: (texts, target, opts) => ipcRenderer.invoke('translate:text', texts, target, opts),
   gameTranslatePush: (payload) => ipcRenderer.invoke('game-translate:push', payload),
   onGameTranslateData: (cb) => { ipcRenderer.on('game-translate:data', (e, d) => cb(d)); },
   // 悬浮窗输入模式 (Ctrl+F10 呼出): 发送 / 取消 / 接收状态
@@ -99,8 +105,10 @@ contextBridge.exposeInMainWorld('lolAPI', {
   onGameLiveData: (cb) => { ipcRenderer.on('game-live:data', (e, d) => cb(d)); },
   liveBoardPush: (payload) => ipcRenderer.invoke('game-live:board', payload),
   onGameLiveBoard: (cb) => { ipcRenderer.on('game-live:board', (e, d) => cb(d)); },
-  // 解说语音: 在线合成 (本地 speechSynthesis 音色太机械时用这条)
-  ttsSynthesize: (text, speed) => ipcRenderer.invoke('tts:synthesize', text, speed),
+  // 对局提示语音: 在线合成 (本地 speechSynthesis 音色太机械时用这条)
+  // opts = { voice, rate, pitch, reset } —— reset 用于换音色后清掉失败冷却
+  ttsSynthesize: (text, opts) => ipcRenderer.invoke('tts:synthesize', text, opts),
+  ttsVoices: () => ipcRenderer.invoke('tts:voices'),
   // 分享卡 (周报/战报): 主进程离屏渲染并保存 PNG; opts={title,prefix,theme}
   saveShareCard: (html, width, height, opts) => ipcRenderer.invoke('share-card:save', html, width, height, opts),
   // 设置 (托盘/自启)

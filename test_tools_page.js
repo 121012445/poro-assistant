@@ -85,8 +85,8 @@ assert.match(premiumCss, /#page-tools \.tools-nav \.tools-nav-chip\s*\{[^}]*min-
 
 // ---- 结构重排不能丢控件 ----
 for (const id of ['autoAcceptToggle', 'autoBPToggle', 'autoRuneToggle', 'autoHonorToggle', 'autoReconnectToggle',
-  'benchAlertToggle', 'pickGuardToggle', 'commentaryToggle', 'gameTranslateToggle', 'friendNotifyToggle',
-  'translateSendInput', 'commentaryVolume', 'pickGuardLock']) {
+  'benchAlertToggle', 'pickGuardToggle', 'gameTranslateToggle', 'friendNotifyToggle',
+  'translateSendInput', 'voiceVolume', 'liveTipsState', 'pickGuardLock']) {
   assert.ok(page.includes(`id="${id}"`), `控件 ${id} 不能丢失`);
 }
 

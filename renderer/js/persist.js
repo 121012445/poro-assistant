@@ -94,7 +94,8 @@ async function importPoroBackup() {
     'compliance', 'gsCameraMode', 'hexDataScope', 'includePractice', 'opggLoadout',
     'sideAnnounce', 'uiTheme', 'navCollapsed',
     'pickGuard', 'pickGuardLockSec',
-    'aiReviewStyle', 'commentary', 'commentaryTone', 'commentaryRate', 'commentaryVolume', 'commentaryEvents',
+    // 语音设置 (commentary* 是历史 key, 1.5.82 删掉解说模式后仍沿用, 免得重置用户设置)
+    'aiReviewStyle', 'commentaryRate', 'commentaryVolume',
     'commentaryEngine', 'commentaryVoice', 'commentaryStyle', 'liveTips', 'liveBoard',
     'gameTranslate', 'translateTarget', 'gtAutoMine'
   ]);
@@ -163,7 +164,7 @@ function loadConfig() {
       const scopeSelect = document.getElementById('hexScope');
       if (scopeSelect) scopeSelect.value = hexDataScope;
     }
-    if (typeof commentaryLoadConfig === 'function') commentaryLoadConfig();
+    if (typeof liveTipsLoadConfig === 'function') liveTipsLoadConfig();
     if (typeof pickGuardLoadConfig === 'function') pickGuardLoadConfig();
   } catch (e) {}
 }

@@ -155,4 +155,53 @@ async function summonerByPuuid(platformId, puuid) {
   }
 }
 
-module.exports = { matchHistory, gameSummary, gameDetails, summonerByPuuid, responseBytes, SGP_HOSTS };
+// 批量按 PUUID 问"这个大区里有没有这些召唤师"。
+// 端点接受 puuid 数组 (不是单个), 所以查 N 个人只要 8 个请求 (每个大区一条),
+// 这正是能把"同名 16 个账号分别属于哪个大区"在几百毫秒内算出来的原因。
+async function summonersByPuuids(platformId, puuids) {
+  const host = SGP_HOSTS[platformId];
+  if (!host || !Array.isArray(puuids) || !puuids.length) return [];
+  const path = `/summoner-ledge/v1/regions/${platformId}/summoners/puuids`;
+  let token = await getLeagueSessionToken(false);
+  try {
+    const rows = await rawRequest(host, path, token, 'POST', puuids);
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    if (!e.authFail) throw e;
+    leagueSessionTokenCache = { token: null, t: 0 };
+    token = await getLeagueSessionToken(true);
+    const rows = await rawRequest(host, path, token, 'POST', puuids);
+    return Array.isArray(rows) ? rows : [];
+  }
+}
+
+// PUUID → { platformId, level, icon }: 命中的那个网关就是所属大区。
+// 单个大区失败不影响其它 (口径与 summonerByPuuid 一致, 只是批量)。
+//
+// opts.platforms 限定只问哪几个区: 用户在搜索框选定了大区时只发 1 条请求,
+// 而默认(不限定)要问 8 个网关 —— 后者是"全部大区"模式的成本。
+// 返回 { map, queried }: queried 是**确实查成功**的大区列表。调用方必须靠它
+// 区分"查了, 这个人不在这个区"和"这个区没查通", 否则网络抖动会把本区账号
+// 误标成其它大区。
+async function resolveRegions(puuids, opts) {
+  const ids = [...new Set((puuids || []).filter(x => typeof x === 'string' && x))].slice(0, 64);
+  if (!ids.length) return { map: {}, queried: [] };
+  const want = (opts && Array.isArray(opts.platforms) && opts.platforms.length)
+    ? opts.platforms.filter(p => SGP_HOSTS[p])
+    : Object.keys(SGP_HOSTS);
+  if (!want.length) return { map: {}, queried: [] };
+  const out = {};
+  const queried = [];
+  await Promise.all(want.map(pid =>
+    summonersByPuuids(pid, ids).then(rows => {
+      queried.push(pid);
+      for (const row of rows) {
+        if (!row || !row.puuid || out[row.puuid]) continue;
+        out[row.puuid] = { platformId: pid, level: row.level || 0, icon: row.profileIconId || 0 };
+      }
+    }).catch(() => { /* 单个大区超时/未开通: 跳过 (不计入 queried) */ })
+  ));
+  return { map: out, queried };
+}
+
+module.exports = { matchHistory, gameSummary, gameDetails, summonerByPuuid, summonersByPuuids, resolveRegions, responseBytes, SGP_HOSTS };

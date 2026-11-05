@@ -146,14 +146,34 @@ console.log('选人浮窗位置计算测试通过 (9 组断言: 哨兵矩形判�
   const bad = chatOcrCrop({ width: 0, height: 0 }, null);
   assert.ok(bad.width >= 1 && bad.height >= 1, '畸形尺寸也要给出可用的正数矩形');
 
-  // 1.5.55: 亮色背景那局 4x 把整段聊天读丢 (只认出 "0"/"1"/两行界面文字),
-  // 同一帧 5x 能读对 "hello everyone" + "hello"。倍数掉了就会退回"一条都不翻"。
-  const { CHAT_OCR_SCALE, CHAT_OCR_SCALES } = require('./main/overlay-position');
-  assert.strictEqual(CHAT_OCR_SCALE, 5, 'OCR 放大倍数必须是 5 (4x 在亮色丛林背景上会读丢整段聊天)');
-  // 1.5.56: 单档倍数在不同帧之间互相打架 (5x 某帧读成 "hello eve 吖 on e", 6x 读对;
-  // 换一帧 5x 读对 "goodluck", 6x 读成 "CJOOdlUCk")。两档都跑再合并, 5x 在前。
-  assert.deepStrictEqual(CHAT_OCR_SCALES, [5, 6],
-    'OCR 必须跑两档放大再合并 (单档必然有一类帧读不对)');
+  // 1.5.72: 放大倍数改成按目标宽度反推。05:44 局真实帧实测: 1.5x/2x 词边界全对,
+  // 2.5x 起开始断词, 5x 最差 ("our to p 地 0 strong"), 连时间戳都被读成 "山：18"。
+  const { chatOcrScales, CHAT_OCR_TARGET_W } = require('./main/overlay-position');
+  assert.ok(CHAT_OCR_TARGET_W >= 1100 && CHAT_OCR_TARGET_W <= 1500,
+    'OCR 输入宽度目标要在引擎的舒适区 (实测 1280 宽词边界最稳)');
+  const s2560 = chatOcrScales(plain.width);
+  assert.ok(s2560.length === 2, '仍然要跑两档 (单档必然有一类帧读不对)');
+  // 1.5.74: 大的一档必须排前面 —— 去重层只认先到的那条, 顺序就是"谁说了算"。
+  // 14:14 局实证 2.0x 把 "how are u" 读成 "hö/are u"(机翻成"豪阿乌"), 2.4x 才对。
+  assert.ok(s2560[0] > s2560[1], '大的一档必须排前面, 实际 ' + JSON.stringify(s2560));
+  assert.ok(Math.abs(plain.width * s2560[1] - CHAT_OCR_TARGET_W) <= 8,
+    `第二档必须落回目标宽度 (它是基准), 实际 ${plain.width}x${s2560[1]}`);
+  for (const k of s2560) {
+    assert.ok(k >= 1.5 && k <= 3, `倍数必须在 1.5~3 之间 (高倍会把单词切断), 实际 ${k}`);
+    assert.ok(plain.width * k <= 1600, `任何一档都不许超过 1600 宽 (断词从 2.5x 就开始了), 实际 ${plain.width * k}`);
+  }
+  // 1920 分辨率下也要落到同一个目标宽度 —— 倍数随分辨率走, 字高才不会漂
+  const s1920 = chatOcrScales(chatOcrCrop({ width: 1920, height: 1080 }, null).width);
+  const w1920 = chatOcrCrop({ width: 1920, height: 1080 }, null).width;
+  assert.ok(Math.abs(w1920 * s1920[1] - CHAT_OCR_TARGET_W) <= 8,
+    `1920 分辨率下基准档也要落到目标宽度, 实际 ${w1920}x${s1920[1]}`);
+  assert.ok(s1920[0] > s1920[1], '1920 下同样是大的排前面');
+  // 4K 下原生字已经够大, 倍数必须被下限挡住, 不能小于 1
+  const s4k = chatOcrScales(chatOcrCrop({ width: 3840, height: 2160 }, null).width);
+  assert.ok(s4k[0] >= 1, '4K 下倍数不得小于 1 (原生字已经够大)');
+  // 畸形输入不能算出 0 / NaN 倍数 (resize 会直接抛)
+  const sBad = chatOcrScales(0);
+  assert.ok(sBad.every(k => Number.isFinite(k) && k >= 1.5 && k <= 3), '畸形宽度也要给出可用倍数');
 }
 
 console.log('聊天框 OCR 裁剪区测试通过 (基础区域 / 避开浮窗 / 浮窗不重叠时不缩 / 覆盖过半不裁 / 畸形尺寸)');

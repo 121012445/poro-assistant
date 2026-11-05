@@ -80,6 +80,8 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
         if (recent.length < 10) {
           const k = stats.kills ?? me.kills ?? 0, d = stats.deaths ?? me.deaths ?? 0, a = stats.assists ?? me.assists ?? 0;
           recent.push({
+            // 1.5.76: 带上 gameId, 实时页点这张卡才能按需拉这一局的完整详情
+            gameId: gj.gameId || gj.gameID || gj.gameUuid || gj.gameUUID || 0,
             champId: normalizeChampId(me.championId || stats.championId), win, k, d, a,
             mode: gameMode, ts: gj.gameCreation || gj.gameEndTimestamp || 0,
             ...teamShareOf(gj.participants, me, k, a)
@@ -115,6 +117,8 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
     if (teammates.length > 1) teamGames.push({ id: String(game.gid || game.time || teamGames.length), players: teammates });
     flashSamples.push(me.spells || []);
     if (recent.length < 10) recent.push({
+      // 1.5.76: LCU 兜底路径同样带上 gameId (raw 是原始 game 对象, normalizeGame 只留了 gid)
+      gameId: raw.gameId || raw.gameIdString || game.gameId || game.gid || 0,
       champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0,
       mode: game.mode, ts: game.time || 0,
       ...teamShareOf(game.participants, me, me.k || 0, me.a || 0, { dmg: 'dmg', tank: 'dmgTaken', gold: 'gold', kills: 'k' })
@@ -284,14 +288,23 @@ function buildLivePlayers(livePlayers, parts, phase) {
 }
 
 // 作战计划条渲染到页头槽位; 没有阵容 (加载中/出错/不在对局) 时清空, 不留上一局的残留。
+// 轮询每 4/12s 重入一次, 计划条内容通常不变 —— 无条件 innerHTML 会造成肉眼可见的闪烁,
+// 所以内容相同时直接跳过写入。
+let _liveHeadPanelHtml = '';
 function setLiveHeadPanel(html) {
   const slot = document.getElementById('liveHeadSlot');
-  if (slot) slot.innerHTML = html || '';
+  if (!slot) return;
+  const next = html || '';
+  if (next === _liveHeadPanelHtml) return;
+  _liveHeadPanelHtml = next;
+  slot.innerHTML = next;
 }
 
 async function renderLiveFromGameflow(body, err, requestedPhase) {
   const renderToken = ++liveRenderToken;
-  setLiveHeadPanel('');
+  // 注意: 这里不再无条件清空页头计划条。轮询每 4/12s 重入一次, 先清空再等几百毫秒
+  // 网络请求后重建, 计划条就会周期性消失又出现 —— 是"页面一直闪烁"的一半来源。
+  // 清空点收敛到: 查不到对局数据 (下方 error 分支) 和 离开对局 (updateLivePage)。
   ensureChampMap();
 
   // 方式1: gameflow session (选人阶段有完整 puuid)
@@ -335,6 +348,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   const livePlayers = await fetchLivePlayers(phase, parts);
 
   if (!parts.length && !livePlayers) {
+    setLiveHeadPanel('');
     body.innerHTML = `<div class="msg-error">${err || '未获取到对局玩家数据'}</div>`;
     return;
   }
@@ -446,6 +460,8 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   // 异步获取 SGP 数据, 逐人更新
   let platformId = "";
   try { platformId = await getPlatformId(); } catch (e) {}
+  // 1.5.76: 记到玩家对象上 —— 详情浮窗要知道去哪台服务器拉这一局 (SGP 按 platformId 分片)
+  if (platformId) for (const p of fullData) { if (!p.platformId) p.platformId = platformId; }
 
   // 立即缓存骨架数据, 让 updateLivePage 不阻塞 — SGP 拉取改为后台并发填充, 渲染时已有 recent 的玩家立刻显示
   // 只缓存 Live Client Data 完整双方(≥5人), 防止 session-only 数据污染缓存
@@ -614,12 +630,21 @@ function formatMatchTime(ts) {
 // 单行塞不下日期, 而日期是判断"最近状态是不是当前的"的关键 (连跪 3 场和 3 个月前连跪 3 场完全不同);
 // 两行后 KDA 能单独成列右对齐, 竖着扫一遍就是一串等宽数字, 比夹在文字后面好读。
 // 胜负靠整行微染 + 胜/负字标出, 颜色只做辅助, 不靠它单独承载信息。
-function recentIcon(r) {
+function recentIcon(r, p) {
   const rc = champOfLive(r.champId);
   const isWin = r.win === true || r.win === 'Win';
   const mode = r.mode || '对局';
   const when = formatMatchTime(r.ts);
-  return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}" title="${escapeHtml(mode)}${when ? ' ' + when : ''} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}">
+  // 1.5.76: 有 gameId 的卡可点 —— 点开显示这一局的完整详情浮窗。
+  // 没 gameId (老缓存 / 某些模式) 就保持原来的静态卡片, 不给一个点了没反应的假按钮。
+  const gid = r.gameId ? String(r.gameId) : '';
+  const clickable = gid
+    ? ` data-game-id="${escapeHtml(gid)}" data-puuid="${escapeHtml(p?.puuid || '')}"`
+      + ` data-platform="${escapeHtml(p?.platformId || '')}"`
+      + ` data-label="${escapeHtml(`${mode}${when ? ' ' + when : ''} · ${r.k}/${r.d}/${r.a} · ${isWin ? '胜' : '负'}`)}"`
+      + ` onclick="openLiveMatchDetail(this)"`
+    : '';
+  return `<div class="ri-card ${isWin ? 'ri-win' : 'ri-loss'}${gid ? ' ri-clickable' : ''}"${clickable} title="${escapeHtml(mode)}${when ? ' ' + when : ''} ${r.k}/${r.d}/${r.a} ${isWin ? '胜' : '负'}${gid ? ' · 点击查看这一局详情' : ''}">
     <img src="${rc ? champImg(rc.id) : placeholder('?')}" ${rc ? champIconAttrs(rc.id, rc.name) : `onerror="this.src='${placeholder('?')}'"`}>
     <span class="ri-body">
       <span class="ri-mode">${escapeHtml(mode)}</span>
@@ -698,7 +723,7 @@ function updateLivePlayerRow(p, idx) {
     || (!p?.puuid && rows[idx] ? rows[idx] : null);
   if (!row) return;
   const c = champOfLive(p.championId);
-  const recentHtml = p.recent.length ? p.recent.slice(0, recentLimit()).map(recentIcon).join('') : '<span class="ri-empty">无数据</span>';
+  const recentHtml = p.recent.length ? p.recent.slice(0, recentLimit()).map(r => recentIcon(r, p)).join('') : '<span class="ri-empty">无数据</span>';
   const wins = p.recent.filter(r => r.win === true || r.win === "Win").length;
   const totK = p.recent.reduce((s, r) => s + r.k, 0), totD = p.recent.reduce((s, r) => s + r.d, 0), totA = p.recent.reduce((s, r) => s + r.a, 0);
   const kda = p.recent.length ? ((totK + totA) / Math.max(1, totD)).toFixed(1) : '--';
@@ -755,7 +780,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   }
   const playerRow = p => {
     const c = champOfLive(p.championId);
-    const recentHtml = p.recent.length ? p.recent.slice(0, recentLimit()).map(recentIcon).join('') : '<span class="ri-loading">加载中...</span>';
+    const recentHtml = p.recent.length ? p.recent.slice(0, recentLimit()).map(r => recentIcon(r, p)).join('') : '<span class="ri-loading">加载中...</span>';
     const wins = p.recent.filter(r => r.win === true || r.win === "Win").length;
     const totK = p.recent.reduce((s, r) => s + r.k, 0), totD = p.recent.reduce((s, r) => s + r.d, 0), totA = p.recent.reduce((s, r) => s + r.a, 0);
     const kda = p.recent.length ? ((totK + totA) / Math.max(1, totD)).toFixed(1) : '--';
@@ -818,9 +843,13 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   };
   // 作战计划条挪进页头那一行 (和标题、展开按钮并排), 省掉整整一行 32px 的高度。
   setLiveHeadPanel(buildLiveDecisionPanel(data, selfPuuid));
-  body.innerHTML = `
+  const pageHtml = `
     ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true)}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+  // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与当前页面一致时直接跳过,
+  // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
+  // 渲染是纯确定性的 (无时间戳/随机值), 字符串比对可靠; 数据真变了自然不相等。
+  if (body.innerHTML !== pageHtml) body.innerHTML = pageHtml;
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
   pushGameLiveBoard(data, premadeGroups);
   updateChampSelectCounterHint(data);
@@ -929,6 +958,7 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
     livePlayersCache.data = null;
     livePlayersCache.premadeGroups = null;
     liveRenderToken++;
+    setLiveHeadPanel('');
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
     syncLiveExpandButton(false);
     return;
@@ -943,6 +973,166 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
   }
 }
 const PHASE_TEXT = { None: "无", Lobby: "房间中", Matchmaking: "匹配中", ReadyCheck: "匹配确认", ChampSelect: "选人中", GameStart: "对局开始", InProgress: "对局进行中", WaitingForStats: "对局结束统计", EndOfGame: "对局结束", TerminatedInError: "异常退出" };
+
+// ===== 1.5.76: 实时页「单场战绩详情」浮窗 =====
+// 以前实时页的近期战绩卡只是"看着有信息": 想知道那局到底怎么赢/怎么输的, 只能等打完
+// 再去战绩页一局一局翻。这里给每张卡挂一个详情浮窗 —— 点哪局看哪局, 不用离开当前页。
+//
+// 数据链复用战绩页那一套, 不另写一份渲染:
+//   sgpGameSummary(platformId, gameId) → normalizeGame → resolveNames/Ranks
+//   → renderOpggGameDetail (hex.js)
+// 国服走 SGP, 其他服/失败回退 LCU /lol-match-history/v1/games/{gameId}。
+// 渲染结果按 gameId 缓存: 同一局反复点不再打接口 (详情页一局 10 人, 请求不便宜)。
+let liveMatchPopEl = null;
+let _lmpSeq = 0;                          // 连续点不同卡时, 只让最后一次的结果落地
+let _lmpDismissBound = false;
+const liveMatchDetailCache = new Map();   // gameId -> 渲染好的 HTML
+const LMP_CACHE_MAX = 40;
+
+function ensureLiveMatchPop() {
+  if (liveMatchPopEl && document.body.contains(liveMatchPopEl)) return liveMatchPopEl;
+  const el = document.createElement('div');
+  el.id = 'liveMatchPop';
+  el.className = 'lmp';
+  el.hidden = true;
+  el.innerHTML = '<div class="lmp-head">'
+    + '<span class="lmp-title">对局详情</span>'
+    + '<span class="lmp-hint">Esc 关闭</span>'
+    + '<button type="button" class="lmp-close" title="关闭">×</button>'
+    + '</div><div class="lmp-body"></div>';
+  el.querySelector('.lmp-close').addEventListener('click', closeLiveMatchPop);
+  document.body.appendChild(el);
+  liveMatchPopEl = el;
+  bindLiveMatchPopDismiss();
+  return el;
+}
+
+function closeLiveMatchPop() {
+  if (!liveMatchPopEl) return;
+  liveMatchPopEl.hidden = true;
+  liveMatchPopEl.classList.remove('lmp-open');
+}
+
+// 浮窗跟着被点的那张卡: 优先放右边, 右边放不下放左边, 再不行就压着卡片对齐。
+// 竖向夹在视口内 —— 战绩卡可能在页面底部, 直接往下弹会被切掉一半。
+function placeLiveMatchPop(el, rect) {
+  const pad = 10;
+  const w = el.offsetWidth || 880;
+  const h = el.offsetHeight || 420;
+  let left = rect.right + pad;
+  if (left + w > window.innerWidth - pad) left = rect.left - w - pad;
+  if (left < pad) left = Math.max(pad, window.innerWidth - w - pad);
+  let top = rect.top - 40;
+  if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+  if (top < pad) top = pad;
+  el.style.left = Math.round(left) + 'px';
+  el.style.top = Math.round(top) + 'px';
+}
+
+// 取一局的完整数据 (10 人统计), 统一成 normalizeGame 的结构
+async function fetchLiveMatchNorm(gameId, platformId) {
+  let pid = platformId;
+  if (!pid) { try { pid = await getPlatformId(); } catch (e) { pid = ''; } }
+  if (pid && isTencentPlatform(pid)) {
+    try {
+      const resp = await lolAPI.sgpGameSummary(pid, gameId);
+      if (resp && !resp.__error) {
+        const g = resp.json || resp;
+        if (g && Array.isArray(g.participants) && g.participants.length) return normalizeGame(g, true);
+      }
+    } catch (e) { /* SGP 挂了走 LCU */ }
+  }
+  try {
+    const d = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/games/${gameId}`);
+    const g = (d && d.games && d.games.games && d.games.games[0]) || d;
+    if (g && Array.isArray(g.participants) && g.participants.length) return normalizeGame(g, false);
+  } catch (e) { /* 两个源都没拿到 */ }
+  return null;
+}
+
+async function openLiveMatchDetail(cardEl) {
+  if (!cardEl) return;
+  const gameId = cardEl.getAttribute('data-game-id') || '';
+  if (!gameId) return;
+  const platformId = cardEl.getAttribute('data-platform') || '';
+  const label = cardEl.getAttribute('data-label') || '对局详情';
+
+  const pop = ensureLiveMatchPop();
+  const bodyEl = pop.querySelector('.lmp-body');
+  const titleEl = pop.querySelector('.lmp-title');
+  titleEl.textContent = label;
+  pop.hidden = false;
+  pop.classList.add('lmp-open');
+
+  // 缓存命中: 直接贴, 不闪加载态
+  const cached = liveMatchDetailCache.get(gameId);
+  if (cached) {
+    bodyEl.innerHTML = cached;
+    placeLiveMatchPop(pop, cardEl.getBoundingClientRect());
+    return;
+  }
+
+  bodyEl.innerHTML = '<div class="lmp-loading">正在拉取这一局的详情…</div>';
+  placeLiveMatchPop(pop, cardEl.getBoundingClientRect());
+  const seq = ++_lmpSeq;
+  try {
+    const norm = await fetchLiveMatchNorm(gameId, platformId);
+    if (seq !== _lmpSeq) return;                       // 用户已经点了别的卡
+    if (!norm) { bodyEl.innerHTML = '<div class="lmp-error">这一局的详情暂时取不到（对局记录可能已过期）</div>'; return; }
+    // 名字/段位: 与战绩页同源。空名字不补的话详情里会出现一排空白
+    try {
+      const all = (norm.participants || []).map(p => p.puuid).filter(Boolean);
+      const emptyNames = (norm.participants || [])
+        .filter(p => p.puuid && (!p.name || hasBrokenText(p.name))).map(p => p.puuid);
+      if (emptyNames.length) {
+        await resolveNames(emptyNames);
+        for (const p of norm.participants) {
+          if ((!p.name || hasBrokenText(p.name)) && nameCache[p.puuid]) p.name = nameCache[p.puuid];
+        }
+      }
+      await resolveRanks(all);
+    } catch (e) { /* 名字/段位缺失不影响主体统计 */ }
+    if (seq !== _lmpSeq) return;
+    const holder = document.createElement('div');
+    renderOpggGameDetail(norm, holder);
+    // 详情里有两块在浮窗场景下没意义:
+    //  · 「保存战报卡」按钮 —— 它的点击是在 renderOpggGameDetail 里绑到 holder 上的,
+    //    我们只取 innerHTML, 拿出来的按钮没有监听器, 点了没反应;
+    //  · 「组队关系识别中…」占位 —— 它靠 applyMatchPremadeBadges 收尾, 这里没算组队,
+    //    留着就是一句永远不消失的"识别中"。
+    holder.querySelector('.ogd-actions')?.remove();
+    holder.querySelector('[data-party-summary]')?.remove();
+    const html = holder.innerHTML || '<div class="lmp-error">这一局没有可展示的数据</div>';
+    liveMatchDetailCache.set(gameId, html);
+    if (liveMatchDetailCache.size > LMP_CACHE_MAX) {
+      liveMatchDetailCache.delete(liveMatchDetailCache.keys().next().value);
+    }
+    bodyEl.innerHTML = html;
+    placeLiveMatchPop(pop, cardEl.getBoundingClientRect());
+  } catch (e) {
+    if (seq !== _lmpSeq) return;
+    bodyEl.innerHTML = '<div class="lmp-error">详情渲染失败: ' + escapeHtml(e && e.message ? e.message : String(e)) + '</div>';
+  }
+}
+
+// Esc 关闭 + 点空白处关闭。点另一张战绩卡不算"空白" —— 那是要换一局看。
+// 挂在**首次打开浮窗时**, 不做顶层副作用: 这个功能没用过就一个监听器都不该占,
+// 单测里也不会因为 document 没有 addEventListener 就整个文件加载失败。
+function bindLiveMatchPopDismiss() {
+  if (_lmpDismissBound) return;
+  _lmpDismissBound = true;
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && liveMatchPopEl && !liveMatchPopEl.hidden) closeLiveMatchPop();
+  });
+  document.addEventListener('mousedown', e => {
+    if (!liveMatchPopEl || liveMatchPopEl.hidden) return;
+    if (liveMatchPopEl.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.ri-card[data-game-id]')) return;
+    closeLiveMatchPop();
+  });
+  window.addEventListener('resize', () => closeLiveMatchPop());
+}
+
 let champNumMap = null;
 function toolMsg(html) { document.getElementById("toolMsg").innerHTML = html; setTimeout(() => { document.getElementById("toolMsg").innerHTML = ""; }, 6000); }
 function showToast(text, type) {

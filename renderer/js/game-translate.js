@@ -42,8 +42,14 @@
   const FADE_MS = 800;   // 与 .gt-line 的 transition 时长一致
 
   function lineInner(l) {
+    // 1.5.79: 三态可辨 —— 静默丢弃是用户反馈里最难受的一点 ("我怎么确定是翻译时间
+    // 过久还是翻译失败")。
+    //   pending: 翻得慢 (超过 600ms 还没回来), 灰斜体"（翻译中…）"
+    //   fail:    读到了但没翻出来, 暗金色"（未能翻译）"
+    //   正常:    中文译文
+    const cls = 'gt-body' + (l.fail ? ' gt-fail' : (l.pending ? ' gt-pend' : ''));
     let html = '<span class="gt-name">' + esc(l.name) + '</span>'
-      + '<span class="gt-body">' + esc(l.translated) + '</span>';
+      + '<span class="' + cls + '">' + esc(l.translated) + '</span>';
     if (l.body && l.body !== l.translated) html += '<span class="gt-orig">' + esc(l.body) + '</span>';
     return html;
   }

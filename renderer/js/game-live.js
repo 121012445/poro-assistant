@@ -62,7 +62,7 @@
   }
 
   // ---------- 本局实时区块 (经济/对位/成装) ----------
-  // 数据由主窗口 commentary.js 每 4 秒推一次; 这里只做纯渲染。
+  // 数据由主窗口 live-tips.js 每 4 秒推一次; 这里只做纯渲染。
   const boardEl = document.getElementById('board');
   const bTimeEl = document.getElementById('bTime');
   const bLeadEl = document.getElementById('bLead');
