@@ -53,14 +53,18 @@
     const rough = sec.getBoundingClientRect().top - mainEl.getBoundingClientRect().top +
       mainEl.scrollTop - navH - 10;
     mainEl.scrollTop = Math.max(0, rough);
+    // 落点让分区标题落在标签条下方 8px。判定用的探针线在 10px (见 sync),
+    // 留 2px 余量吸收 scrollTop 取整和 getBoundingClientRect 小数 —— 两者都取 8px
+    // 时会正好卡在边界上, 实测出现过 118.177 vs 118.0 判成上一个分区。
     const delta = sec.getBoundingClientRect().top - navEl.getBoundingClientRect().bottom - 8;
-    if (Math.abs(delta) > 1) mainEl.scrollTop += delta;
+    if (Math.abs(delta) > 0.5) mainEl.scrollTop += delta;
   }
 
   function sync() {
     if (!chips.length) return;
-    // 探针 = 标签条底边: 谁的标题越过了标签条, 谁就是"当前分区"
-    const probe = navEl.getBoundingClientRect().bottom + 8;
+    // 探针 = 标签条底边再往下 10px: 谁的标题越过这条线, 谁就是"当前分区"。
+    // 比 jumpTo 的 8px 落点宽 2px, 用来吸收取整误差 (见 jumpTo 注释)。
+    const probe = navEl.getBoundingClientRect().bottom + 10;
     let current = chips[0];
     for (const c of chips) {
       if (c.sec.getBoundingClientRect().top <= probe) current = c;
