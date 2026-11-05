@@ -763,18 +763,23 @@ function glossaryHint(target) {
 // 机翻实测 200~300ms, 所以"慢的 AI"不如机翻 —— 连续慢了就临时让位给机翻,
 // 2 分钟后再试一次, 模型恢复就自动切回来。不做这一步就只能靠用户抱怨才知道。
 const aiBudget = { avgMs: 0, samples: 0, offUntil: 0, offLogged: 0 };
+const AI_SLOW_MS = 1500;      // 聊天要的是"秒回", 超过这个数 AI 就不如机翻 (实测机翻 200~300ms)
+const AI_OFF_MS = 300000;     // 暂停 5 分钟再试
 function aiBudgetOk() { return Date.now() >= aiBudget.offUntil; }
 function aiBudgetRecord(ms) {
   if (!(ms > 0)) return;
   aiBudget.samples++;
   aiBudget.avgMs = aiBudget.samples === 1 ? ms : aiBudget.avgMs * 0.7 + ms * 0.3;
-  if (aiBudget.samples >= 3 && aiBudget.avgMs > 3000) {
-    aiBudget.offUntil = Date.now() + 120000;
-    aiBudget.samples = 0; aiBudget.avgMs = 0;
+  // 超时 (>5s) 一次就够 —— 那已经不是"抖动", 是这条路走不通
+  if (aiBudget.avgMs > AI_SLOW_MS && (aiBudget.samples >= 2 || ms > 5000)) {
+    aiBudget.offUntil = Date.now() + AI_OFF_MS;
     if (Date.now() - aiBudget.offLogged > 300000) {
       aiBudget.offLogged = Date.now();
-      try { logErr('[TRANSLATE] AI 平均耗时过高, 暂停 2 分钟改用机翻 (下一条消息立即返回)'); } catch (e) {}
+      try {
+        logErr('[TRANSLATE] AI 平均 ' + Math.round(aiBudget.avgMs) + 'ms, 太慢, 暂停 5 分钟改用机翻');
+      } catch (e) {}
     }
+    aiBudget.samples = 0; aiBudget.avgMs = 0;
   }
 }
 
@@ -799,8 +804,11 @@ async function aiTranslateBatch(texts, target) {
   // (用户报障"悬浮窗的消息要很久才出来")。超时后退回机翻只要 200~300ms。
   const tAi = Date.now();
   const resp = await httpsPost(targetUrl.hostname, targetUrl.port, targetUrl.path, { 'Authorization': 'Bearer ' + cfg.apiKey }, body, 6000);
-  if (resp.error) return aiTransFail('请求失败 ' + resp.error);
+  // 1.5.71: **失败也要记账**。之前只在成功时记录, 于是"每次都先白等 6 秒超时、
+  // 再退回机翻"这种情况永远不会被闸门发现 —— 05:34 局日志实证: 单条消息
+  // 用时 6263ms 源=机翻, 那 6 秒全花在注定超时的 AI 请求上。
   aiBudgetRecord(Date.now() - tAi);
+  if (resp.error) return aiTransFail('请求失败 ' + resp.error);
   const content = String(resp.choices?.[0]?.message?.content || '');
   if (!content) return aiTransFail('返回为空 status=' + (resp.__httpStatus || '?'));
   const match = content.match(/\[[\s\S]*\]/);

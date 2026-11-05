@@ -27,8 +27,13 @@ const sandbox = {
   __now: 1700000000000,
   logErr: () => {}
 };
+// 阈值也从源码里取, 别在测试里硬编码一份会跟源码走散的副本
+const consts = (SRC.match(/const AI_(?:SLOW|OFF)_MS = \d+;/g) || []).join('\n');
+if (!/AI_SLOW_MS/.test(consts) || !/AI_OFF_MS/.test(consts)) throw new Error('没找到 AI 延迟阈值常量');
+
 const code = [
   'const aiBudget = { avgMs: 0, samples: 0, offUntil: 0, offLogged: 0 };',
+  consts,
   pick('glossaryHint'),
   pick('aiItemOk'),
   pick('stripListNumber'),
@@ -70,20 +75,32 @@ const M = fn(sandbox);
 // ---------- 延迟预算 ----------
 {
   ok('初始允许用 AI', M.aiBudgetOk() === true);
-  // 单次慢不立刻关 (要看平均, 避免偶发抖动误杀)
-  M.aiBudgetRecord(5000);
-  ok('单次慢不关闭 AI', M.aiBudgetOk() === true);
-  M.aiBudgetRecord(5000);
-  M.aiBudgetRecord(5000);
-  ok('连续三次都慢 → 暂停 AI', M.aiBudgetOk() === false);
-  sandbox.__now += 121000;
-  ok('2 分钟后自动恢复', M.aiBudgetOk() === true);
+  // 单次"略慢"不立刻关 (避免偶发抖动误杀); 1500ms 是阈值, 机翻只要 200~300ms
+  M.aiBudgetRecord(1800);
+  ok('单次略慢不关闭 AI', M.aiBudgetOk() === true);
+  M.aiBudgetRecord(1800);
+  ok('连续两次都慢 → 暂停 AI', M.aiBudgetOk() === false);
+  sandbox.__now += 301000;
+  ok('5 分钟后自动恢复', M.aiBudgetOk() === true);
+  // 超时 (>5s) 一次就够: 05:34 局实测单条消息 6263ms, 6 秒全花在注定超时的请求上
+  M.aiBudgetRecord(6000);
+  ok('一次超时立刻暂停 AI', M.aiBudgetOk() === false);
+  sandbox.__now += 301000;
+  ok('恢复后重新计时', M.aiBudgetOk() === true);
+  // 快的调用不该把平均拉黑
+  M.aiBudgetRecord(300);
+  M.aiBudgetRecord(300);
+  ok('AI 快的时候不受影响', M.aiBudgetOk() === true);
 }
 
 // ---------- 源码级契约 ----------
 {
   ok('AI 请求超时收紧到 6 秒 (30 秒会让浮窗静默半分钟)', /httpsPost\([\s\S]{0,200}?body,\s*6000\)/.test(SRC));
   ok('AI 超时记录耗时 (自适应闸门的输入)', SRC.includes('aiBudgetRecord(Date.now() - tAi)'));
+  // 关键回归: 记账必须在 error 分支**之前** —— 之前只在成功时记, 于是"每次先白等
+  // 6 秒超时再退回机翻"永远学不到, 闸门形同虚设 (05:34 局 6263ms 源=机翻 实证)
+  ok('失败的请求也计入耗时 (记账在 error 分支之前)',
+    SRC.indexOf('aiBudgetRecord(Date.now() - tAi)') < SRC.indexOf("aiTransFail('请求失败 ' + resp.error)"));
   ok('AI 返回后逐条做语种校验', SRC.includes('if (!aiItemOk(r, lang)) bad.push(i)'));
   ok('语种不对的条目单独退回机翻', SRC.includes('const fix = await freeTranslateBatch(bad.map(i => pending[i]), lang)'));
   ok('翻译耗时留痕 (排查"很久才出来"必须有据可查)', SRC.includes("'[TRANSLATE] 用时 '"));
