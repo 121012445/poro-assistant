@@ -485,6 +485,25 @@ function gtOcrNeedsConfirm(body) {
   return word.replace(/[^a-z]/g, '').length < 10;
 }
 
+// OCR 把单词拆成单个字母: "the top very strong" → "th e to p very strong"。
+// Windows OCR 在字号小、背景花的时候会按字符框间隙断词, 05:19 局真实帧就是这样。
+// 机翻拿到 "th e to p very strong" 只能瞎猜 (实测译成"这是非常强大的"), 用户看到
+// 的就是"改意思了"。判据: 单字母 token 占比 ≥1/4 时把单字母并回前一个词;
+// i/I/a/A 是真词, 不并 ("i am good" 不能被拼成 "iam good")。
+function gtOcrJoinSplitWords(s) {
+  const toks = String(s || '').split(/\s+/).filter(Boolean);
+  if (toks.length < 3) return s;
+  const singles = toks.filter(t => t.length === 1 && /[A-Za-z]/.test(t)).length;
+  if (singles / toks.length < 0.25) return s;
+  const out = [];
+  for (const t of toks) {
+    const prev = out.length ? out[out.length - 1] : '';
+    if (t.length === 1 && /[A-Za-z]/.test(t) && /[A-Za-z]$/.test(prev) && !/^[iIaA]$/.test(t)) out[out.length - 1] = prev + t;
+    else out.push(t);
+  }
+  return out.join(' ');
+}
+
 function gtOcrStripBody(seg) {
   let s = String(seg || '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
@@ -504,6 +523,7 @@ function gtOcrStripBody(seg) {
   s = s.replace(/\s+[\[\]【】()（）]+$/g, '').trim();
   s = s.replace(/[\s，,、。;；:：·]+$/g, '').trim();
   s = s.replace(/^[^A-Za-z]+/, '').trim();
+  s = gtOcrJoinSplitWords(s);
   return gtOcrBodyOk(s) ? s : '';
 }
 

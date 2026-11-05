@@ -699,6 +699,21 @@ function msg(id, body, fromId) {
     const lines = await e.run('gtParseOcrChatLines')('02:38 」 五 ] 雨 未 散 （ 暗 裔 剑 ） ： Vhe № everyonq');
     ok('冒号兜底也取到时间戳', lines[0] && lines[0].ts === '02:38' && lines[0].channel === '', lines);
   }
+  {
+    // 05:19 局真实帧: Windows OCR 按字符框间隙断词, "the top very strong" 被读成
+    // "th e to p very strong"。机翻拿到这种输入只能瞎猜 (实测"这是非常强大的"),
+    // 用户看到的就是"改意思了"。单字母要能并回前面的词。
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')('01:50 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： th e to p very strong');
+    ok('OCR 拆成单字母的单词被拼回去',
+      lines[0] && lines[0].body === 'the top very strong', lines[0] && lines[0].body);
+    // 不能把真词拼坏: i / a 是词, 短句不动
+    const join = e.run('gtOcrJoinSplitWords');
+    ok('i am good 不被拼成 iam good', join('i am good') === 'i am good', join('i am good'));
+    ok('正常的短句原样保留', join('nice try man') === 'nice try man', join('nice try man'));
+    ok('两三个词的消息不参与拼接', join('ok gg') === 'ok gg', join('ok gg'));
+    ok('数字不当字母并进去', join('1 v 1') === '1 v 1', join('1 v 1'));
+  }
 
   console.log(`\n聊天翻译: ${pass} 通过 / ${fail} 失败`);
   if (fail) process.exit(1);

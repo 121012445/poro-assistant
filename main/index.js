@@ -744,24 +744,63 @@ function aiTransFail(reason) {
   return null;
 }
 
+// 术语表的**方向必须跟着翻译方向走**。1.5.68 之前这里永远是"上路差距=top gap"
+// 这种中文→英文的写法, 而实际任务是英→中; flash 模型会照着这张表把英文原样吐回来
+// (用户实测 "the top very strong" 的译文就是 "top gap"), 用户看到的就是"还是英文"。
+function glossaryHint(target) {
+  if (target === 'zh-CN') {
+    return '固定术语 (英文→中文): top gap=上路差距, mid gap=中路差距, jungle gap=打野差距, '
+      + 'bot gap=下路差距, support gap=辅助差距; baron=大龙, dragon=小龙, herald=峡谷先锋, '
+      + 'flash=闪现, ult=大招, tp=传送, teamfight=打团, ward=做视野, CS=补刀, dive=越塔。';
+  }
+  return '固定术语 (中文→外文): 上路差距=top gap, 中路差距=mid gap, 打野差距=jungle gap, '
+    + '下路差距=bot gap, 辅助差距=support gap; 大龙=baron, 小龙=dragon, 峡谷先锋=herald, '
+    + '闪现=flash, 大招=ult, 传送=tp, 打团=teamfight, 做视野=ward, 补刀=CS, 越塔=dive。'
+    + '表示"某路差距"一律用 gap, 不要用 diff 或 disparity。';
+}
+
+// AI 的延迟预算 (自适应): 聊天是实时场景, 模型慢 3 秒就意味着浮窗慢 3 秒。
+// 机翻实测 200~300ms, 所以"慢的 AI"不如机翻 —— 连续慢了就临时让位给机翻,
+// 2 分钟后再试一次, 模型恢复就自动切回来。不做这一步就只能靠用户抱怨才知道。
+const aiBudget = { avgMs: 0, samples: 0, offUntil: 0, offLogged: 0 };
+function aiBudgetOk() { return Date.now() >= aiBudget.offUntil; }
+function aiBudgetRecord(ms) {
+  if (!(ms > 0)) return;
+  aiBudget.samples++;
+  aiBudget.avgMs = aiBudget.samples === 1 ? ms : aiBudget.avgMs * 0.7 + ms * 0.3;
+  if (aiBudget.samples >= 3 && aiBudget.avgMs > 3000) {
+    aiBudget.offUntil = Date.now() + 120000;
+    aiBudget.samples = 0; aiBudget.avgMs = 0;
+    if (Date.now() - aiBudget.offLogged > 300000) {
+      aiBudget.offLogged = Date.now();
+      try { logErr('[TRANSLATE] AI 平均耗时过高, 暂停 2 分钟改用机翻 (下一条消息立即返回)'); } catch (e) {}
+    }
+  }
+}
+
 async function aiTranslateBatch(texts, target) {
   let cfg;
   try { cfg = readAiConfig(); } catch (e) { return aiTransFail('读取配置失败 ' + (e?.message || e)); }
   if (!cfg.apiKey || !cfg.baseUrl) return null;   // 没配就是没配, 不算失败
+  if (!aiBudgetOk()) return null;
   const langName = TRANSLATE_LANG_NAMES[target] || '简体中文';
   const prompt = 'You are an in-game chat translator for League of Legends. '
-    + '将下列每一行游戏聊天翻译成' + langName + '。保留游戏黑话/术语的习惯译法, 不要解释。'
-    + '固定术语: 上路差距=top gap, 中路差距=mid gap, 打野差距=jungle gap, 下路差距=bot gap, 辅助差距=support gap; '
-    + '大龙=baron, 小龙=dragon, 峡谷先锋=herald, 闪现=flash, 大招=ult, 传送=tp, 打团=teamfight, 做视野=ward, 补刀=CS, 越塔=dive。'
-    + '表示"某路差距"一律用 gap, 不要用 diff 或 disparity。译文要短, 像真人打字, 不要加句号以外的标点。'
+    + '输入是队友在游戏里发的外语聊天, 每一行输出**必须**是' + langName + ', 不得保留原文。'
+    + '保留游戏黑话/术语的习惯译法, 不要解释。'
+    + glossaryHint(target)
+    + '译文要短, 像真人打字, 不要加句号以外的标点。'
     + '输出一个 JSON 字符串数组, 与输入行一一对应, 不要输出任何其他内容。'
     + '数组元素里不要带序号 (输入里的 "1. " 只是行号, 不要抄进译文)。\n输入:\n'
     + texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
   let targetUrl;
   try { targetUrl = resolveChatUrl(cfg.baseUrl); } catch (e) { return aiTransFail('接口地址无效 ' + (e?.message || e)); }
   const body = JSON.stringify({ model: cfg.model || 'glm-4-flash', messages: [{ role: 'user', content: prompt }], temperature: 0.1 });
-  const resp = await httpsPost(targetUrl.hostname, targetUrl.port, targetUrl.path, { 'Authorization': 'Bearer ' + cfg.apiKey }, body, 30000);
+  // 6 秒: 聊天是实时场景, 30 秒超时意味着模型一卡, 浮窗就静默 30 秒没反应
+  // (用户报障"悬浮窗的消息要很久才出来")。超时后退回机翻只要 200~300ms。
+  const tAi = Date.now();
+  const resp = await httpsPost(targetUrl.hostname, targetUrl.port, targetUrl.path, { 'Authorization': 'Bearer ' + cfg.apiKey }, body, 6000);
   if (resp.error) return aiTransFail('请求失败 ' + resp.error);
+  aiBudgetRecord(Date.now() - tAi);
   const content = String(resp.choices?.[0]?.message?.content || '');
   if (!content) return aiTransFail('返回为空 status=' + (resp.__httpStatus || '?'));
   const match = content.match(/\[[\s\S]*\]/);
@@ -940,6 +979,16 @@ function stripListNumber(src, out) {
   return String(out).replace(/^\s*\d{1,2}\s*[.、)．]\s*/, '');
 }
 
+// AI 输出的语种校验: 目标是中文时必须真的有中文。
+// 1.5.68 实测 "the top very strong" 被 flash 模型译成 "top gap" —— 原文原样吐回来,
+// 浮窗上就是"还是英文"。这种结果比机翻还差, 必须识别出来退回机翻。
+// 逐条判断 (不整批否决): 一批里夹一条 "GG" 不至于把其余 7 条好译文一起扔掉。
+function aiItemOk(one, lang) {
+  const s = String(one || '').trim();
+  if (!s) return false;
+  return lang === 'zh-CN' ? /[\u4e00-\u9fff]/.test(s) : !/[\u4e00-\u9fff]/.test(s);
+}
+
 async function translateBatchCore(texts, target) {
   const list = (Array.isArray(texts) ? texts : [])
     .map(t => String(t || '').trim().substring(0, 300))
@@ -960,9 +1009,28 @@ async function translateBatchCore(texts, target) {
   if (pendingIdx.length) {
     const pending = pendingIdx.map(i => list[i]);
     let results = null;
+    let src = 'ai';
+    const t0 = Date.now();
     try { results = await aiTranslateBatch(pending, lang); } catch (e) { results = null; }
-    if (!results) results = await freeTranslateBatch(pending, lang);
-    if (!results) results = pending.slice();   // 全挂: 原样返回, 调用方据此判断失败
+    if (results) {
+      // 逐条挑出"语种不对"的 (模型把英文原样吐回来), 只把这几条重翻一次
+      const bad = [];
+      results.forEach((r, i) => { if (!aiItemOk(r, lang)) bad.push(i); });
+      if (bad.length) {
+        try {
+          logErr('[TRANSLATE] AI 有 ' + bad.length + '/' + results.length + ' 条语种不对, 单条退回机翻: '
+            + JSON.stringify(bad.map(i => String(results[i] || '').slice(0, 24))));
+        } catch (e) {}
+        const fix = await freeTranslateBatch(bad.map(i => pending[i]), lang);
+        if (fix) bad.forEach((bi, k) => { if (fix[k]) results[bi] = fix[k]; });
+      }
+    }
+    if (!results) { results = await freeTranslateBatch(pending, lang); src = '机翻'; }
+    if (!results) { results = pending.slice(); src = '原文'; }   // 全挂: 原样返回, 调用方据此判断失败
+    // 聊天是实时场景, "到底慢在哪一段"必须有据可查 (之前完全看不出来)
+    if (Date.now() - t0 > 800) {
+      try { logErr('[TRANSLATE] 用时 ' + (Date.now() - t0) + 'ms 源=' + src + ' 条=' + pending.length + ' 目标=' + lang); } catch (e) {}
+    }
     pendingIdx.forEach((idx, i) => {
       const raw = results[i] && results[i] !== pending[i] ? results[i] : pending[i];
       // 机翻产出的固定错译 (road gap / 顶部间隙 / 拉古诺 …) 在这里纠正
