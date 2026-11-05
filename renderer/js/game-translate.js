@@ -27,21 +27,32 @@
 
   // 增量渲染: 按 key 缓存 DOM 节点, 只增删变化的行。
   // 之前每秒 innerHTML 全量重建会让入场动画 (gtIn) 反复重放 → 弹幕整体一直闪 (1.5.37 实测)。
-  const elMap = new Map();   // key -> { el, ts }
+  const elMap = new Map();   // key -> { el, ts, sig }
   function lineKey(l) {
+    // 有稳定键就用它: 同一条消息被 OCR 重读、换了译文时键不变, 行不会跳到末尾、
+    // 也不会重播入场动画 —— 只是原地把文字换掉。
+    if (l.k) return 'k:' + l.k;
     return (Number(l.ts) || 0) + '|' + String(l.name || '') + '|' + String(l.translated || '');
+  }
+  // 内容指纹: 用来判断"键相同但文字变了"(同一条消息的更完整版本 / 更好的译文)
+  function lineSig(l) {
+    return String(l.name || '') + '\u0000' + String(l.translated || '') + '\u0000' + String(l.body || '');
   }
   const MAX_LINES = 10;
   const FADE_MS = 800;   // 与 .gt-line 的 transition 时长一致
+
+  function lineInner(l) {
+    let html = '<span class="gt-name">' + esc(l.name) + '</span>'
+      + '<span class="gt-body">' + esc(l.translated) + '</span>';
+    if (l.body && l.body !== l.translated) html += '<span class="gt-orig">' + esc(l.body) + '</span>';
+    return html;
+  }
 
   function buildLine(l) {
     const el = document.createElement('div');
     el.classList.add('gt-line');
     if (isSelfName(l.name)) el.classList.add('gt-self');
-    let html = '<span class="gt-name">' + esc(l.name) + '</span>'
-      + '<span class="gt-body">' + esc(l.translated) + '</span>';
-    if (l.body && l.body !== l.translated) html += '<span class="gt-orig">' + esc(l.body) + '</span>';
-    el.innerHTML = html;
+    el.innerHTML = lineInner(l);
     return el;
   }
 
@@ -60,7 +71,7 @@
       const key = lineKey(l);
       let rec = elMap.get(key);
       if (!rec) {
-        rec = { el: buildLine(l), ts: Number(l.ts) || 0, faded: false };
+        rec = { el: buildLine(l), ts: Number(l.ts) || 0, faded: false, sig: lineSig(l) };
         elMap.set(key, rec);
         listEl.appendChild(rec.el);
         // 超出上限: 删最老的可见行, 防止长局堆积
@@ -69,6 +80,10 @@
           const oldest = Array.from(elMap.entries()).slice(0, extra);
           for (const [k, r] of oldest) { r.el.remove(); elMap.delete(k); }
         }
+      } else {
+        // 键没变但内容变了 (同一条消息的更完整读法 / 更好的译文): 原地换文字
+        const sig = lineSig(l);
+        if (rec.sig !== sig) { rec.sig = sig; rec.el.innerHTML = lineInner(l); }
       }
       const shouldFade = !inputOn && now - rec.ts > MAX_AGE_MS - FADE_MS;
       if (shouldFade !== rec.faded) { rec.faded = shouldFade; rec.el.classList.toggle('gt-old', shouldFade); }

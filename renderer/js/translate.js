@@ -338,16 +338,16 @@ async function gtScan() {
           if (gtEchoed.has(body)) { _gtSkipEcho++; continue; }   // 我们自己补发出去的译文
           if (GT_ZH_RE.test(body)) {
             if (!gtAutoMine) { _gtSkipMineOff++; continue; }
-            gtQueue.push({ name: '我', body, mine: true });
+            gtQueue.push({ name: '我', body, mine: true, k: key });
             fresh++;
           } else if (gtLooksForeign(body)) {
-            gtQueue.push({ name: '我', body, mine: false, self: true });
+            gtQueue.push({ name: '我', body, mine: false, self: true, k: key });
             fresh++;
           } else { _gtSkipNoMatch++; }
           continue;
         }
         if (!gtLooksForeign(body)) { _gtSkipNoMatch++; continue; }
-        gtQueue.push({ name: fromName || '玩家', body });
+        gtQueue.push({ name: fromName || '玩家', body, k: key });
         fresh++;
       }
     }
@@ -628,27 +628,45 @@ async function gtOcrScan() {
       if (GT_SYS_BODY_RE.test(body) || !gtLooksForeign(body)) continue;
       const norm = gtOcrNorm(body);
       if (norm.length < 2) continue;
-      // 同一条消息的多个 OCR 版本: 模糊比对 (时间戳读不准, 不能当键)
+      // 稳定键 = 频道 + 聊天框里那行显示的时间戳。同一条消息跨帧重读时这两个都不变,
+      // 而正文会因为 OCR 抖动而变 ("hello everyone" 有时读成 "h eryone") ——
+      // 所以键比正文可靠得多。1.5.51 拿时间戳当唯一键失败过 (读错数字就变新消息),
+      // 这里只用它做**补充**判据: 命中就合并, 没命中再退回正文模糊比对, 只会更严不会更松。
+      const key = item.ts ? ((item.channel || '') + '|' + item.ts) : '';
+      // 同一条消息的多个 OCR 版本: 先按时间戳键找, 再按正文模糊比对 (时间戳读错时兜底)
       let rec = null;
-      for (const r of gtOcrRecent) {
-        // 1.5.55: 已发出的记录只认严格相似 (否则 "hello" 会被 "hello everyone" 吞掉);
-        // 还没发出的"待确认"记录放宽到包含判定 —— 它就是靠"读到更完整的版本"来升级的。
-        if (gtOcrSame(r.norm, norm)
-          || (!r.sent && (norm.includes(r.norm) || r.norm.includes(norm)))) { rec = r; break; }
+      if (key) rec = gtOcrRecent.find(r => r.key === key) || null;
+      if (!rec) {
+        for (const r of gtOcrRecent) {
+          // 1.5.55: 已发出的记录只认严格相似 (否则 "hello" 会被 "hello everyone" 吞掉);
+          // 还没发出的"待确认"记录放宽到包含判定 —— 它就是靠"读到更完整的版本"来升级的。
+          if (gtOcrSame(r.norm, norm)
+            || (!r.sent && (norm.includes(r.norm) || r.norm.includes(norm)))) { rec = r; break; }
+        }
       }
       if (!rec) {
-        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ norm, body, sent: false, at: Date.now() }); held++; continue; }
-        gtOcrRecent.push({ norm, body, sent: true, at: Date.now() });
-        gtQueue.push({ name: '聊天', body });
+        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ key, norm, body, sent: false, at: Date.now() }); held++; continue; }
+        gtOcrRecent.push({ key, norm, body, sent: true, at: Date.now() });
+        gtQueue.push({ name: '聊天', body, k: key || undefined });
         _gtOcrTotal++; fresh++;
         continue;
       }
-      // 已经发过 = 同一条消息的另一个版本, 不再发 —— 这是幻影消息的根治点。
-      if (rec.sent) { dup++; continue; }
+      // 已经发过 = 同一条消息的另一个版本。只有"这轮读得明显更完整"时才替换那一条
+      // (浮窗里同一行原地更新译文), 否则就是重复 —— 这是"旧消息被重新翻译一遍"的根治点。
+      if (rec.sent) {
+        const better = rec.key && norm.length >= rec.norm.length + 3 && Date.now() - rec.at < 20000;
+        if (better) {
+          rec.norm = norm; rec.body = body; rec.at = Date.now();
+          gtQueue.push({ name: '聊天', body, k: rec.key });
+          _gtOcrTotal++; fresh++;
+        } else { dup++; }
+        continue;
+      }
       // 上一轮是"待确认"的单字词: 这轮读到更完整的版本就用更完整的发出
       if (norm.includes(rec.norm) || gtOcrSame(rec.norm, norm)) {
-        rec.norm = norm; rec.body = body; rec.sent = true;
-        gtQueue.push({ name: '聊天', body });
+        rec.norm = norm; rec.body = body; rec.sent = true; rec.at = Date.now();
+        if (!rec.key && key) rec.key = key;
+        gtQueue.push({ name: '聊天', body, k: rec.key || undefined });
         _gtOcrTotal++; fresh++;
       } else {
         dup++;   // 这轮读得更残, 忽略
@@ -660,10 +678,12 @@ async function gtOcrScan() {
     for (const rec of gtOcrRecent) {
       if (rec.sent || !rec.at || nowTs - rec.at < 15000) continue;
       rec.sent = true;
-      gtQueue.push({ name: '聊天', body: rec.body });
+      gtQueue.push({ name: '聊天', body: rec.body, k: rec.key || undefined });
       _gtOcrTotal++; fresh++;
     }
-    if (gtOcrRecent.length > 80) gtOcrRecent.splice(0, gtOcrRecent.length - 60);
+    // 记录要留得比聊天框可见行数多得多: 消息滚出视野后还可能被重新读进来,
+    // 一局 40 分钟几百条, 只留 60 条会让早先的消息在后半局被当成新消息重翻。
+    if (gtOcrRecent.length > 300) gtOcrRecent.splice(0, gtOcrRecent.length - 240);
     if (fresh) {
       try { lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ' dup=' + dup + ')'); } catch (e) {}
       gtFlush();
@@ -728,7 +748,7 @@ async function gtFlush() {
     const jobs = [];
     if (foreignItems.length) {
       jobs.push(gtTranslateBatch(foreignItems.map(it => it.body), 'zh-CN').then(tr => {
-        foreignItems.forEach((it, i) => lines.push({ name: it.name, body: it.body, translated: tr[i], ts: Date.now() }));
+        foreignItems.forEach((it, i) => lines.push({ name: it.name, body: it.body, translated: tr[i], ts: Date.now(), k: it.k }));
       }));
     }
     if (mineItems.length) {
@@ -738,13 +758,20 @@ async function gtFlush() {
           if (!gtEchoOk(it.body, out)) return;
           gtEchoSend({ body: it.body, translated: out, target });
           // 浮窗也显示一条：自己确认实际补发出去的是哪句话
-          lines.push({ name: '我（已补发）', body: it.body, translated: out, ts: Date.now() });
+          lines.push({ name: '我（已补发）', body: it.body, translated: out, ts: Date.now(), k: it.k });
         });
       }));
     }
     await Promise.all(jobs);
     if (lines.length) {
-      gtRecent = gtRecent.concat(lines).slice(-10);
+      // 同一个 k = 同一条消息的另一个版本 (OCR 这轮读得更完整): 原地替换, 不新增一行。
+      // 之前直接 concat, 于是同一句话在浮窗里出现两次, 且后一次是重新翻译的
+      // —— 用户看到的就是"来新消息时旧消息又被翻了一遍"。
+      for (const ln of lines) {
+        const i = ln.k ? gtRecent.findIndex(x => x && x.k === ln.k) : -1;
+        if (i >= 0) gtRecent[i] = ln; else gtRecent.push(ln);
+      }
+      gtRecent = gtRecent.slice(-10);
       // target 一起推: 悬浮输入框按它决定"回车后发成哪种语言"
       if (lolAPI.gameTranslatePush) lolAPI.gameTranslatePush({ lines: gtRecent, target });
     }

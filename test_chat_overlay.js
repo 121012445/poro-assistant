@@ -150,6 +150,24 @@ function ok(cond, label, detail) {
     ok(e.els.gtLines.children.length === 1, '节点没有成倍增加');
   }
 
+  console.log('— 同一条消息读到更完整的版本: 原地换字, 不新增行 —');
+  {
+    // OCR 每 4 秒重读聊天框, 同一句会读出不同版本 ("h eryone" / "hello everyone")。
+    // 后端用稳定键 k 标记"这是同一条消息", 浮窗必须原地更新而不是多出一行。
+    const e = makeEnv();
+    const line = { name: '聊天', body: 'h eryone', translated: '大家好', ts: e.clock.t, k: '队伍|02:38' };
+    e.dataCbs[0]({ lines: [line] });
+    const first = e.els.gtLines.children[0];
+    ok(renderedText(e).includes('h eryone'), '先渲染残缺版', renderedText(e));
+    // 关键: 重新翻译后译文也可能变 (旧实现按"时间戳+正文+译文"做键, 一变就当成新行)
+    e.dataCbs[0]({ lines: [Object.assign({}, line, { body: 'hello everyone', translated: '大家好呀' })] });
+    ok(e.els.gtLines.children.length === 1, '仍然只有一行', e.els.gtLines.children.length);
+    ok(e.els.gtLines.children[0] === first, '复用同一个 DOM 节点 (不跳位、不重播入场动画)');
+    ok(renderedText(e).includes('hello everyone'), '文字原地换成完整版', renderedText(e));
+    ok(renderedText(e).includes('大家好呀'), '译文也原地换掉', renderedText(e));
+    ok(!renderedText(e).includes('h eryone'), '旧正文已被替换', renderedText(e));
+  }
+
   console.log('— 16 秒变暗保留 (历史) + 输入模式冻结 —');
   {
     const e = makeEnv();

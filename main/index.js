@@ -733,9 +733,21 @@ const TRANSLATE_LANG_NAMES = {
 };
 
 // 优先 AI 接口: 游戏黑话/缩写 (ss, jgl diff, off cooldown) 的处理比机翻好得多
+// AI 翻译失败时留痕 (限频 60 秒): 之前是静默返回 null, 于是"AI 挂了 → 悄悄退到机翻"
+// 这件事在日志里完全看不出来, 用户只感觉到"翻译质量时好时坏"。
+let _aiTransLogAt = 0;
+function aiTransFail(reason) {
+  const now = Date.now();
+  if (now - _aiTransLogAt < 60000) return null;
+  _aiTransLogAt = now;
+  try { logErr('[TRANSLATE] AI 未使用, 退回机翻: ' + reason); } catch (e) {}
+  return null;
+}
+
 async function aiTranslateBatch(texts, target) {
-  const cfg = readAiConfig();
-  if (!cfg.apiKey || !cfg.baseUrl) return null;
+  let cfg;
+  try { cfg = readAiConfig(); } catch (e) { return aiTransFail('读取配置失败 ' + (e?.message || e)); }
+  if (!cfg.apiKey || !cfg.baseUrl) return null;   // 没配就是没配, 不算失败
   const langName = TRANSLATE_LANG_NAMES[target] || '简体中文';
   const prompt = 'You are an in-game chat translator for League of Legends. '
     + '将下列每一行游戏聊天翻译成' + langName + '。保留游戏黑话/术语的习惯译法, 不要解释。'
@@ -744,14 +756,21 @@ async function aiTranslateBatch(texts, target) {
     + '表示"某路差距"一律用 gap, 不要用 diff 或 disparity。译文要短, 像真人打字, 不要加句号以外的标点。'
     + '输出一个 JSON 字符串数组, 与输入行一一对应, 不要输出任何其他内容。\n输入:\n'
     + texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
-  const targetUrl = resolveChatUrl(cfg.baseUrl);
+  let targetUrl;
+  try { targetUrl = resolveChatUrl(cfg.baseUrl); } catch (e) { return aiTransFail('接口地址无效 ' + (e?.message || e)); }
   const body = JSON.stringify({ model: cfg.model || 'glm-4-flash', messages: [{ role: 'user', content: prompt }], temperature: 0.1 });
   const resp = await httpsPost(targetUrl.hostname, targetUrl.port, targetUrl.path, { 'Authorization': 'Bearer ' + cfg.apiKey }, body, 30000);
-  if (resp.error || !resp.choices?.[0]?.message?.content) return null;
-  const match = String(resp.choices[0].message.content || '').match(/\[[\s\S]*\]/);
-  if (!match) return null;
-  const parsed = JSON.parse(match[0]);
-  if (!Array.isArray(parsed) || parsed.length !== texts.length) return null;
+  if (resp.error) return aiTransFail('请求失败 ' + resp.error);
+  const content = String(resp.choices?.[0]?.message?.content || '');
+  if (!content) return aiTransFail('返回为空 status=' + (resp.__httpStatus || '?'));
+  const match = content.match(/\[[\s\S]*\]/);
+  if (!match) return aiTransFail('返回里没有 JSON 数组: ' + content.slice(0, 80));
+  let parsed;
+  try { parsed = JSON.parse(match[0]); } catch (e) { return aiTransFail('JSON 解析失败: ' + (e?.message || e)); }
+  // 条数对不上说明模型漏了/多翻了行, 强行按序对齐会错位 —— 宁可退回机翻
+  if (!Array.isArray(parsed) || parsed.length !== texts.length) {
+    return aiTransFail('条数不符 ' + (Array.isArray(parsed) ? parsed.length : 'not-array') + '/' + texts.length);
+  }
   return parsed.map(x => String(x || '').trim());
 }
 
@@ -1142,7 +1161,10 @@ ipcMain.handle('game-translate:push', async (e, payload) => {
       name: String(it.name || '玩家').substring(0, 24),
       body: String(it.body || '').substring(0, 140),
       translated: String(it.translated || '').substring(0, 200),
-      ts: Number(it.ts) || Date.now()
+      ts: Number(it.ts) || Date.now(),
+      // 稳定键 (LCU 是 cid:mid, OCR 是 频道|时间戳): 浮窗按它判定"同一行的新版本",
+      // 换译文时原地更新, 不新增一行
+      k: it.k ? String(it.k).substring(0, 64) : ''
     }));
   if (payload?.target && TRANSLATE_LANG_NAMES[payload.target]) gameTranslateTarget = payload.target;
   createGameTranslateWindow();

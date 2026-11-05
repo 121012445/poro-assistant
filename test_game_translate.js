@@ -55,6 +55,8 @@ function makeEnv(opts = {}) {
       },
       sendGameChatNow: async (text) => { sent.push(text); return { ok: true }; },
       gameTranslatePush: (payload) => pushed.push(payload),
+      // OCR 通道: 每次调用取一帧, 帧用完返回 null (相当于"这一轮没读到东西")
+      gameTranslateOcrChat: opts.ocr ? async () => (opts.ocr.length ? opts.ocr.shift() : null) : undefined,
       debugLog: () => {}
     }
   };
@@ -579,6 +581,63 @@ function msg(id, body, fromId) {
     ok('扫描请求不落选人房间', !scanned.some(u => u.includes('cs-room')), scanned);
     ok('扫描请求打到真房间', scanned.some(u => u.includes('real-game-room')), scanned);
     ok('外语消息照常翻译', e.translated.some(t => t.target === 'zh-CN'), e.translated);
+  }
+
+  // ---- OCR 通道去重 ----
+  // 国服对局里 LCU 聊天接口常常只给到一条空会话 (strict=0 loose=1), 真实消息全靠
+  // 截屏 OCR。OCR 每 4 秒重读整个聊天框, 同一句话会因为渲染/遮挡读出不同版本
+  // ("hello everyone" → "h eryone")。1.5.67 之前按正文模糊比对, 版本差得多就当成
+  // 新消息, 于是"来一条新消息, 旧消息被重新翻译一遍"。
+  console.log('— OCR 通道去重 —');
+  {
+    const e = makeEnv({
+      ocr: [
+        '02:38 [队伍] 雨未散（暗裔剑魔）: hello everyone',
+        '02:38 [队伍] 雨未散（暗裔剑魔）: h eryone'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const t1 = e.get('_gtOcrTotal');
+    e.advance(4000);            // gtFlush 有 250ms 节流, 假时钟不推进会无限递归
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const t2 = e.get('_gtOcrTotal');
+    ok('同一句的残缺读法不再进翻译管线', t1 === 1 && t2 === 1, { t1, t2 });
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('浮窗里只有一行', lines.length === 1, lines);
+    ok('时间戳键随行一起下发', lines.length === 1 && lines[0].k === '队伍|02:38', lines[0]);
+  }
+  {
+    // 先读到残缺版、后读到完整版: 原地替换那一行, 而不是多出一行
+    const e = makeEnv({
+      ocr: [
+        '02:38 [队伍] 雨未散（暗裔剑魔）: h eryone',
+        '02:38 [队伍] 雨未散（暗裔剑魔）: hello everyone'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const first = e.pushed[e.pushed.length - 1].lines;
+    ok('残缺版先占一行', first.length === 1 && first[0].body === 'h eryone', first);
+    e.advance(4000);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('读得更完整时仍是一行', lines.length === 1, lines);
+    ok('那一行换成完整正文', lines.length === 1 && lines[0].body === 'hello everyone', lines[0]);
+  }
+  {
+    // 不同时间戳 = 不同消息, 必须各占一行
+    const e = makeEnv({
+      ocr: [
+        '02:38 [队伍] 雨未散: hello everyone\n03:21 [队伍] 雨未散: good morning'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('不同消息各占一行', lines.length === 2, lines);
   }
 
   console.log(`\n聊天翻译: ${pass} 通过 / ${fail} 失败`);
