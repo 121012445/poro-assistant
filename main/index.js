@@ -754,7 +754,8 @@ async function aiTranslateBatch(texts, target) {
     + '固定术语: 上路差距=top gap, 中路差距=mid gap, 打野差距=jungle gap, 下路差距=bot gap, 辅助差距=support gap; '
     + '大龙=baron, 小龙=dragon, 峡谷先锋=herald, 闪现=flash, 大招=ult, 传送=tp, 打团=teamfight, 做视野=ward, 补刀=CS, 越塔=dive。'
     + '表示"某路差距"一律用 gap, 不要用 diff 或 disparity。译文要短, 像真人打字, 不要加句号以外的标点。'
-    + '输出一个 JSON 字符串数组, 与输入行一一对应, 不要输出任何其他内容。\n输入:\n'
+    + '输出一个 JSON 字符串数组, 与输入行一一对应, 不要输出任何其他内容。'
+    + '数组元素里不要带序号 (输入里的 "1. " 只是行号, 不要抄进译文)。\n输入:\n'
     + texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
   let targetUrl;
   try { targetUrl = resolveChatUrl(cfg.baseUrl); } catch (e) { return aiTransFail('接口地址无效 ' + (e?.message || e)); }
@@ -930,6 +931,15 @@ ipcMain.handle('tts:synthesize', async (e, text, speed) => {
 });
 
 // 翻译核心: 主窗口与游戏内悬浮输入共用同一条链 (术语表 → 缓存 → AI → 免费源 → 纠正)
+// AI 接口的 prompt 是"1. xxx"这种带序号的输入格式, 模型偶尔把序号一起吐进译文里
+// (用户实测 "good job" → "1. 好", 浮窗上就是一条莫名其妙的 "1. 好")。
+// 原文本身没有序号时, 把译文开头的序号剥掉; 原文带序号就原样保留。
+function stripListNumber(src, out) {
+  if (!out) return out;
+  if (/^\s*\d/.test(String(src || ''))) return out;
+  return String(out).replace(/^\s*\d{1,2}\s*[.、)．]\s*/, '');
+}
+
 async function translateBatchCore(texts, target) {
   const list = (Array.isArray(texts) ? texts : [])
     .map(t => String(t || '').trim().substring(0, 300))
@@ -956,7 +966,7 @@ async function translateBatchCore(texts, target) {
     pendingIdx.forEach((idx, i) => {
       const raw = results[i] && results[i] !== pending[i] ? results[i] : pending[i];
       // 机翻产出的固定错译 (road gap / 顶部间隙 / 拉古诺 …) 在这里纠正
-      const value = raw === pending[i] ? raw : glossary.polish(raw, lang);
+      const value = raw === pending[i] ? raw : stripListNumber(pending[i], glossary.polish(raw, lang));
       out[idx] = value;
       translateCacheSet(lang + '\u0000' + pending[i], value);
     });
@@ -1162,9 +1172,12 @@ ipcMain.handle('game-translate:push', async (e, payload) => {
       body: String(it.body || '').substring(0, 140),
       translated: String(it.translated || '').substring(0, 200),
       ts: Number(it.ts) || Date.now(),
-      // 稳定键 (LCU 是 cid:mid, OCR 是 频道|时间戳): 浮窗按它判定"同一行的新版本",
-      // 换译文时原地更新, 不新增一行
-      k: it.k ? String(it.k).substring(0, 64) : ''
+      // 稳定键 (LCU 是 cid:mid, OCR 是聊天框里那行的时间戳 mm:ss): 浮窗按它判定
+      // "同一行的新版本", 换译文时原地更新, 不新增一行
+      k: it.k ? String(it.k).substring(0, 64) : '',
+      // 聊天框里的时间 (秒)。浮窗按它决定行的上下位置 —— 后补读到的一条老消息
+      // 要插回它该在的位置, 而不是追加到最新一条下面
+      ord: Number(it.ord) || 0
     }));
   if (payload?.target && TRANSLATE_LANG_NAMES[payload.target]) gameTranslateTarget = payload.target;
   createGameTranslateWindow();

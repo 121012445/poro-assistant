@@ -445,6 +445,11 @@ function gtNormalizeOcrText(raw) {
   return String(raw || '')
     .replace(/[\u00a0\u3000]/g, ' ')
     .replace(/[ \t]+/g, ' ')
+    // 1.5.68: OCR 会在数字和冒号之间插一个"点"当分隔符 —— 05:57 局真实帧把
+    // "02:38" 读成 "02 ． ： 38", 于是这一帧取不到时间戳, 同一条消息的去重键
+    // 从 "02:38" 变成空串, 下一帧就被当成新消息又翻一遍。点必须在冒号前才折叠,
+    // 否则 "6．62" 这种小数会被吃掉。
+    .replace(/(?<=\d)\s*[.．。·、]\s*(?=[:：])/g, '')
     .replace(/(?<=\d)\s*[:：]\s*(?=\d)/g, ':');   // "00 ： 18" → "00:18"
 }
 
@@ -507,6 +512,10 @@ function gtOcrStripBody(seg) {
 // 三种方括号写法全都匹配不上, 消息凭空消失。既然 OCR 已经是一行一条, 改用
 // "冒号"当锚点: 从左往右找第一个"左边像聊天头、右边能过正文校验"的冒号。
 // 左边必须含中文或以 )/]/】 结尾 —— 否则 "dragon at 15:30" 会被切成 "30"。
+// 返回 { body, cut }: cut 是切点位置, 调用方靠它取出**这条消息自己的**时间戳。
+// 1.5.68: 之前这里只返回 body, 兜底路径硬写 ts='' —— 而频道方括号恰恰是最常被
+// OCR 读烂的部分 ("[ 队 伍 ]" 读成 "」 五 ]"), 于是最需要时间戳兜底的那些帧
+// 反而一个时间戳都拿不到, 去重键直接退化成空串。
 function gtOcrSplitByColon(line) {
   const re = /[:：]/g;
   let m;
@@ -516,12 +525,31 @@ function gtOcrSplitByColon(line) {
     if (!right) continue;
     if (!GT_OCR_ZH_RE.test(left) && !/[)\]】」]\s*$/.test(left)) continue;
     const body = gtOcrStripBody(right);
-    if (body) return body;
+    if (body) return { body, cut: m.index };
   }
-  return '';
+  return null;
 }
 
-// 返回 [{ ts, channel, body }]。ts 只是附加信息 (OCR 读不准), channel 是锚点。
+// 一行文本里"这条消息"的时间戳 = 断点之前**最近**的一个时间戳。
+// 断点就是聊天头 (频道标记或兜底冒号) 的起点 —— 时间戳永远排在它前面。
+function gtOcrTsBefore(line, cut) {
+  const before = String(line || '').slice(0, Math.max(0, cut));
+  let ts = '', tm;
+  GT_OCR_TS_ANY_RE.lastIndex = 0;
+  while ((tm = GT_OCR_TS_ANY_RE.exec(before))) ts = String(Number(tm[1])).padStart(2, '0') + ':' + tm[2];
+  return ts;
+}
+
+// "02:38" → 158 (秒)。浮窗靠它把**后补读到的一条老消息**插回它该在的位置,
+// 而不是直接追加到最新一条下面 (用户报障: 旧消息插在两条新消息中间)。
+// 取不到时间戳返回 0 = 顺序未知, 调用方按"最新"处理。
+function gtOrdOfTs(ts) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(ts || ''));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+}
+
+// 返回 [{ ts, channel, body }]。ts = 这条消息自己的时间戳 (mm:ss), 1.5.68 起它是
+// 去重键 + 浮窗排序依据; channel 只是辅助 (两边都读到且不一致时否决合并)。
 // 先按行切: 一条聊天永远在一行内 —— 不按行切的话上一条消息的正文会把下面
 // 无关的界面文字一起吞进去。
 function gtParseOcrChatLines(raw) {
@@ -539,7 +567,9 @@ function gtParseOcrChatLines(raw) {
     if (!marks.length) {
       // 1.5.55: 方括号全丢的行退到冒号锚点, 别直接扔
       const byColon = gtOcrSplitByColon(line);
-      if (byColon) { out.push({ ts: '', channel: '', body: byColon }); continue; }
+      // 1.5.68: 兜底路径也要取时间戳 (见 gtOcrSplitByColon 注释)。这条分支正是
+      // "频道方括号被读烂"时唯一的入口, 时间戳在这里丢掉 = 这条消息永远拿不到稳定键。
+      if (byColon) { out.push({ ts: gtOcrTsBefore(line, byColon.cut), channel: '', body: byColon.body }); continue; }
       if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(无频道标记) ' + line.trim().slice(0, 40));
       continue;
     }
@@ -561,11 +591,10 @@ function gtParseOcrChatLines(raw) {
         if (_gtOcrDropped.length < 4) _gtOcrDropped.push('(' + h.channel + ') ' + seg.trim().slice(0, 40));
         continue;
       }
-      // ts 只用于日志/诊断: 取频道标记**之前最近**的一个时间戳 (OCR 常读错, 不可作键)
-      const before = line.slice(0, h.start);
-      let ts = '', tm;
-      GT_OCR_TS_ANY_RE.lastIndex = 0;
-      while ((tm = GT_OCR_TS_ANY_RE.exec(before))) ts = String(Number(tm[1])).padStart(2, '0') + ':' + tm[2];
+      // ts = 这条消息自己的时间戳 (取聊天头之前最近的一个)。它只在这条消息的
+      // 聊天头之前找, 所以不会串到上一条去 —— 上一条的时间戳排在它自己的头上,
+      // 已经被上一个 segEnd 切走了。
+      const ts = gtOcrTsBefore(line, h.start);
       out.push({ ts, channel: h.channel, body });
     }
   }
@@ -580,6 +609,12 @@ function gtOcrNorm(s) {
     // OCR 会把字母读成形近数字 ("heII0 everyone" 其实就是 "hello everyone"),
     // 比对前先折叠, 否则同一句话会被当成两条
     .replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's');
+}
+// OCR 读烂的痕迹: 正文里混进了非拉丁符号 (№ 丨 」 《 之类) 基本可以断定这一版是乱码。
+// 用来判断"后到的一版虽然没更长, 但明显更干净, 值得替换掉浮窗里那一行"。
+// 只放过拉丁字母 (含带重音的西语/葡语), 其余非 ASCII 一律算脏。
+function gtOcrDirty(s) {
+  return /[^\x20-\x7e\u00c0-\u024f]/.test(String(s || ''));
 }
 function gtOcrDistance(a, b) {
   if (a === b) return 0;
@@ -622,20 +657,28 @@ async function gtOcrScan() {
     if (!raw) return;
     const parsed = gtParseOcrChatLines(raw);
     let fresh = 0, dup = 0, held = 0;
+    // 诊断用: 本轮最后一条进管线的正文+键。日志里只有 "+1" 的时候完全看不出
+    // 进管线的是哪句话、键是什么, 排查"旧消息又冒出来"只能靠猜。
+    let lastFresh = '';
     for (const item of parsed) {
       const body = item.body;
       // 系统播报 (击杀/streak 类) 不处理
       if (GT_SYS_BODY_RE.test(body) || !gtLooksForeign(body)) continue;
       const norm = gtOcrNorm(body);
       if (norm.length < 2) continue;
-      // 稳定键 = 频道 + 聊天框里那行显示的时间戳。同一条消息跨帧重读时这两个都不变,
-      // 而正文会因为 OCR 抖动而变 ("hello everyone" 有时读成 "h eryone") ——
-      // 所以键比正文可靠得多。1.5.51 拿时间戳当唯一键失败过 (读错数字就变新消息),
-      // 这里只用它做**补充**判据: 命中就合并, 没命中再退回正文模糊比对, 只会更严不会更松。
-      const key = item.ts ? ((item.channel || '') + '|' + item.ts) : '';
+      // 去重键 = 聊天框里那行显示的时间戳 (mm:ss)。
+      // 1.5.67 用的是 "频道|时间戳", 但频道方括号恰恰是全行里最容易被读烂的部分:
+      // 同一句话这轮读成 "队伍|02:38"、下轮方括号糊掉走冒号兜底读成 "|02:38",
+      // 就成了两个键 → 同一条消息翻两遍、浮窗里多出一行, 而且新的一行落在
+      // 后到的新消息之间 (用户报障: "marry me 和 good job 中间插了一条旧消息")。
+      // 时间戳精确到秒, 一局里不会撞车, 单独当键最稳; 频道降级成**否决条件**:
+      // 两边都读到且不一致时说明数字读错了, 不许合并。
+      const key = item.ts ? String(item.ts) : '';
+      const ch = item.channel || '';
+      const ord = gtOrdOfTs(item.ts);
       // 同一条消息的多个 OCR 版本: 先按时间戳键找, 再按正文模糊比对 (时间戳读错时兜底)
       let rec = null;
-      if (key) rec = gtOcrRecent.find(r => r.key === key) || null;
+      if (key) rec = gtOcrRecent.find(r => r.key === key && (!r.ch || !ch || r.ch === ch)) || null;
       if (!rec) {
         for (const r of gtOcrRecent) {
           // 1.5.55: 已发出的记录只认严格相似 (否则 "hello" 会被 "hello everyone" 吞掉);
@@ -645,20 +688,32 @@ async function gtOcrScan() {
         }
       }
       if (!rec) {
-        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ key, norm, body, sent: false, at: Date.now() }); held++; continue; }
-        gtOcrRecent.push({ key, norm, body, sent: true, at: Date.now() });
-        gtQueue.push({ name: '聊天', body, k: key || undefined });
-        _gtOcrTotal++; fresh++;
+        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ key, ch, ord, norm, body, sent: false, at: Date.now() }); held++; continue; }
+        gtOcrRecent.push({ key, ch, ord, norm, body, sent: true, at: Date.now() });
+        gtQueue.push({ name: '聊天', body, k: key || undefined, ord });
+        _gtOcrTotal++; fresh++; lastFresh = body + '@' + (key || '无键');
         continue;
       }
-      // 已经发过 = 同一条消息的另一个版本。只有"这轮读得明显更完整"时才替换那一条
-      // (浮窗里同一行原地更新译文), 否则就是重复 —— 这是"旧消息被重新翻译一遍"的根治点。
+      // 已经发过 = 同一条消息的另一个版本。只有"这轮读得明显更完整 / 更干净"时才
+      // 替换那一条 (浮窗里同一行原地更新译文), 否则就是重复 ——
+      // 这是"旧消息被重新翻译一遍"的根治点。
       if (rec.sent) {
-        const better = rec.key && norm.length >= rec.norm.length + 3 && Date.now() - rec.at < 20000;
+        // 记录上一轮没拿到键 (那帧时间戳读不出来), 这轮读到了就补上 ——
+        // 浮窗靠 k 复用同一行, 键补齐之后后续版本才是"原地更新"而不是新开一行。
+        if (!rec.key && key) rec.key = key;
+        if (!rec.ch && ch) rec.ch = ch;
+        // 两个升级条件:
+        //  a) 明显更完整 (+3 字符以上): "h eryone" → "hello everyone"
+        //  b) 更干净: 上一条里还夹着 OCR 垃圾字符 ("Vhe № everyonq"), 这条没有。
+        //     b 不看长度 —— 乱码版经常比正确版还长, 只比长度的话乱码会一直挂在浮窗上。
+        const cleaner = gtOcrDirty(rec.body) && !gtOcrDirty(body);
+        const longer = norm.length >= rec.norm.length + 3;
+        const better = rec.key && (longer || cleaner) && Date.now() - rec.at < 20000;
         if (better) {
           rec.norm = norm; rec.body = body; rec.at = Date.now();
-          gtQueue.push({ name: '聊天', body, k: rec.key });
-          _gtOcrTotal++; fresh++;
+          if (ord) rec.ord = ord;
+          gtQueue.push({ name: '聊天', body, k: rec.key, ord: rec.ord || 0 });
+          _gtOcrTotal++; fresh++; lastFresh = body + '@' + rec.key;
         } else { dup++; }
         continue;
       }
@@ -666,7 +721,9 @@ async function gtOcrScan() {
       if (norm.includes(rec.norm) || gtOcrSame(rec.norm, norm)) {
         rec.norm = norm; rec.body = body; rec.sent = true; rec.at = Date.now();
         if (!rec.key && key) rec.key = key;
-        gtQueue.push({ name: '聊天', body, k: rec.key || undefined });
+        if (!rec.ch && ch) rec.ch = ch;
+        if (ord) rec.ord = ord;
+        gtQueue.push({ name: '聊天', body, k: rec.key || undefined, ord: rec.ord || 0 });
         _gtOcrTotal++; fresh++;
       } else {
         dup++;   // 这轮读得更残, 忽略
@@ -678,14 +735,17 @@ async function gtOcrScan() {
     for (const rec of gtOcrRecent) {
       if (rec.sent || !rec.at || nowTs - rec.at < 15000) continue;
       rec.sent = true;
-      gtQueue.push({ name: '聊天', body: rec.body, k: rec.key || undefined });
+      gtQueue.push({ name: '聊天', body: rec.body, k: rec.key || undefined, ord: rec.ord || 0 });
       _gtOcrTotal++; fresh++;
     }
     // 记录要留得比聊天框可见行数多得多: 消息滚出视野后还可能被重新读进来,
     // 一局 40 分钟几百条, 只留 60 条会让早先的消息在后半局被当成新消息重翻。
     if (gtOcrRecent.length > 300) gtOcrRecent.splice(0, gtOcrRecent.length - 240);
     if (fresh) {
-      try { lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ' dup=' + dup + ')'); } catch (e) {}
+      try {
+        lolAPI.debugLog('[GT] ocr lines +' + fresh + ' (total=' + _gtOcrTotal + ' dup=' + dup + ')'
+          + (lastFresh ? ' last=' + JSON.stringify(lastFresh.slice(0, 60)) : ''));
+      } catch (e) {}
       gtFlush();
     } else if ((dup || held || _gtOcrDropped.length) && Date.now() - (_gtOcrSkipLogAt || 0) > 30000) {
       // 被过滤的必须留痕, 否则"OCR 读到了但一条都没进管线"和"OCR 什么都没读到"无法区分
@@ -748,7 +808,7 @@ async function gtFlush() {
     const jobs = [];
     if (foreignItems.length) {
       jobs.push(gtTranslateBatch(foreignItems.map(it => it.body), 'zh-CN').then(tr => {
-        foreignItems.forEach((it, i) => lines.push({ name: it.name, body: it.body, translated: tr[i], ts: Date.now(), k: it.k }));
+        foreignItems.forEach((it, i) => lines.push({ name: it.name, body: it.body, translated: tr[i], ts: Date.now(), k: it.k, ord: it.ord || 0 }));
       }));
     }
     if (mineItems.length) {
@@ -758,7 +818,7 @@ async function gtFlush() {
           if (!gtEchoOk(it.body, out)) return;
           gtEchoSend({ body: it.body, translated: out, target });
           // 浮窗也显示一条：自己确认实际补发出去的是哪句话
-          lines.push({ name: '我（已补发）', body: it.body, translated: out, ts: Date.now(), k: it.k });
+          lines.push({ name: '我（已补发）', body: it.body, translated: out, ts: Date.now(), k: it.k, ord: it.ord || 0 });
         });
       }));
     }
@@ -771,6 +831,16 @@ async function gtFlush() {
         const i = ln.k ? gtRecent.findIndex(x => x && x.k === ln.k) : -1;
         if (i >= 0) gtRecent[i] = ln; else gtRecent.push(ln);
       }
+      // 按聊天框里的时间戳排序, 而不是按"我们什么时候读到它"。
+      // OCR 是每 4 秒重读整个聊天框, 一条消息这一帧读烂了 (整行没解析出来)、下一帧
+      // 才读出来时, 它其实比刚推进来的新消息更早 —— 按到达顺序追加就会落在新消息
+      // 中间 (用户报障: "marry me 和 good job 中间又插了一条旧消息")。
+      // 拿不到时间戳的 (ord=0) 排最后, 互相之间保持到达顺序。
+      gtRecent.sort((a, b) => {
+        const oa = a.ord > 0 ? a.ord : Number.MAX_SAFE_INTEGER;
+        const ob = b.ord > 0 ? b.ord : Number.MAX_SAFE_INTEGER;
+        return oa - ob;
+      });
       gtRecent = gtRecent.slice(-10);
       // target 一起推: 悬浮输入框按它决定"回车后发成哪种语言"
       if (lolAPI.gameTranslatePush) lolAPI.gameTranslatePush({ lines: gtRecent, target });

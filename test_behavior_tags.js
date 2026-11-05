@@ -142,13 +142,22 @@ assert.ok(live.includes('extractBehavior(Object.assign({}, me, { win }))'), '把
 assert.ok(live.includes('behaviorSamples.length < 30'), '行为样本最多 30 场, 不无限增长');
 assert.ok(/recent, teamGames, behaviorSamples,/.test(live), '行为样本应进入缓存的 profile');
 assert.ok(live.includes('p.behaviorSamples = Array.isArray(profile.behaviorSamples) ? profile.behaviorSamples : [];'));
-assert.ok(live.includes('${riskHtml}${behaviorTagsHtml(p.behaviorSamples)}'), '标签渲染在系统画像后面');
+// 1.5.61 在两者之间插了 伤转率/视野 小标签, 所以不再断言"紧挨着",
+// 只锁住语义: 两个都在, 且系统画像在行为标签前面。
+assert.ok(live.includes('${behaviorTagsHtml(p.behaviorSamples)}'), '行为标签要渲染进球员卡');
+assert.ok(live.indexOf('${riskHtml}') >= 0
+  && live.indexOf('${riskHtml}') < live.indexOf('${behaviorTagsHtml(p.behaviorSamples)}'),
+  '标签渲染在系统画像后面');
 assert.ok(!/lcuProfileFor[\s\S]{0,2500}extractBehavior/.test(live.slice(live.indexOf('async function lcuProfileFor'), live.indexOf('function recentProfileFor'))), '外服 LCU 路径不应编造行为数据');
 const html = read('renderer/index.html');
 const scripts = [...html.matchAll(/<script src="js\/([^"?]+)/g)].map(m => m[1]);
 assert.ok(scripts.indexOf('behavior-tags.js') >= 0 && scripts.indexOf('behavior-tags.js') < scripts.indexOf('live.js'), 'behavior-tags.js 必须在 live.js 之前加载');
 const css = read('renderer/css/premium.css');
 for (const c of ['.lp-behavior-bad', '.lp-behavior-warn', '.lp-behavior-info']) assert.ok(css.includes(c), '缺少样式 ' + c);
-assert.ok(/\.lp-profile-line\s*\{\s*flex-wrap:\s*nowrap;\s*overflow:\s*hidden;/.test(css), '画像行不得折行 (行高是战绩区高度预算的一部分)');
+// 1.5.61 起画像行允许折成两行 (标签变多了), 高度预算按两行算 ——
+// 约定搬到了 test_live_compact.js (profileH = 2 * metricLine + gap + margin)。
+// 这里只锁住"不横向溢出": 折行开着, 且溢出裁掉。
+assert.ok(/\.lp-profile-line\s*\{[^}]*flex-wrap:\s*wrap;[^}]*overflow:\s*hidden;/.test(css),
+  '画像行允许折行但不得横向溢出');
 
 console.log('玩家行为标签测试通过');

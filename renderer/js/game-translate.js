@@ -56,6 +56,20 @@
     return el;
   }
 
+  // 新增行的插入位置: 按聊天时间 (ord) 找第一个比它更晚的可见行, 插到它前面。
+  // OCR 每 4 秒重读整个聊天框, 一条消息这一帧读烂、下一帧才读出来时, 它其实比
+  // 刚推进来的新消息更早 —— 直接 appendChild 就会落在两条新消息中间。
+  function place(el, ord) {
+    let anchor = null;
+    if (ord > 0) {
+      for (const child of Array.from(listEl.children)) {
+        const o = Number(child.dataset.ord) || 0;
+        if (o > 0 && o > ord) { anchor = child; break; }
+      }
+    }
+    if (anchor) listEl.insertBefore(el, anchor); else listEl.appendChild(el);
+  }
+
   function render() {
     if (!listEl) return;
     const now = Date.now();
@@ -66,21 +80,26 @@
     for (const [key, rec] of Array.from(elMap)) {
       if (!wanted.has(key)) { rec.el.remove(); elMap.delete(key); }
     }
-    // 新增行 (保持顺序追加到底部), 已有的行只更新淡出状态
+    // 新增行 (按聊天时间插到该在的位置), 已有的行只更新淡出状态
     for (const l of lines) {
       const key = lineKey(l);
+      const ord = Number(l.ord) || 0;
       let rec = elMap.get(key);
       if (!rec) {
-        rec = { el: buildLine(l), ts: Number(l.ts) || 0, faded: false, sig: lineSig(l) };
+        rec = { el: buildLine(l), ts: Number(l.ts) || 0, faded: false, sig: lineSig(l), ord };
+        rec.el.dataset.ord = String(ord);
         elMap.set(key, rec);
-        listEl.appendChild(rec.el);
-        // 超出上限: 删最老的可见行, 防止长局堆积
-        const extra = elMap.size - MAX_LINES;
-        if (extra > 0) {
-          const oldest = Array.from(elMap.entries()).slice(0, extra);
-          for (const [k, r] of oldest) { r.el.remove(); elMap.delete(k); }
+        place(rec.el, ord);
+        // 超出上限: 删最老的可见行。按 DOM 头部删 —— 按 ord 插入之后
+        // elMap 的插入顺序已经不等于屏幕顺序了。
+        while (listEl.children.length > MAX_LINES) {
+          const head = listEl.firstElementChild;
+          for (const [k, r] of Array.from(elMap)) { if (r.el === head) { elMap.delete(k); break; } }
+          head.remove();
         }
       } else {
+        // ord 后补读到 (这一帧才认对时间戳) → 更新标记, 后续插入才有正确参照
+        if (ord && ord !== rec.ord) { rec.ord = ord; rec.el.dataset.ord = String(ord); }
         // 键没变但内容变了 (同一条消息的更完整读法 / 更好的译文): 原地换文字
         const sig = lineSig(l);
         if (rec.sig !== sig) { rec.sig = sig; rec.el.innerHTML = lineInner(l); }

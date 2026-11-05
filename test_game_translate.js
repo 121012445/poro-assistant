@@ -606,7 +606,7 @@ function msg(id, body, fromId) {
     ok('同一句的残缺读法不再进翻译管线', t1 === 1 && t2 === 1, { t1, t2 });
     const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
     ok('浮窗里只有一行', lines.length === 1, lines);
-    ok('时间戳键随行一起下发', lines.length === 1 && lines[0].k === '队伍|02:38', lines[0]);
+    ok('时间戳键随行一起下发', lines.length === 1 && lines[0].k === '02:38', lines[0]);
   }
   {
     // 先读到残缺版、后读到完整版: 原地替换那一行, 而不是多出一行
@@ -638,6 +638,66 @@ function msg(id, body, fromId) {
     await flushAsync();
     const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
     ok('不同消息各占一行', lines.length === 2, lines);
+  }
+  {
+    // 1.5.68 真实报障 (用户截图: "marry me 和 good job 中间又插了一条旧消息")。
+    // 05:57 局 [GT OCR] 原文里, 同一句 "hello everyone" 这一帧的频道方括号被读成
+    // "」 五 ]" (走冒号兜底), 下一帧才读成 "[ 队 伍 ]"。1.5.67 的键是"频道|时间戳",
+    // 兜底那条拿不到频道 → 键不同 → 同一条消息被当成两条, 后到的那条追加在末尾,
+    // 于是浮窗里旧消息插到了新消息中间。
+    const e = makeEnv({
+      ocr: [
+        '02:38 」 五 ] 雨 未 散 （ 暗 裔 剑 ） ： Vhe № everyonq\n'
+          + '03:21 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： marry me',
+        '02:38 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： hello everyone\n'
+          + '03:21 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： marry me\n'
+          + '04:09 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： good job'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    e.advance(4000);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('频道读丢的同一句不再多出一行', lines.length === 3, lines.map(l => l.body));
+    ok('乱码行被更干净的一版原地替换', lines[0] && lines[0].body === 'hello everyone', lines[0]);
+    ok('旧消息不插到新消息中间',
+      lines.map(l => l.body).join('|') === 'hello everyone|marry me|good job', lines.map(l => l.body));
+  }
+  {
+    // 更狠的一种: 老消息在第一帧**整行都没读出来**, 第二帧才读到。这时没有任何
+    // 去重规则能救 —— 只能靠聊天时间把它排回上面去, 而不是追加到最新一条下面。
+    const e = makeEnv({
+      ocr: [
+        '03:21 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： marry me',
+        '02:38 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： hello everyone\n'
+          + '03:21 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： marry me\n'
+          + '04:09 [ 队 伍 ] 雨 未 散 （ 暗 裔 剑 魔 ） ： good job'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    e.advance(4000);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed[e.pushed.length - 1].lines;
+    ok('后补读到的老消息按聊天时间排回去',
+      lines.map(l => l.body).join('|') === 'hello everyone|marry me|good job', lines.map(l => l.body));
+    ok('下发数据带聊天时间 (浮窗靠它定位)', lines.every(l => typeof l.ord === 'number'), lines.map(l => l.ord));
+  }
+  {
+    // 同一帧里 OCR 会把 "02:38" 读成 "02 ． ： 38" (点当分隔符)。时间戳取不出来
+    // 就等于没有去重键, 下一帧又是"新消息"。归一化必须把这种点吃掉。
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')('02 ． ： 38 [ 队 伍 ] 雨 未 散 ： hello everyone');
+    ok('时间戳里的点噪声被吃掉', lines[0] && lines[0].ts === '02:38', lines);
+  }
+  {
+    // 频道完全读丢 (走冒号兜底) 时也必须带上时间戳, 否则这条消息永远没有稳定键
+    const e = makeEnv({});
+    const lines = await e.run('gtParseOcrChatLines')('02:38 」 五 ] 雨 未 散 （ 暗 裔 剑 ） ： Vhe № everyonq');
+    ok('冒号兜底也取到时间戳', lines[0] && lines[0].ts === '02:38' && lines[0].channel === '', lines);
   }
 
   console.log(`\n聊天翻译: ${pass} 通过 / ${fail} 失败`);

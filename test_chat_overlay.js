@@ -33,10 +33,17 @@ function makeEnv(opts = {}) {
         contains(c) { return el._classes.has(c); }
       },
       handlers: {},
+      dataset: {},
       addEventListener(ev, fn) { el.handlers[ev] = fn; },
       focus() { calls.focused++; },
       blur() { calls.blurred++; },
       appendChild(c) { c._parent = el; el.children.push(c); },
+      // 浮窗按聊天时间把后补读到的老消息插回原位 (1.5.68), 需要 insertBefore
+      insertBefore(c, ref) {
+        c._parent = el;
+        const i = ref ? el.children.indexOf(ref) : -1;
+        if (i >= 0) el.children.splice(i, 0, c); else el.children.push(c);
+      },
       remove() {
         if (el._parent) {
           const i = el._parent.children.indexOf(el);
@@ -45,6 +52,10 @@ function makeEnv(opts = {}) {
         el._parent = null;
       }
     };
+    Object.defineProperty(el, 'firstElementChild', {
+      configurable: true,
+      get() { return el.children[0] || null; }
+    });
     Object.defineProperty(el, 'innerHTML', {
       configurable: true,
       get() { return el._html; },
@@ -149,6 +160,38 @@ function ok(cond, label, detail) {
     ok(e.els.gtLines.children[0] === first, '同一条消息重复推送时 DOM 节点保持不变');
     ok(e.els.gtLines.children.length === 1, '节点没有成倍增加');
   }
+
+  console.log('— 后补读到的一条老消息: 按聊天时间插回原位, 不追加到底部 —');
+  {
+    // 用户报障原图: 浮窗从上到下是 "嫁给我吧 / 大家好 / 1.好" —— 一条更早的
+    // "hello everyone" 落在了两条新消息中间。原因不是去重没生效 (那条消息上一帧
+    // 整行没读出来, 压根没进过管线), 而是浮窗按"读到的先后"追加。
+    const e = makeEnv();
+    e.dataCbs[0]({ lines: [
+      { name: '聊天', body: 'marry me', translated: '嫁给我吧', ts: e.clock.t, k: '03:21', ord: 201 }
+    ] });
+    e.dataCbs[0]({ lines: [
+      { name: '聊天', body: 'hello everyone', translated: '大家好', ts: e.clock.t, k: '02:38', ord: 158 },
+      { name: '聊天', body: 'marry me', translated: '嫁给我吧', ts: e.clock.t, k: '03:21', ord: 201 },
+      { name: '聊天', body: 'good job', translated: '干得好', ts: e.clock.t, k: '04:09', ord: 249 }
+    ] });
+    const kids = e.els.gtLines.children;
+    ok(kids.length === 3, '三行都在', kids.length);
+    ok(kids[0].innerHTML.includes('hello everyone'), '更早的一条排在最上面', kids.map(c => c.innerHTML));
+    ok(kids[2].innerHTML.includes('good job'), '最新的一条仍在最下面', kids.map(c => c.innerHTML));
+  }
+  {
+    // 没有聊天时间 (ord=0) 时保持"追加到底部"的老行为, 不能把顺序搅乱
+    const e = makeEnv();
+    e.dataCbs[0]({ lines: [{ name: 'A', body: '', translated: 'first', ts: e.clock.t }] });
+    e.dataCbs[0]({ lines: [
+      { name: 'A', body: '', translated: 'first', ts: e.clock.t },
+      { name: 'A', body: '', translated: 'second', ts: e.clock.t }
+    ] });
+    ok(e.els.gtLines.children[1].innerHTML.includes('second'), '无时间戳时仍按到达顺序追加',
+      e.els.gtLines.children.map(c => c.innerHTML));
+  }
+
 
   console.log('— 同一条消息读到更完整的版本: 原地换字, 不新增行 —');
   {
