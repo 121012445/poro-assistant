@@ -1137,7 +1137,7 @@ body {
 /* 标签行: 开黑组 / 系统画像 / 行为提示 (颜色全部来自主题变量, 深色自动适配) */
 /* 标签行允许换行: 组队 / 画像 / 伤害 / 承伤 / 经济 / 参团 六枚在 1200 宽下放不进一行,
    不换行会被卡右边裁掉 (看起来像渲染坏了)。换行后卡内自动多一行, 战绩区相应少一场。 */
-.lp-profile-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 17px; margin-bottom: 3px; padding: 0 1px; }
+.lp-profile-line { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 2px; min-height: 17px; max-height: 40px; margin-bottom: 3px; padding: 0 1px; overflow: visible; }
 .lp-pill-empty { font-size: 9px; color: var(--text-muted); opacity: .7; }
 
 /* 逐场战绩: 整行按胜负染色; 列表内部滚动, 滚动条隐藏 (下面用底部渐隐提示还有更多) */

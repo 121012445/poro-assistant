@@ -348,6 +348,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   const livePlayers = await fetchLivePlayers(phase, parts);
 
   if (!parts.length && !livePlayers) {
+    if (renderToken !== liveRenderToken) return;
     setLiveHeadPanel('');
     body.innerHTML = `<div class="msg-error">${err || '未获取到对局玩家数据'}</div>`;
     return;
@@ -559,7 +560,10 @@ function liveItemAdvice(self, enemyComp) {
 function buildLiveDecisionPanel(data, selfPuuid) {
   const blue = data.filter(p => p.team === 100 || p.team === '100');
   const red = data.filter(p => p.team === 200 || p.team === '200');
-  if (!blue.length || !red.length) return '';
+  if (!blue.length || !red.length) {
+    window._poroCurrentDecision = '';
+    return '';
+  }
   const blueComp = liveTeamComposition(blue), redComp = liveTeamComposition(red);
   const total = Math.max(1, blueComp.readiness + redComp.readiness);
   const blueEdge = Math.round(blueComp.readiness / total * 100);
@@ -567,8 +571,15 @@ function buildLiveDecisionPanel(data, selfPuuid) {
   const self = data.find(p => selfPuuid && p.puuid === selfPuuid) || data.find(p => p.name && window._myPuuid && p.puuid === window._myPuuid);
   const ownComp = self && (self.team === 200 || self.team === '200') ? redComp : blueComp;
   const enemyComp = ownComp === blueComp ? redComp : blueComp;
+  const draft = window.PoroDraftCoach ? window.PoroDraftCoach.build(data, {
+    selfTeam: self && +self.team === 200 ? 200 : 100,
+    champOf: champOfLive
+  }) : null;
   const itemAdvice = liveItemAdvice(self, enemyComp);
-  const plan = ownComp.frontline < enemyComp.frontline
+  const phase = window._gameflowPhase || 'ChampSelect';
+  const plan = phase === 'ChampSelect'
+    ? (draft?.winCondition || '先确认阵容缺口，再围绕资源安排英雄选择。')
+    : ownComp.frontline < enemyComp.frontline
     ? '避免正面先手，先消耗并保护后排，等敌方关键技能交出后反打。'
     : ownComp.tags.Mage + ownComp.tags.Marksman >= 3
       ? '围绕后排持续输出，前排只需限制突进，不必追击过深。'
@@ -579,14 +590,38 @@ function buildLiveDecisionPanel(data, selfPuuid) {
     <p><b>优势：</b>${escapeHtml(comp.strengths.join('、') || '阵容较均衡')}</p>
     <p><b>短板：</b>${escapeHtml(comp.weaknesses.join('、') || '暂无明显结构短板')}</p>
   </div>`;
+  window._poroCurrentDecision = plan;
+  const draftHtml = window.PoroDraftCoach ? window.PoroDraftCoach.render(draft) : '';
+  window._poroLiveSnapshot = { data, selfPuuid, ownComp, enemyComp, phase };
   return `<details class="live-decision">
     <summary><b>本局作战计划</b><span class="ld-score blue">蓝 ${blueEdge}</span><span class="ld-score red">红 ${redEdge}</span><span class="ld-summary-plan">${escapeHtml(plan)}</span>${itemAdvice.length ? `<em>${escapeHtml(itemAdvice.join(' / '))}</em>` : ''}<i>展开</i></summary>
     <div class="ld-body">
       <div class="ld-head"><div><span>综合态势不是官方胜率，由阵容结构与玩家近期表现生成</span></div></div>
+      ${draftHtml}
       <div class="ld-grid">${teamCard('蓝方', blueComp, blueEdge, 'blue')}${teamCard('红方', redComp, redEdge, 'red')}</div>
       <div class="ld-plan"><b>己方建议</b><span>${escapeHtml(plan)}</span>${itemAdvice.length ? `<em>装备方向：${escapeHtml(itemAdvice.join(' / '))}</em>` : ''}</div>
+      <div class="ld-ask"><label>问本局 <select onchange="answerLiveQuestion(this.value)"><option value="">选择一个问题…</option><option value="danger">谁最危险？</option><option value="fight">这波该不该打？</option><option value="win">我们怎么赢？</option><option value="weak">阵容短板是什么？</option></select></label><span id="liveQuestionAnswer"></span></div>
     </div>
   </details>`;
+}
+
+function answerLiveQuestion(question) {
+  const out = document.getElementById('liveQuestionAnswer');
+  const snap = window._poroLiveSnapshot;
+  if (!out) return;
+  if (!question || !snap) { out.textContent = ''; return; }
+  const e = snap.enemyComp || { tags: {}, frontline: 0 };
+  const o = snap.ownComp || { tags: {}, frontline: 0 };
+  if (question === 'danger') {
+    const p = snap.data.filter(x => +x.team && +x.team !== +((snap.data.find(y => y.puuid === snap.selfPuuid) || {}).team || 100)).sort((a, b) => (b.recent?.length || 0) - (a.recent?.length || 0))[0];
+    out.textContent = p ? `优先关注 ${p.name || '对方核心'}：先看其装备和闪现，再决定是否接团。` : '敌方数据还不完整，先不要主动接战。';
+  } else if (question === 'fight') {
+    out.textContent = o.frontline >= e.frontline ? '可以在有视野和关键技能齐全时接团。' : '不建议正面先手，先清线、消耗并等对手犯错。';
+  } else if (question === 'win') {
+    out.textContent = window._poroCurrentDecision || '围绕兵线和下一条资源做准备，不要无视野接战。';
+  } else {
+    out.textContent = e.frontline >= 2 && e.tags?.Marksman + e.tags?.Mage >= 2 ? '对方前排和后排都完整，己方需要先处理突进或避免被长时间正面消耗。' : '对方阵容结构尚未完整，继续观察关键英雄和资源节奏。';
+  }
 }
 
 // 加载最近 10 场；玩家卡高度固定，超出部分在卡片内部滚动，不挤出另一支队伍。
@@ -809,7 +844,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
         <span class="lp-kda">${liveKdaHtml(kda)}</span>
       </div>
-      <div class="lp-profile-line">${pills || '<span class="lp-pill-empty">无行为提示</span>'}</div>
+      <div class="lp-profile-line">${pills}</div>
       <div class="lp-recent">${recentHtml}</div>
     </div>`;
   };
@@ -841,7 +876,8 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       <div class="lp-team-grid">${list.map(playerRow).join('')}${Array.from({ length: slots }, emptySlot).join('')}</div>
     </section>`;
   };
-  // 作战计划条挪进页头那一行 (和标题、展开按钮并排), 省掉整整一行 32px 的高度。
+  // 数据不完整时 buildLiveDecisionPanel 返回空串，避免“对局准备”占用顶部整行。
+  // 双方阵容齐全时仍保留作战计划入口。
   setLiveHeadPanel(buildLiveDecisionPanel(data, selfPuuid));
   const pageHtml = `
     ${enemyIntelHtml(data, selfPuuid)}
@@ -959,6 +995,8 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
     livePlayersCache.premadeGroups = null;
     liveRenderToken++;
     setLiveHeadPanel('');
+    window._poroLiveSnapshot = null;
+    window._poroCurrentDecision = '';
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
     syncLiveExpandButton(false);
     return;
