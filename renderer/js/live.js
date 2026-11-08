@@ -765,7 +765,6 @@ function updateLivePlayerRow(p, idx) {
   const recentEl = row.querySelector('.lp-recent');
   const flashEl = row.querySelector('.lp-flash-slot');
   const winRateEl = row.querySelector('.lp-winrate');
-  const recordEl = row.querySelector('.lp-record');
   const kdaEl = row.querySelector('.lp-kda');
   if (recentEl) recentEl.innerHTML = recentHtml;
   if (flashEl) flashEl.innerHTML = flashPreferenceHtml(p.flashPreference);
@@ -774,7 +773,6 @@ function updateLivePlayerRow(p, idx) {
     winRateEl.textContent = winRate == null ? '--' : `${winRate}%`;
     winRateEl.classList.toggle('positive', winRate != null && winRate >= 50);
   }
-  if (recordEl) recordEl.textContent = liveRecordText(p.recent.length, wins, '暂无近期战绩');
   if (kdaEl) kdaEl.innerHTML = liveKdaHtml(kda);
 }
 
@@ -832,7 +830,8 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
     const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent)}${behaviorTagsHtml(p.behaviorSamples)}`;
-    const inlineStats = `<span class="lp-inline-stats"><span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span><span class="lp-kda">${liveKdaHtml(kda)}</span></span>`;
+    const recordSummary = liveRecordText(p.recent.length, wins, '近期战绩加载中');
+    const inlineStats = `<span class="lp-inline-stats" title="${escapeHtml(recordSummary)}"><span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span><span class="lp-kda">${liveKdaHtml(kda)}</span></span>`;
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
@@ -843,9 +842,6 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
           </div>
           ${inlineStats}
         </div>
-      </div>
-      <div class="lp-overview">
-        <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
       </div>
       <div class="lp-profile-line">${pills}</div>
       <div class="lp-recent">${recentHtml}</div>

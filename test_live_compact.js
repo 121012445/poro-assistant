@@ -63,27 +63,26 @@ const body = makeEl('liveGameArea');
   assert.ok(!out.includes('lp-stats'), '单独一行的「近 N 场」应已并进概览行');
   assert.ok(!/class="lp-wrap" style=/.test(out), '队伍容器不应再带内联上边距 (间距统一由样式表控制)');
   assert.strictEqual((out.match(/class="lp-row/g) || []).length, 10, '10 个玩家卡都应渲染');
-  assert.strictEqual((out.match(/class="lp-overview"/g) || []).length, 10, '每张卡仍有概览行');
+  assert.strictEqual((out.match(/class="lp-overview"/g) || []).length, 0, '概览摘要不应再单独占一行');
   assert.strictEqual((out.match(/class="lp-profile-line"/g) || []).length, 10, '系统画像应保留');
   assert.strictEqual((out.match(/class="ri-card /g) || []).length, 90, '9 个有战绩的玩家各 10 场 (玩家10 尚无战绩)');
-  assert.ok(out.includes('<span class="lp-record">近10场 6胜4负</span>'), '概览行应显示「近10场 6胜4负」: ' + (out.match(/<span class="lp-record">[^<]*/) || [''])[0]);
-  assert.ok(out.includes('<span class="lp-record">近期战绩加载中</span>'), '战绩未加载时的占位文案应保留');
+  assert.ok(out.includes('title="近10场 6胜4负"'), '统计栏提示应保留「近10场 6胜4负」');
   // 1.5.61 起作战计划条并进页头: 它不再出现在实时区 (否则白占 54px), 但必须仍然渲染
   assert.ok(!out.includes('class="live-decision"'), '作战计划不应再占实时区一整行');
   assert.ok(liveSrc.includes('setLiveHeadPanel(buildLiveDecisionPanel'), '作战计划应渲染进页头槽位');
   assert.ok(html.includes('id="liveHeadSlot"'), '页头应有作战计划槽位');
 
-  // 玩家 ID 行里的胜率 / KDA 紧跟身份信息, 战绩摘要保留在下一行, 且「近10场」只出现一次
+  // 玩家 ID 右侧显示胜率 / KDA, 战绩摘要不再单独占行
   const firstCard = out.slice(out.indexOf('class="lp-row'), out.indexOf('class="lp-row', out.indexOf('class="lp-row') + 5));
-  const iw = firstCard.indexOf('lp-winrate'), ir = firstCard.indexOf('lp-record'), ik = firstCard.indexOf('lp-kda');
-  assert.ok(iw > 0 && iw < ik && ik < ir, '身份行顺序应为 胜率 / KDA / 战绩摘要');
-  assert.strictEqual((firstCard.match(/近\d+场/g) || []).length, 1, '「近N场」只应出现一次');
+  const iw = firstCard.indexOf('lp-winrate'), ik = firstCard.indexOf('lp-kda');
+  assert.ok(iw > 0 && iw < ik, '身份区应包含胜率 / KDA');
+  assert.strictEqual((firstCard.match(/近\d+场/g) || []).length, 1, '统计栏提示只应出现一次');
 
   // 局部刷新 (updateLivePlayerRow) 也要用同样的文案, 否则首次渲染与后续更新不一致
   assert.strictEqual(run("liveRecordText(10, 6, 'x')"), '近10场 6胜4负');
   assert.strictEqual(run("liveRecordText(0, 0, '暂无近期战绩')"), '暂无近期战绩');
   assert.strictEqual(run("liveRecordText(7, 7, 'x')"), '近7场 7胜0负', '不足 10 场时按实际场数显示');
-  assert.ok(/recordEl\.textContent = liveRecordText\(/.test(liveSrc), '局部刷新应复用 liveRecordText');
+  assert.ok(!/recordEl\.textContent = liveRecordText\(/.test(liveSrc), '局部刷新不应再更新已移除的摘要行');
   // KDA 是「大数字 + 小标签」两段结构, 首次渲染与局部刷新必须共用 liveKdaHtml, 否则刷新会把排版冲掉
   assert.ok(/<span class="lp-kda"><b>[^<]*<\/b><em>KDA<\/em><\/span>/.test(out), '概览行的 KDA 应为 数字+标签 结构');
   assert.ok(/kdaEl\.innerHTML = liveKdaHtml\(kda\)/.test(liveSrc), '局部刷新应复用 liveKdaHtml');

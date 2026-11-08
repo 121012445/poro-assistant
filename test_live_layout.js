@@ -9,7 +9,7 @@ const html = fs.readFileSync('renderer/index.html', 'utf8');
 
 assert.ok(live.includes('class="lp-team-grid"'), '实时页应使用队伍卡片网格');
 assert.ok(live.includes('class="lp-card-head"'), '玩家卡应有大头像信息头');
-assert.ok(live.includes('class="lp-overview"'), '玩家卡应显示近期胜率与 KDA 摘要');
+assert.ok(live.includes('class="lp-inline-stats"'), '玩家卡应在身份区显示近期胜率与 KDA');
 assert.ok(live.includes('<details class="live-decision">'), '本局作战计划应默认收起，避免压缩双方战绩');
 assert.ok(live.includes('class="ld-summary-plan"'), '收起状态仍应显示一句核心打法');
 assert.match(css, /\.lp-team-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s, '宽屏每队应横排 5 张玩家卡');
