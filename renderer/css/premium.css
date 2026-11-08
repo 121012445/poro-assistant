@@ -1189,12 +1189,19 @@ body.dark #page-live .lp-overview { background: rgba(255,255,255,.035); }
   line-height: 13px;
 }
 #page-live .lp-profile-line {
-  max-height: none;
-  min-height: 0;
-  overflow: visible;
+  height: 16px;
+  max-height: 16px;
+  min-height: 16px;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   flex-shrink: 0;
   margin-bottom: 6px;
 }
+#page-live .lp-profile-line::-webkit-scrollbar { display: none; }
+#page-live .lp-profile-line > span { flex: 0 0 auto; }
 #page-live .lp-recent { gap: 2px; }
 #page-live .ri-card {
   flex-basis: 23px;
