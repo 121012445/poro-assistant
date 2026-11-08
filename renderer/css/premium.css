@@ -1348,6 +1348,12 @@ body.dark #page-live .lp-row { box-shadow: none; }
   line-height: 15px;
 }
 #page-live .lp-identity { overflow: visible; }
+#page-live .lp-name-link {
+  cursor: pointer;
+  text-decoration: none;
+  transition: color .12s ease;
+}
+#page-live .lp-name-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---------- 成长页 (growth.js): 训练计划 + 长期趋势 ---------- */
 .gw-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 14px 16px; margin-bottom: 12px; }
