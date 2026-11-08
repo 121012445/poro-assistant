@@ -1208,9 +1208,12 @@ body.dark #page-live .lp-overview { background: rgba(255,255,255,.035); }
   align-items: baseline;
   flex: 0 0 auto;
   gap: 0;
-  margin-left: 4px;
+  margin-left: auto;
+  padding-left: 6px;
   white-space: nowrap;
 }
+#page-live .lp-info { display: flex; align-items: flex-start; gap: 6px; }
+#page-live .lp-identity { min-width: 0; flex: 1 1 auto; }
 #page-live .lp-inline-stats .lp-winrate { font-size: 12px; line-height: 1.05; }
 #page-live .lp-inline-stats .lp-kda { margin-left: 0; font-size: 10px; }
 #page-live .lp-inline-stats .lp-kda b { font-size: 11px; }
