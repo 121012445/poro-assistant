@@ -1273,6 +1273,65 @@ body.dark #page-live .lp-row { box-shadow: 0 3px 10px rgba(0,0,0,.16), inset 0 1
 body.dark #page-live .lp-team { background: rgba(16,22,34,.72); border-color: rgba(255,255,255,.11); }
 body.dark #page-live .lp-row { background: rgba(255,255,255,.035); box-shadow: 0 2px 8px rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.06); }
 
+/* Akari 密度重排：把空间还给战绩，减少卡片里的装饰层。 */
+#page-live .lp-team {
+  padding: 5px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+#page-live .lp-team-head {
+  min-height: 26px;
+  padding: 0 7px;
+  border-radius: 6px;
+}
+#page-live .lp-team-grid { gap: 5px; padding-top: 5px; }
+#page-live .lp-row {
+  padding: 6px 7px 5px 9px;
+  border-radius: 7px;
+  box-shadow: none;
+}
+#page-live .lp-card-head {
+  gap: 6px;
+  min-height: 38px;
+  padding-bottom: 4px;
+}
+#page-live .lp-champ { width: 34px; height: 34px; box-shadow: none; }
+#page-live .lp-name { font-size: 12px; }
+#page-live .lp-rank { margin-top: 2px; font-size: 9px; }
+#page-live .lp-inline-stats { height: 29px; padding-top: 0; padding-left: 5px; }
+#page-live .lp-inline-stats .lp-winrate { font-size: 11px; }
+#page-live .lp-inline-stats .lp-kda { font-size: 9px; }
+#page-live .lp-inline-stats .lp-kda b { font-size: 10px; }
+#page-live .lp-profile-line {
+  height: 26px;
+  max-height: 26px;
+  min-height: 26px;
+  gap: 2px;
+  margin-bottom: 3px;
+}
+#page-live .lp-profile-line > span {
+  min-height: 12px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 11px;
+}
+#page-live .lp-profile-line .lp-metric { font-size: 9px; line-height: 11px; }
+#page-live .lp-recent { gap: 2px; }
+#page-live .ri-card {
+  flex-basis: 22px;
+  min-height: 22px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 3px;
+  padding: 0 4px 0 3px;
+  border-radius: 4px;
+}
+#page-live .ri-card img { width: 16px; height: 16px; }
+#page-live .ri-mode { font-size: 9px; }
+#page-live .ri-sub { font-size: 9px; }
+#page-live .ri-kda { font-size: 10px; }
+body.dark #page-live .lp-row { box-shadow: none; }
+
 /* ---------- 成长页 (growth.js): 训练计划 + 长期趋势 ---------- */
 .gw-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 14px 16px; margin-bottom: 12px; }
 .gw-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
