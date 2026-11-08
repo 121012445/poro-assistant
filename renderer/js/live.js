@@ -827,7 +827,8 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
-    const riskHtml = `<span class="lp-risk lp-risk-${risk.level}" title="系统自动画像 · 置信度 ${risk.confidence}% · ${escapeHtml(risk.evidence.join('；'))}">${escapeHtml(risk.label)}<small>${risk.confidence}%</small></span>`;
+    // 实时卡片不显示“近期稳定 / 需要观察”画像标签，避免和队内指标标签争夺空间。
+    const riskHtml = '';
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
     const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent)}${behaviorTagsHtml(p.behaviorSamples)}`;
