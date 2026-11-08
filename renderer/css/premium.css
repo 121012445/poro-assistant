@@ -1189,18 +1189,16 @@ body.dark #page-live .lp-overview { background: rgba(255,255,255,.035); }
   line-height: 13px;
 }
 #page-live .lp-profile-line {
-  height: 16px;
-  max-height: 16px;
-  min-height: 16px;
-  flex-wrap: nowrap;
-  align-items: center;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  height: 30px;
+  max-height: 30px;
+  min-height: 30px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  overflow: hidden;
   flex-shrink: 0;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
-#page-live .lp-profile-line::-webkit-scrollbar { display: none; }
 #page-live .lp-profile-line > span { flex: 0 0 auto; }
 #page-live .lp-inline-stats {
   display: inline-flex;
