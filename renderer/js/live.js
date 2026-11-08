@@ -837,7 +837,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
           <div class="lp-identity">
-            <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
+            <div class="lp-name-line"><span class="lp-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
             <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
           </div>
           ${inlineStats}

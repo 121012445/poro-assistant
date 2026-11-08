@@ -1332,6 +1332,23 @@ body.dark #page-live .lp-row { background: rgba(255,255,255,.035); box-shadow: 0
 #page-live .ri-kda { font-size: 10px; }
 body.dark #page-live .lp-row { box-shadow: none; }
 
+/* 长 ID 保护：允许身份文本自然换行，统计栏保持独立，不再用省略号吞掉名字。 */
+#page-live .lp-name-line {
+  align-items: flex-start;
+  overflow: visible;
+  flex-wrap: wrap;
+  row-gap: 1px;
+}
+#page-live .lp-name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 15px;
+}
+#page-live .lp-identity { overflow: visible; }
+
 /* ---------- 成长页 (growth.js): 训练计划 + 长期趋势 ---------- */
 .gw-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 14px 16px; margin-bottom: 12px; }
 .gw-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
