@@ -832,18 +832,17 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
     const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent)}${behaviorTagsHtml(p.behaviorSamples)}`;
+    const inlineStats = `<span class="lp-inline-stats"><span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span><span class="lp-kda">${liveKdaHtml(kda)}</span></span>`;
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
-          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
+          <div class="lp-name-line"><span class="lp-name">${escapeHtml(name)}</span>${inlineStats}${tag}${balanceHtml}${marksHtml}</div>
           <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
         </div>
       </div>
       <div class="lp-overview">
-        <span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span>
         <span class="lp-record">${liveRecordText(p.recent.length, wins, '近期战绩加载中')}</span>
-        <span class="lp-kda">${liveKdaHtml(kda)}</span>
       </div>
       <div class="lp-profile-line">${pills}</div>
       <div class="lp-recent">${recentHtml}</div>

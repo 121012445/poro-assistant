@@ -73,10 +73,10 @@ const body = makeEl('liveGameArea');
   assert.ok(liveSrc.includes('setLiveHeadPanel(buildLiveDecisionPanel'), '作战计划应渲染进页头槽位');
   assert.ok(html.includes('id="liveHeadSlot"'), '页头应有作战计划槽位');
 
-  // 概览行里的三项顺序: 胜率 → 战绩摘要 → KDA, 且「近10场」只在概览行出现一次 (没有重复标签)
+  // 玩家 ID 行里的胜率 / KDA 紧跟身份信息, 战绩摘要保留在下一行, 且「近10场」只出现一次
   const firstCard = out.slice(out.indexOf('class="lp-row'), out.indexOf('class="lp-row', out.indexOf('class="lp-row') + 5));
   const iw = firstCard.indexOf('lp-winrate'), ir = firstCard.indexOf('lp-record'), ik = firstCard.indexOf('lp-kda');
-  assert.ok(iw > 0 && iw < ir && ir < ik, '概览行顺序应为 胜率 / 战绩摘要 / KDA');
+  assert.ok(iw > 0 && iw < ik && ik < ir, '身份行顺序应为 胜率 / KDA / 战绩摘要');
   assert.strictEqual((firstCard.match(/近\d+场/g) || []).length, 1, '「近N场」只应出现一次');
 
   // 局部刷新 (updateLivePlayerRow) 也要用同样的文案, 否则首次渲染与后续更新不一致
