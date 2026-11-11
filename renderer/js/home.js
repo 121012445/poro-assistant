@@ -2277,7 +2277,8 @@ function buildHomeTemplate(v) {
   const { s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
           mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
           totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
-          champCount, champMeta, friendCount, tagCache, rankRows, modeStats } = v;
+          champCount, champMeta, friendCount, tagCache, rankRows, modeStats,
+          dataSource, historyFetchedAt } = v;
 
   // ========== 渲染 op.gg 风格首页 ==========
   const soloQ = qm.RANKED_SOLO_5x5;
@@ -2317,6 +2318,9 @@ function buildHomeTemplate(v) {
   const fmtDur = `${avgDurMin}:${String(avgDurSec).padStart(2, '0')}`;
   const totalDurH = Math.floor(totDur / 3600);
   const totalDurM = Math.floor((totDur % 3600) / 60);
+  const sourceLabel = dataSource === 'LCU' ? '客户端 LCU' : dataSource === 'EOG' ? '结算数据' : dataSource === 'cache' ? '本地缓存' : (dataSource || '战绩服务');
+  const sourceAge = historyFetchedAt ? Math.max(0, Math.round((Date.now() - historyFetchedAt) / 60000)) : null;
+  const sourceMeta = `${sourceLabel}${sourceAge == null ? '' : ` · ${sourceAge < 1 ? '刚刚更新' : sourceAge + ' 分钟前'}`}`;
   // 对局列表卡片改由 renderHomeGameList() 按筛选状态生成 (见模板底部), 不再内联全量 gameRows
   // 右侧对局列表
   return `
@@ -2337,6 +2341,7 @@ function buildHomeTemplate(v) {
           <div class="home-winrate-label">近期胜率</div>
         </div>
       </div>
+      <div class="home-data-meta"><span>数据来源：${escapeHtml(sourceMeta)}</span><span>统计口径：${includePractice ? '含训练/自定义' : '排除训练/自定义'}</span></div>
       <div class="home-ranks">
         ${rankCard(soloQ, '排位 单双排')}
         ${rankCard(flexQ, '灵活组排')}
@@ -2349,6 +2354,7 @@ function buildHomeTemplate(v) {
         <div class="stat-card"><div class="stat-card-val">${maxK} / ${maxD}</div><div class="stat-card-label">单局最高杀/死</div></div>
         <div class="stat-card"><div class="stat-card-val">${penta} / ${fb}</div><div class="stat-card-label">五杀 / 一血</div></div>
       </div>
+      ${buildPostGameCoach(games)}
       <a href="#" class="home-profile-entry" onclick="switchPage('profile');return false;">
         <span class="hpe-icon">${poroIcon('chart')}</span>
         <span class="hpe-text"><b>我的画像</b><small>擅长与提升 · 玩家趣味档案</small></span>
@@ -2395,6 +2401,27 @@ function buildHomeTemplate(v) {
         <div id="homeGamesList"></div>
       </div>
     </div>`;
+}
+
+function buildPostGameCoach(games) {
+  const latest = Array.isArray(games) && games[0];
+  const me = latest?.participants?.find(p => p && (p.puuid === window._myPuuid || p.isLocalPlayer));
+  if (!latest || !me) return '';
+  const suggestions = [];
+  const durMin = Math.max(1, Number(latest.dur || 0) / 60);
+  const csPerMin = Number(me.cs || 0) / durMin;
+  if (Number(me.d || 0) >= 8) suggestions.push('死亡次数偏高：下局优先补视野，避免无信息接战。');
+  if (csPerMin > 0 && csPerMin < 5) suggestions.push(`补刀约 ${csPerMin.toFixed(1)}/分钟：前 10 分钟优先保证安全补刀和回城节奏。`);
+  const teammates = latest.participants?.filter(p => p.teamId === me.teamId) || [];
+  const teamDmg = teammates.reduce((n, p) => n + Number(p.dmg || 0), 0);
+  if (Number(me.dmg || 0) > 0 && teamDmg > 0) {
+    const share = Math.round(Number(me.dmg) / teamDmg * 100);
+    if (share < 18) suggestions.push(`团队伤害占比 ${share}%：团战中优先跟随前排输出，减少单独带线。`);
+  }
+  if (Number(me.visionScore || 0) < 10 && durMin > 20) suggestions.push('视野分偏低：下局每次回城至少补一个控制守卫。');
+  while (suggestions.length < 3) suggestions.push('继续保持当前节奏，下一局重点观察死亡前的视野和资源交换。');
+  const result = latest.win === true || me.win === true ? '胜局巩固' : '败局改进';
+  return `<section class="postgame-coach"><div class="postgame-coach-head"><b>最近一局复盘</b><span>${result} · ${escapeHtml(latest.mode || '对局')}</span></div><ol>${suggestions.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ol><small>基于最近一局可用数据生成，仅作训练提示。</small></section>`;
 }
 
 async function loadHomeStats(force, opts) {
@@ -2808,7 +2835,8 @@ async function loadHomeStats(force, opts) {
       s, server, includePractice, n, rawGameCount, wins, wr, isSelf,
       mmrChips, ranked, rankFromCache, rankPending, qm, totDur,
       totK, totD, totA, avgKda, maxK, maxD, penta, fb, games,
-      champCount, champMeta, friendCount, tagCache, rankRows, modeStats
+      champCount, champMeta, friendCount, tagCache, rankRows, modeStats,
+      dataSource, historyFetchedAt
     });
     if (hadSearchFocus) {
       const nextInput = document.getElementById('homeSearchInput');

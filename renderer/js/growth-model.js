@@ -259,6 +259,7 @@
       t,
       q: Number(game.queueId) || 0,
       c: Number(me.championId) || 0,
+      p: String(me.position || me.role || '').trim(),
       w: me.win ? 1 : 0,
       k: +me.k || 0,
       d: +me.d || 0,
@@ -316,6 +317,21 @@
     };
   }
 
+  function breakdownOf(rows, key) {
+    const map = new Map();
+    for (const r of rows) {
+      const value = String(r?.[key] || '').trim() || (key === 'p' ? '未识别位置' : '未知英雄');
+      let row = map.get(value);
+      if (!row) row = { key: value, n: 0, wins: 0, wr: null, dAvg: 0, kda: 0 };
+      row.n++; if (r.w) row.wins++;
+      row.dAvg += +r.d || 0;
+      row.kda += ((+r.k || 0) + (+r.a || 0)) / Math.max(1, +r.d || 0);
+      map.set(value, row);
+    }
+    return [...map.values()].map(r => ({ ...r, wr: Math.round(r.wins / r.n * 100), dAvg: +(r.dAvg / r.n).toFixed(1), kda: +(r.kda / r.n).toFixed(1) }))
+      .sort((a, b) => b.n - a.n || b.wr - a.wr);
+  }
+
   function topChamps(champs, limit) {
     return Object.entries(champs || {})
       .map(([id, n]) => ({ id: +id, n }))
@@ -356,9 +372,14 @@
       total: rows.length,
       firstAt: oldest || 0,
       spanDays: oldest ? Math.round((t0 - oldest) / DAY) : 0,
+      currentWeekStart: thisWeek,
+      currentWeekEnd: thisWeek + 6 * DAY,
+      currentWeekGames: weeks[weeks.length - 1] ? weeks[weeks.length - 1].n : 0,
       d30: s30,
       prev30: sPrev,
       d90: s90,
+      byChampion: breakdownOf(d90, 'c'),
+      byPosition: breakdownOf(d90, 'p'),
       wrDelta: (s30.wr != null && sPrev.wr != null) ? s30.wr - sPrev.wr : null,
       weeks,
       champs30: topChamps(s30.champs, 3),

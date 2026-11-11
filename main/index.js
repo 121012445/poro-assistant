@@ -931,30 +931,70 @@ function mymemoryOne(text, target) {
 
 // 免费机翻多源链: 记住上次成功的源, 避免每次都先等一遍超时
 let translateSourcePref = '';
-async function freeTranslateBatch(texts, target) {
+function translateDelay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function translateWithTimeout(promise, ms) {
+  return Promise.race([
+    promise.catch(() => null),
+    translateDelay(ms).then(() => null)
+  ]);
+}
+
+async function freeTranslateSource(src, texts, target, timeoutMs) {
+  let job;
+  if (src === 'transmart') {
+    job = transmartBatch(texts, target);
+  } else if (src === 'google') {
+    job = Promise.all(texts.map(t => googleTranslateOne(t, target)))
+      .then(rows => rows.every(x => !x) ? null : rows.map((x, i) => x || texts[i]));
+  } else {
+    job = Promise.all(texts.map(t => mymemoryOne(t, target)))
+      .then(rows => rows.every(x => !x) ? null : rows.map((x, i) => x || texts[i]));
+  }
+  const out = await translateWithTimeout(job, timeoutMs);
+  if (!out || out.length !== texts.length) return null;
+  if (translateSourcePref !== src) {
+    translateSourcePref = src;
+    try { logErr('[TRANSLATE] 机翻源=' + src); } catch (e) {}
+  }
+  return out;
+}
+
+function firstTranslateResult(jobs) {
+  return new Promise(resolve => {
+    let left = jobs.length;
+    if (!left) return resolve(null);
+    let done = false;
+    jobs.forEach(job => Promise.resolve(job).then(value => {
+      if (done) return;
+      if (value) { done = true; resolve(value); return; }
+      left--;
+      if (!left) resolve(null);
+    }).catch(() => {
+      left--;
+      if (!done && !left) resolve(null);
+    }));
+  });
+}
+
+async function freeTranslateBatch(texts, target, opts) {
   const order = [];
   if (translateSourcePref) order.push(translateSourcePref);
   for (const s of ['transmart', 'google', 'mymemory']) if (!order.includes(s)) order.push(s);
+  if (opts && opts.fast) {
+    // 实时聊天先给上次成功源 450ms 独占窗口；没有及时返回就并行启动两个备用源，
+    // 谁先给出完整结果就用谁。总等待上限 3.2s，不再串行累加到十几秒。
+    const primary = freeTranslateSource(order[0], texts, target, 3000);
+    const fallbacks = translateDelay(450).then(() => firstTranslateResult(
+      order.slice(1).map(src => freeTranslateSource(src, texts, target, 2500))
+    ));
+    return translateWithTimeout(firstTranslateResult([primary, fallbacks]), 3200);
+  }
   for (const src of order) {
-    let out = null;
-    if (src === 'transmart') {
-      out = await transmartBatch(texts, target);
-    } else if (src === 'google') {
-      const rows = [];
-      for (const t of texts) rows.push(await googleTranslateOne(t, target));
-      out = rows.every(x => !x) ? null : rows.map((x, i) => x || texts[i]);
-    } else {
-      const rows = [];
-      for (const t of texts) rows.push(await mymemoryOne(t, target));
-      out = rows.every(x => !x) ? null : rows.map((x, i) => x || texts[i]);
-    }
-    if (out && out.length === texts.length) {
-      if (translateSourcePref !== src) {
-        translateSourcePref = src;
-        try { logErr('[TRANSLATE] 机翻源=' + src); } catch (e) {}
-      }
-      return out;
-    }
+    const out = await freeTranslateSource(src, texts, target, 6000);
+    if (out) return out;
   }
   return null;
 }
@@ -1047,7 +1087,7 @@ async function translateBatchCore(texts, target, opts) {
         if (fix) bad.forEach((bi, k) => { if (fix[k]) results[bi] = fix[k]; });
       }
     }
-    if (!results) { results = await freeTranslateBatch(pending, lang); src = '机翻'; }
+    if (!results) { results = await freeTranslateBatch(pending, lang, { fast }); src = '机翻'; }
     if (!results) { results = pending.slice(); src = '原文'; }   // 全挂: 原样返回, 调用方据此判断失败
     // 聊天是实时场景, "到底慢在哪一段"必须有据可查 (之前完全看不出来)
     if (Date.now() - t0 > 800) {

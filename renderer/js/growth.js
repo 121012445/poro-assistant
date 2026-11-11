@@ -117,14 +117,28 @@ function growthTrendHtml(tr) {
   const spanNote = tr.spanDays < 90
     ? `本机只累积了 ${tr.spanDays} 天（自 ${sinceStr} 起），90 天口径尚未满。`
     : `自 ${sinceStr} 起累积，覆盖 ${tr.spanDays} 天。`;
+  const weekStart = tr.currentWeekStart ? new Date(tr.currentWeekStart) : null;
+  const weekEnd = tr.currentWeekEnd ? new Date(tr.currentWeekEnd) : null;
+  const weekRange = weekStart && weekEnd
+    ? `${weekStart.getMonth() + 1}/${weekStart.getDate()}–${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`
+    : '';
+  const weekNote = weekRange
+    ? `按周统计 · 当前周 ${weekRange} · 已累计 ${tr.currentWeekGames || 0} 局`
+    : '按周统计';
+  const topRows = (rows, labelOf) => (Array.isArray(rows) ? rows : []).slice(0, 4).map(r =>
+    `<span class="gw-breakdown"><b>${escapeHtml(labelOf(r.key))}</b><i>${r.wr}%</i><small>${r.n} 局</small></span>`).join('') || '<span class="gw-champ-none">样本不足</span>';
+  const champBreakdown = topRows(tr.byChampion, id => growthChampName(+id));
+  const positionNames = { top: '上路', jungle: '打野', mid: '中路', middle: '中路', adc: '下路', bottom: '下路', support: '辅助', utility: '辅助' };
+  const positionBreakdown = topRows(tr.byPosition, id => positionNames[String(id).toLowerCase()] || id);
 
   return `
     <div class="gw-kpis">${kpis}</div>
-    <div class="gw-chart-wrap"><canvas class="gw-chart" width="640" height="132"></canvas></div>
+    <div class="gw-chart-wrap"><canvas class="gw-chart" width="640" height="132"></canvas><div class="gw-chart-note">${escapeHtml(weekNote)}</div></div>
     <div class="gw-champrow">
       <div class="gw-champcol"><span class="gw-champhead">近 30 天常用</span><div class="gw-champs">${champLine(tr.champs30)}</div></div>
       <div class="gw-champcol"><span class="gw-champhead">近 90 天常用</span><div class="gw-champs">${champLine(tr.champs90)}</div></div>
     </div>
+    <div class="gw-breakdown-row"><div><span class="gw-champhead">近 90 天英雄表现</span><div class="gw-breakdowns">${champBreakdown}</div></div><div><span class="gw-champhead">近 90 天位置表现</span><div class="gw-breakdowns">${positionBreakdown}</div></div></div>
     <div class="gw-foot">${escapeHtml(spanNote)} 近 90 天共 ${tr.d90.n} 局。数据存本机，清空配置即清空。</div>`;
 }
 
@@ -178,7 +192,8 @@ function growthDrawChart(canvas, weeks) {
     if (i % 2 === (n - 1) % 2) {
       const d = new Date(w.start);
       ctx.fillStyle = cText; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, cx, H - 5);
+      const isCurrent = i === n - 1;
+      ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}${isCurrent ? ' 本周' : ''}`, cx, H - 5);
     }
   });
 }

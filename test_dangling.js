@@ -13,7 +13,7 @@ const defined = new Set();
 for (const m of app.matchAll(/^(?:async )?function ([a-zA-Z_$][\w$]*)/gm)) defined.add(m[1]);
 // 也收集箭头函数 / 函数表达式 / window 挂载的写法, 否则它们会被误判成"未定义"
 for (const m of app.matchAll(/^(?:const|let|var) ([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\()/gm)) defined.add(m[1]);
-for (const m of app.matchAll(/^window\.([a-zA-Z_$][\w$]*)\s*=/gm)) defined.add(m[1]);
+for (const m of app.matchAll(/^\s*window\.([a-zA-Z_$][\w$]*)\s*=/gm)) defined.add(m[1]);
 
 // 内联处理器不一定以函数名开头: `onclick="if (event.target===this)closeModal()"` 很常见。
 // 旧写法只取 =" 后面的**第一个**标识符, 于是:

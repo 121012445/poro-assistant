@@ -31,6 +31,7 @@
   function lineKey(l) {
     // 有稳定键就用它: 同一条消息被 OCR 重读、换了译文时键不变, 行不会跳到末尾、
     // 也不会重播入场动画 —— 只是原地把文字换掉。
+    if (l.id) return 'id:' + l.id;
     if (l.k) return 'k:' + l.k;
     return (Number(l.ts) || 0) + '|' + String(l.name || '') + '|' + String(l.translated || '');
   }
@@ -185,5 +186,5 @@
   // OS 级窗口激活成功后, DOM 焦点可能还没落到输入框 (主进程 focus 与 IPC 推送的时序竞争),
   // 窗口一拿到前台就补聚焦一次, 保证呼出后可以直接打字, 不用再点输入框
   window.addEventListener('focus', () => { if (inputOn) { try { inputEl.focus(); } catch (e) {} } });
-  if (hintEl) hintEl.textContent = 'Ctrl+F10 打字 → 回车发给队友 · 打字时可拖动/滚轮回看 · Esc 取消';
+  if (hintEl) hintEl.textContent = 'Ctrl+F10 输入并翻译发送';
 })();

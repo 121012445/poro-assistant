@@ -114,6 +114,7 @@ function toggleGtAutoMine(on) {
 
 function toggleGameTranslate(on) {
   gtEnabled = !!on;
+  if (typeof automationLog === 'function') automationLog('聊天翻译', on ? '已开启' : '已关闭');
   storeSet('gameTranslate', on ? '1' : '');
   const state = document.getElementById('gameTranslateState');
   if (state) { state.textContent = on ? '已开启' : '已关闭'; state.style.color = on ? 'var(--positive)' : ''; }
@@ -135,12 +136,13 @@ function gtInGame() {
 }
 
 function gtSyncPolling() {
+  // 对局时主窗口通常被游戏遮住或最小化。document.hidden 不能作为停扫条件，
+  // 否则用户切回游戏后翻译会直接失效。主窗口已关闭 backgroundThrottling。
   const shouldPoll = gtEnabled && gtInGame() && lcuConnected;
-  // 900ms: 消息从发出到出现在浮窗 = 扫描间隔 + 翻译请求。1.5s 时最坏要等 1.5s 才被
-  // 看见, 用户反馈"翻译很慢"; 900ms 对 LCU messages 接口压力可接受。
+  // 600ms 让聊天发现延迟稳定在一秒以内；每轮最多读取 4 个小型 LCU 会话。
   if (shouldPoll && !gtPollTimer) {
     gtScan();
-    gtPollTimer = setInterval(gtScan, 900);
+    gtPollTimer = setInterval(gtScan, 600);
   } else if (!shouldPoll && gtPollTimer) {
     clearInterval(gtPollTimer);
     gtPollTimer = null;
@@ -177,7 +179,7 @@ function gameTranslateOnPhase(phase) {
     _gtHistRead = 0;
     _gtFreshTotal = 0;
     _gtPhaseInAt = Date.now();
-    _gtOcrNextAt = Date.now() + 30000;   // 进局 30s 后才考虑 OCR (LCU 通道先给机会)
+    _gtOcrNextAt = Date.now() + 10000;   // LCU 10s 内仍无新消息就提前启用 OCR 兜底
     gtOcrRecent = [];
     _gtOcrTotal = 0;
     _gtOcrSkipLogAt = 0;
@@ -398,15 +400,15 @@ async function gtScan() {
       } catch (e) {}
     }
     if (fresh) gtFlush();
-    // 1.5.46 OCR 兜底通道: 国服对局聊天不进 LCU (conv dump 实证), 进局 30s 后
+    // 国服部分对局聊天不进 LCU。进局 10s 后仍无新消息就启用 OCR，避免白等半分钟。
     // LCU 仍零新消息 → OCR 轮询游戏左下聊天框。LCU 恢复有数据则自动停。
     // 1.5.80: 4s → 2.4s。这是"发出去到浮窗出现译文"里最大的一段固定延迟:
     // 消息发出后要等下一轮扫描才被读到, 4s 的间隔意味着平均白等 2 秒。
     // 扫描由 gtScan 的 900ms 轮询驱动, 所以这里填 2400 实际落在 2.7s (3 拍);
     // 填 4000 会落到 4.5s (5 拍), 比标称值更慢 —— 之前一直是这样。
     // 裁剪区只有 640x252, 单帧 OCR 一百多毫秒, 加密到 2.7s 一轮不会明显吃 CPU。
-    if (gtInGame() && !_gtFreshTotal && Date.now() - _gtPhaseInAt > 30000 && Date.now() >= _gtOcrNextAt) {
-      _gtOcrNextAt = Date.now() + 2400;
+    if (gtInGame() && !_gtFreshTotal && Date.now() - _gtPhaseInAt > 10000 && Date.now() >= _gtOcrNextAt) {
+      _gtOcrNextAt = Date.now() + 1800;
       gtOcrScan();
     }
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
@@ -1159,11 +1161,10 @@ let _gtItemSeq = 0;
 
 async function gtFlush() {
   if (gtBusy || !gtQueue.length) return;
-  const now = Date.now();
-  if (now - gtFlushAt < 250) { setTimeout(gtFlush, 350); return; }
-  gtFlushAt = now;
+  gtFlushAt = Date.now();
   gtBusy = true;
-  const batch = gtQueue.splice(0, 8);
+  // 小批次降低队首阻塞：某一条远程超时不会把后面 7 条一起压住。
+  const batch = gtQueue.splice(0, 3);
   for (const it of batch) { if (!it.id) it.id = ++_gtItemSeq; }
   let pendDone = false;
   let pendTimer = null;
@@ -1233,6 +1234,13 @@ async function gtFlush() {
           }
           if (!gtTrOk(it.body, out)) {
             gtTrDropPush(it.body, out);
+            // 临时网络抖动时自动重试一次。消息已经有稳定 id，重试会原地替换
+            // “翻译中”占位，不会重复新增，也不会因为 gtSeen 已记录而永久漏掉。
+            if ((it.retry || 0) < 1) {
+              gtQueue.push(Object.assign({}, it, { retry: (it.retry || 0) + 1 }));
+              try { lolAPI.debugLog('[GT] retry translate id=' + it.id + ' body=' + JSON.stringify(String(it.body).slice(0, 60))); } catch (e) {}
+              continue;
+            }
             // 1.5.102: 单词行翻不出来 (=译文就是原文) 时不再挂"未能翻译"。
             // 界面残渣 (WeGame/QWE) 闯到这里时, 挂一行"未能翻译"本身就是噪音
             // (用户报障"乱翻译"看到的就是它); 真实单词聊天都在 SHORT_OK/短语表里,
@@ -1305,7 +1313,7 @@ async function gtFlush() {
   } finally {
     if (pendTimer) { pendDone = true; clearTimeout(pendTimer); }
     gtBusy = false;
-    if (gtQueue.length) setTimeout(gtFlush, 350);
+    if (gtQueue.length) setTimeout(gtFlush, 120);
   }
 }
 

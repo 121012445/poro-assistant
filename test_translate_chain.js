@@ -104,6 +104,9 @@ const M = fn(sandbox);
   ok('AI 返回后逐条做语种校验', SRC.includes('if (!aiItemOk(r, lang)) bad.push(i)'));
   ok('语种不对的条目单独退回机翻', SRC.includes('const fix = await freeTranslateBatch(bad.map(i => pending[i]), lang)'));
   ok('翻译耗时留痕 (排查"很久才出来"必须有据可查)', SRC.includes("'[TRANSLATE] 用时 '"));
+  ok('实时翻译使用 450ms 后备源抢答', SRC.includes('translateDelay(450).then(() => firstTranslateResult'));
+  ok('实时翻译总等待不超过 3.2 秒', SRC.includes('firstTranslateResult([primary, fallbacks]), 3200'));
+  ok('备用源逐条并发而不是串行等待', SRC.includes('Promise.all(texts.map(t => googleTranslateOne(t, target)))'));
 }
 
 console.log(`\n翻译链路: ${pass} 通过 / ${fail} 失败`);

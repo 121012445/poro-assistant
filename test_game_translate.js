@@ -899,7 +899,7 @@ function msg(id, body, fromId) {
     ok('译文等于原文时标成"未能翻译" (不再出现 rearrjrr/rearrjrr)',
       lines.length === 1 && lines[0].fail === true && lines[0].translated === '（未能翻译）', lines);
     ok('失败行仍带原文, 用户能自己对上', lines.length === 1 && lines[0].body === 'rearrjrr wgre', lines[0]);
-    ok('但翻译确实被请求过 (不是根本没走链路)', e.translated.length === 1, e.translated.length);
+    ok('失败后自动重试一次再明确报错', e.translated.length === 2, e.translated.length);
   }
   {
     // 1.5.76 —— 06:58 局真实帧: OCR 把 everyone 读成 eyÄryone (混进非 ASCII 字母),

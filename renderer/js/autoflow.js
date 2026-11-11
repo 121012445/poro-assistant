@@ -39,14 +39,14 @@ function initAutoflowToggles() {
 function toggleAutoHonor(on) {
   if (on && !guardAutomation('自动点赞')) { document.getElementById('autoHonorToggle').checked = false; return; }
   autoflow.honor = !!on;
-  automationLog?.('自动点赞', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('自动点赞', on ? '已开启' : '已关闭');
   storeSet('autoHonor', on ? '1' : '');
   toolMsg(on ? '对局结束后将自动给一名队友点赞' : '已关闭自动点赞');
 }
 function toggleAutoReconnect(on) {
   if (on && !guardAutomation('掉线重连')) { document.getElementById('autoReconnectToggle').checked = false; return; }
   autoflow.reconnect = !!on;
-  automationLog?.('自动重连', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('自动重连', on ? '已开启' : '已关闭');
   storeSet('autoReconnect', on ? '1' : '');
   toolMsg(on ? '掉线后将自动重连' : '已关闭掉线重连');
 }

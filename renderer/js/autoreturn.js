@@ -30,7 +30,7 @@ function toggleAutoReturnLobby(on) {
     return;
   }
   _autoReturn.enabled = !!on;
-  automationLog?.('自动返回房间', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('自动返回房间', on ? '已开启' : '已关闭');
   storeSet('autoReturnLobby', on ? '1' : '');
   const q = document.getElementById('autoReturnQueueRow');
   if (q) q.style.display = on ? '' : 'none';
@@ -43,7 +43,7 @@ function toggleAutoReturnQueue(on) {
     return;
   }
   _autoReturn.autoQueue = !!on;
-  automationLog?.('自动开始排队', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('自动开始排队', on ? '已开启' : '已关闭');
   storeSet('autoReturnQueue', on ? '1' : '');
 }
 
@@ -67,7 +67,7 @@ async function autoReturnRun() {
   _autoReturn.running = true;
   _autoReturn.attempt = 0;
   const cancelToken = ++_autoReturnCancelToken;
-  automationLog?.('自动返回房间', '执行中');
+  if (typeof automationLog === 'function') automationLog('自动返回房间', '执行中');
   try {
     // 等客户端离开结算界面 (EndOfGame → None), 最多 40s
     let settled = false;
@@ -87,7 +87,7 @@ async function autoReturnRun() {
       try {
         await autoReturnCreateRoom(queueId);
         showToast('已自动返回房间 (' + (QUEUE_NAMES[queueId] || queueId) + ')', 'positive');
-        automationLog?.('自动返回房间', '完成', QUEUE_NAMES[queueId] || queueId);
+        if (typeof automationLog === 'function') automationLog('自动返回房间', '完成', QUEUE_NAMES[queueId] || queueId);
         if (_autoReturn.autoQueue) {
           await new Promise(r => setTimeout(r, 1200));
           if (complianceOn || cancelToken !== _autoReturnCancelToken) return;
@@ -101,7 +101,7 @@ async function autoReturnRun() {
       }
     }
     showToast('自动返回房间失败 (重试 3 次)', 'negative');
-    automationLog?.('自动返回房间', '失败', '重试 3 次');
+    if (typeof automationLog === 'function') automationLog('自动返回房间', '失败', '重试 3 次');
   } finally {
     _autoReturn.running = false;
   }

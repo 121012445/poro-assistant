@@ -101,6 +101,29 @@
     window.addEventListener('resize', onScroll);
   }
 
+  window.filterTools = function filterTools(query) {
+    const needle = String(query || '').trim().toLocaleLowerCase();
+    const page = document.getElementById('page-tools');
+    if (!page) return;
+    let visible = 0;
+    page.querySelectorAll('.tool-card').forEach(card => {
+      if (card.classList.contains('legal-card')) return;
+      const hit = !needle || card.textContent.toLocaleLowerCase().includes(needle);
+      card.hidden = !hit;
+      if (hit) visible++;
+    });
+    page.querySelectorAll('.tools-section').forEach(sec => {
+      let next = sec.nextElementSibling;
+      let hasVisible = false;
+      while (next && !next.classList.contains('tools-section')) {
+        if (next.classList.contains('tool-card') && !next.hidden && !next.classList.contains('legal-card')) hasVisible = true;
+        next = next.nextElementSibling;
+      }
+      sec.hidden = !!needle && !hasVisible;
+    });
+    if (window.refreshToolsOverview) window.refreshToolsOverview();
+  };
+
   // switchPage('tools') 每次进页都会调到这里: 第一次建标签 + 绑事件, 之后只重算条数
   window.initToolsNav = function initToolsNav(opts) {
     if (!build()) return;

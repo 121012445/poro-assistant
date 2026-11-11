@@ -177,10 +177,13 @@ async function loadSelectableRewards() {
       missionName: m.name || m.id,
       options: (m.rewardOptions || []).map(o => ({ rewardId: o.rewardId || o.id, name: o.rewardName || o.name || '奖励' }))
     }));
+    // The current LCU endpoint accepts missionIds, not a reward id. Keep one
+    // checkbox per mission so the UI does not imply individual reward selection
+    // or submit the same mission multiple times.
     box.innerHTML = _selectableRewards.map((m, mi) => `
       <div class="sel-reward-mission">
-        <b>${m.missionName}</b>
-        ${m.options.map((o, oi) => `<label class="sel-reward-item"><input type="checkbox" data-mi="${mi}" data-oi="${oi}" checked> ${o.name}</label>`).join('')}
+        <label class="sel-reward-item"><input type="checkbox" data-mi="${mi}" checked> <b>${escapeHtml(m.missionName)}</b></label>
+        <span class="sel-reward-options">可选奖励：${m.options.map(o => escapeHtml(o.name)).join('、') || '客户端未返回明细'}</span>
       </div>`).join('');
   } catch (e) {
     box.innerHTML = '<div class="meta-loading">扫描失败: ' + e.message + '</div>';
@@ -191,11 +194,10 @@ async function claimSelectedRewards() {
   const checks = [...document.querySelectorAll('#selectableRewardList input[type="checkbox"]:checked')];
   if (!checks.length) return toolMsg('<span style="color:var(--warning)">未勾选任何奖励</span>');
   let done = 0;
-  for (const chk of checks) {
-    const m = _selectableRewards[Number(chk.dataset.mi)];
-    if (!m) continue;
+  const missionIds = [...new Set(checks.map(chk => _selectableRewards[Number(chk.dataset.mi)]?.missionId).filter(Boolean))];
+  for (const missionId of missionIds) {
     try {
-      await lolAPI.lcuRequest('PUT', '/lol-missions/v1/player', { missionIds: [m.missionId] });
+      await lolAPI.lcuRequest('PUT', '/lol-missions/v1/player', { missionIds: [missionId] });
       done++;
     } catch (e) {}
   }

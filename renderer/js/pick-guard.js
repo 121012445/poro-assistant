@@ -79,7 +79,7 @@ function togglePickGuard(on) {
     return;
   }
   pickGuardOn = !!on;
-  automationLog?.('选人保底', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('选人保底', on ? '已开启' : '已关闭');
   storeSet('pickGuard', on ? '1' : '');
   pickGuardState(on ? (pickGuardLockSec > 0 ? `已开启 · 剩余 ${pickGuardLockSec} 秒自动锁定` : '已开启 · 只补悬停') : '已关闭', on ? 'positive' : '');
   if (!on) pickGuardReset(true);

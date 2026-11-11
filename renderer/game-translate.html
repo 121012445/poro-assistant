@@ -5,58 +5,55 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
 <title>Poro 聊天弹幕</title>
 <style>
-  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; color:#f5f0e7; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; user-select:none; }
-  /* 直播姬弹幕风: 无外框, 每条独立半透明胶囊, 新条从底部滑入, 16 秒淡出 */
-  .gt-wrap { box-sizing:border-box; width:100%; max-height:calc(100% - 46px); overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; gap:6px; padding:4px 2px 6px; }
-  .gt-line { border-radius:10px; padding:5px 11px; max-width:100%; box-sizing:border-box;
-    background:rgba(10,20,28,.48); border:1px solid rgba(255,255,255,.10);
-    box-shadow:0 2px 10px rgba(0,0,0,.30);
-    animation:gtIn .18s ease-out; transition:opacity .8s ease; }
-  .gt-line.gt-old { opacity:.30; }
-  .gt-name { display:inline-block; max-width:56%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#7fd8e0; font-size:11px; font-weight:700; vertical-align:bottom; margin-right:6px; }
-  .gt-line.gt-self .gt-name { color:#8fe0a8; }
-  .gt-body { display:inline; font-size:14px; font-weight:700; line-height:1.4; word-break:break-word; text-shadow:0 1px 3px rgba(0,0,0,.7); }
-  /* 1.5.79: 读到了但没翻出来。弱化成灰色小字 —— 要让用户能区分"还没翻完"和"翻失败了",
-     但不能抢走正常译文的视觉重量。 */
-  .gt-body.gt-fail { font-size:12px; font-weight:600; color:#c9a86a; font-style:italic; text-shadow:0 1px 2px rgba(0,0,0,.7); }
-  /* 1.5.79: 翻译超过 600ms 还没回来 —— 灰蓝小字占位。用户要能一眼看出"这条在翻"
-     而不是"这条没了"。翻完原地替换成译文。 */
-  .gt-body.gt-pend { font-size:12px; font-weight:500; color:#8fa7b3; font-style:italic; opacity:.9; text-shadow:0 1px 2px rgba(0,0,0,.7); }
-  .gt-orig { display:block; margin-top:1px; font-size:10px; line-height:1.3; color:#9db1b7; word-break:break-word; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .gt-hint { border-radius:9px; padding:3px 10px; font-size:11px; letter-spacing:.5px;
-    color:rgba(210,225,230,.62); background:rgba(10,20,28,.30); border:1px solid rgba(255,255,255,.08); }
-  /* 输入条: 常态极淡提示; 输入模式高亮并获得焦点 */
-  .gt-inputrow { display:flex; gap:6px; align-items:center; margin-top:2px; border-radius:10px; padding:6px 9px; box-sizing:border-box;
-    background:rgba(10,20,28,.30); border:1px solid rgba(255,255,255,.10); opacity:.42; transition:opacity .15s ease, border-color .15s ease; }
-  .gt-inputrow.gt-active { opacity:1; border-color:rgba(127,216,224,.65); background:rgba(10,20,28,.72); box-shadow:0 0 14px rgba(64,180,190,.25); }
-  .gt-inputrow input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:#f5f0e7; font-size:14px; font-weight:600;
-    font-family:inherit; caret-color:#7fd8e0; }
-  .gt-inputrow input::placeholder { color:rgba(190,205,212,.55); font-weight:400; }
-  .gt-send { border:0; border-radius:7px; padding:3px 10px; font-size:12px; font-weight:700; cursor:pointer;
-    color:#06282c; background:linear-gradient(135deg,#6fd6de,#4db9c4); }
+  :root { color-scheme:dark; --panel:rgba(13,17,23,.88); --line:rgba(255,255,255,.10); --text:#f3f5f7; --muted:#9aa6b2; --accent:#58c4cf; --self:#67d391; }
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; color:var(--text); font-family:"Segoe UI Variable Text","Microsoft YaHei UI","PingFang SC",sans-serif; user-select:none; }
+  .gt-wrap { box-sizing:border-box; width:100%; max-height:calc(100% - 30px); overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; gap:0; padding:3px; }
+  #gtLines { display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--line); border-bottom:0; border-radius:7px 7px 0 0; background:var(--panel); box-shadow:0 8px 24px rgba(0,0,0,.36); }
+  #gtLines:empty { display:none; }
+  .gt-line { position:relative; box-sizing:border-box; max-width:100%; padding:7px 10px 7px 13px; border-bottom:1px solid rgba(255,255,255,.065); animation:gtIn .16s ease-out; transition:opacity .5s ease, background .14s ease; }
+  .gt-line:last-child { border-bottom:0; }
+  .gt-line::before { content:""; position:absolute; left:0; top:8px; bottom:8px; width:2px; border-radius:2px; background:var(--accent); opacity:.82; }
+  .gt-line.gt-self::before { background:var(--self); }
+  .gt-line.gt-old { opacity:.34; }
+  .gt-name { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--accent); font-size:10px; font-weight:600; line-height:1.25; margin-bottom:2px; }
+  .gt-line.gt-self .gt-name { color:var(--self); }
+  .gt-body { display:block; font-size:13px; font-weight:600; line-height:1.38; word-break:break-word; letter-spacing:0; }
+  .gt-body.gt-fail { font-size:11px; font-weight:500; color:#e2b66e; }
+  .gt-body.gt-pend { font-size:11px; font-weight:500; color:#aab6c2; }
+  .gt-body.gt-pend::before { content:""; display:inline-block; width:6px; height:6px; margin:0 6px 1px 0; border:1px solid rgba(88,196,207,.35); border-top-color:var(--accent); border-radius:50%; animation:gtSpin .8s linear infinite; }
+  .gt-orig { display:block; margin-top:2px; font-size:10px; line-height:1.3; color:var(--muted); word-break:break-word; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .gt-footer { display:flex; align-items:center; min-height:27px; border:1px solid var(--line); border-radius:0 0 7px 7px; background:rgba(13,17,23,.92); box-shadow:0 8px 24px rgba(0,0,0,.28); }
+  .gt-hint { flex:1; min-width:0; padding:5px 9px; font-size:10px; color:rgba(215,222,228,.68); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gt-hint::before { content:""; display:inline-block; width:5px; height:5px; margin:0 6px 1px 0; border-radius:50%; background:var(--accent); box-shadow:0 0 6px rgba(88,196,207,.45); }
+  .gt-inputrow { display:none; flex:1; gap:6px; align-items:center; padding:5px 6px 5px 9px; box-sizing:border-box; }
+  .gt-inputrow.gt-active { display:flex; }
+  .gt-inputrow input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--text); font-size:13px; font-weight:500; font-family:inherit; caret-color:var(--accent); }
+  .gt-inputrow input::placeholder { color:#7f8b96; font-weight:400; }
+  .gt-send { border:1px solid rgba(88,196,207,.45); border-radius:5px; min-width:44px; height:25px; padding:0 8px; font-size:11px; font-weight:600; cursor:pointer; color:#dffbfd; background:rgba(88,196,207,.16); }
+  .gt-send:hover { background:rgba(88,196,207,.24); }
   .gt-send:disabled { opacity:.5; cursor:default; }
-  .gt-err { font-size:11px; color:#ff9d8f; min-height:0; }
+  .gt-err { display:none; padding:4px 9px; border:1px solid rgba(248,113,113,.32); border-top:0; background:rgba(54,20,24,.92); color:#fca5a5; font-size:10px; }
+  .gt-err:not(:empty) { display:block; }
   .gt-wrap.gt-typing .gt-hint { display:none; }
-  /* 打字模式: 顶部出现拖动条 (常态鼠标穿透点不到, 只有打字模式才能拖) */
-  .gt-dragbar { display:none; -webkit-app-region:drag; border-radius:9px; padding:4px 10px; font-size:11px; text-align:center;
-    color:rgba(210,225,230,.78); background:rgba(10,20,28,.55); border:1px solid rgba(255,255,255,.16); cursor:move; }
+  .gt-dragbar { display:none; -webkit-app-region:drag; padding:4px 8px; border:1px solid var(--line); border-bottom:0; border-radius:7px 7px 0 0; color:#a9b4be; background:rgba(13,17,23,.94); font-size:10px; text-align:center; cursor:move; }
   .gt-wrap.gt-typing .gt-dragbar { display:block; }
+  .gt-wrap.gt-typing #gtLines { min-height:0; overflow-y:auto; border-radius:0; scrollbar-width:thin; scrollbar-color:rgba(88,196,207,.35) transparent; }
+  .gt-wrap.gt-typing #gtLines:empty { display:flex; min-height:1px; }
   .gt-inputrow, .gt-inputrow * { -webkit-app-region:no-drag; }
-  /* 打字模式: 弹幕区可滚动回看历史 (细滚动条), 退出后恢复只显最新 */
-  .gt-wrap.gt-typing #gtLines { overflow-y:auto; min-height:0; scrollbar-width:thin; scrollbar-color:rgba(127,216,224,.35) transparent; }
-  .gt-wrap.gt-typing #gtLines::-webkit-scrollbar { width:5px; }
-  .gt-wrap.gt-typing #gtLines::-webkit-scrollbar-thumb { background:rgba(127,216,224,.35); border-radius:3px; }
-  @keyframes gtIn { from { transform:translateY(10px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+  @keyframes gtIn { from { transform:translateY(5px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+  @keyframes gtSpin { to { transform:rotate(360deg); } }
 </style>
 </head>
 <body>
   <div class="gt-wrap" id="gtWrap">
     <div class="gt-dragbar" id="gtDrag" title="按住拖到顺手的位置, 自动记住; 双击恢复默认">⠿ 按住拖动挪位置 · 双击恢复默认</div>
-    <div id="gtLines" style="display:flex;flex-direction:column;gap:6px;"></div>
-    <div class="gt-hint" id="gtHint">Ctrl+F10 打字 → 回车翻成外语发给队友 · Esc 取消</div>
-    <div class="gt-inputrow" id="gtInputRow">
-      <input id="gtInput" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入中文，回车发送…">
-      <button class="gt-send" id="gtSend" type="button">发送</button>
+    <div id="gtLines"></div>
+    <div class="gt-footer">
+      <div class="gt-hint" id="gtHint">Ctrl+F10 输入并翻译发送</div>
+      <div class="gt-inputrow" id="gtInputRow">
+        <input id="gtInput" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="输入中文，回车发送…">
+        <button class="gt-send" id="gtSend" type="button">发送</button>
+      </div>
     </div>
     <div class="gt-err" id="gtErr"></div>
   </div>

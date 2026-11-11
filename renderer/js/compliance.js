@@ -62,7 +62,7 @@ function guardWrite(name) {
 function toggleAutoAccept(on) {
   if (on && !guardAutomation('自动接受')) { document.getElementById('autoAcceptToggle').checked = false; return; }
   autoAcceptOn = on;
-  automationLog?.('自动接受', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('自动接受', on ? '已开启' : '已关闭');
   saveConfig();
   // 立即同步状态文字, 关闭时显示"已关闭", 开启时拉取一次对局状态
   if (on) toolMsg('<span style="color:var(--positive)">自动接受已开启</span>');

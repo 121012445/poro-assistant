@@ -734,7 +734,7 @@ let _wsConnected = false;
 function lcuWsConnected() { return _wsConnected; }
 
 async function fakeRank() {
-  if (!guardAutomation('伪造段位')) return;
+  if (!guardWrite('伪造段位')) return;
   const tier = document.getElementById('fakeTier').value;
   const div = document.getElementById('fakeDiv').value;
   const r = await lolAPI.lcuRequest('PUT', '/lol-chat/v1/me', { lol: { rankedLeagueQueue: 'RANKED_SOLO_5x5', rankedLeagueTier: tier, rankedLeagueDivision: div } });

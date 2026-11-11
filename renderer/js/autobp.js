@@ -10,7 +10,7 @@ let _autoBPBusy = false;   // 正在写客户端；选人保底据此让路
 function toggleAutoBP(on) {
   if (on && !guardAutomation('自动BP')) { document.getElementById('autoBPToggle').checked = false; return; }
   autoBPEnabled = on;
-  automationLog?.('自动 BP', on ? '已开启' : '已关闭');
+  if (typeof automationLog === 'function') automationLog('自动 BP', on ? '已开启' : '已关闭');
   const status = document.getElementById('autoBPStatus');
   if (status) {
     status.textContent = on ? '已开启' : '未开启';
