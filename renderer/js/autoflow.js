@@ -39,12 +39,14 @@ function initAutoflowToggles() {
 function toggleAutoHonor(on) {
   if (on && !guardAutomation('自动点赞')) { document.getElementById('autoHonorToggle').checked = false; return; }
   autoflow.honor = !!on;
+  automationLog?.('自动点赞', on ? '已开启' : '已关闭');
   storeSet('autoHonor', on ? '1' : '');
   toolMsg(on ? '对局结束后将自动给一名队友点赞' : '已关闭自动点赞');
 }
 function toggleAutoReconnect(on) {
   if (on && !guardAutomation('掉线重连')) { document.getElementById('autoReconnectToggle').checked = false; return; }
   autoflow.reconnect = !!on;
+  automationLog?.('自动重连', on ? '已开启' : '已关闭');
   storeSet('autoReconnect', on ? '1' : '');
   toolMsg(on ? '掉线后将自动重连' : '已关闭掉线重连');
 }
@@ -67,6 +69,7 @@ function rememberHonoredGame(gameId) {
 
 async function autoHonorRun() {
   if (_autoHonorRunning) return;
+  if (window.automationModeAllows && !window.automationModeAllows('autoHonorToggle')) return;
   _autoHonorRunning = true;
   try {
     await autoflowSleep(1500 + Math.floor(Math.random() * 2500));      // 不要比人手还快
@@ -101,6 +104,7 @@ async function autoHonorRun() {
 
 async function autoReconnectRun() {
   if (_autoReconnectRunning) return;
+  if (window.automationModeAllows && !window.automationModeAllows('autoReconnectToggle')) return;
   _autoReconnectRunning = true;
   try {
     await autoflowSleep(1500 + Math.floor(Math.random() * 1500));

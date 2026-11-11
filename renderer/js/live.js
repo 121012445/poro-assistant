@@ -84,6 +84,7 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
             gameId: gj.gameId || gj.gameID || gj.gameUuid || gj.gameUUID || 0,
             champId: normalizeChampId(me.championId || stats.championId), win, k, d, a,
             mode: gameMode, ts: gj.gameCreation || gj.gameEndTimestamp || 0,
+            position: me.teamPosition || me.individualPosition || me.position || me.lane || stats.teamPosition || stats.lane || '',
             ...teamShareOf(gj.participants, me, k, a)
           });
         }
@@ -121,6 +122,7 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
       gameId: raw.gameId || raw.gameIdString || game.gameId || game.gid || 0,
       champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0,
       mode: game.mode, ts: game.time || 0,
+      position: me.position || me.teamPosition || me.individualPosition || me.lane || '',
       ...teamShareOf(game.participants, me, me.k || 0, me.a || 0, { dmg: 'dmg', tank: 'dmgTaken', gold: 'gold', kills: 'k' })
     });
   }
@@ -309,6 +311,14 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
 
   // 方式1: gameflow session (选人阶段有完整 puuid)
   const session = await lolAPI.lcuRequest("GET", "/lol-gameflow/v1/session");
+  const queueId = session?.gameData?.queue?.id || session?.gameData?.queueId || 0;
+  const queueMode = session?.gameData?.queue?.gameMode || session?.map?.gameMode || '';
+  window.updateAutomationModeContext?.(queueId, queueMode);
+  window._poroLiveModeContext = {
+    queueId: Number(queueId) || 0,
+    gameMode: String(queueMode || ''),
+    label: QUEUE_NAMES?.[queueId] || MODE_NAMES?.[queueMode] || queueMode || '当前模式'
+  };
   liveBalanceMode = isBalanceMode(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
   if (liveBalanceMode) loadAramBalance().catch(() => {});
   liveTierMode = tierModeFor(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
@@ -542,19 +552,84 @@ function liveTeamComposition(list) {
   return { tags, frontline, matches, wins, recentRate, readiness: Math.max(35, Math.min(65, readiness)), strengths, weaknesses };
 }
 
-function liveItemAdvice(self, enemyComp) {
-  if (!self) return [];
+function liveThreatProfile(list) {
+  const profile = { physical: 0, magic: 0, dive: 0, control: 0, sustain: 0, tanks: 0 };
+  const sustainIds = new Set([16, 37, 40, 44, 117, 147, 201, 267, 350, 497, 526]);
+  for (const player of list || []) {
+    const data = champDataOfLive(player.championId) || {};
+    const tags = data.tags || [];
+    if (tags.includes('Marksman') || tags.includes('Assassin')) profile.physical += 2;
+    if (tags.includes('Fighter')) profile.physical += 1;
+    if (tags.includes('Mage')) profile.magic += 2;
+    if (tags.includes('Support')) profile.magic += 1;
+    if (tags.includes('Assassin') || tags.includes('Fighter')) profile.dive += 1;
+    if (tags.includes('Tank') || tags.includes('Support') || tags.includes('Mage')) profile.control += 1;
+    if (tags.includes('Tank')) profile.tanks += 1;
+    if (tags.includes('Support') || sustainIds.has(Number(player.championId))) profile.sustain += 1;
+  }
+  return profile;
+}
+
+function liveContextAdvice(self, ownComp, enemyComp, enemyTeam) {
+  if (!self) return { items: [], alternatives: [], runes: [], reasons: [], role: '未知位置', mode: window._poroLiveModeContext?.label || '当前模式' };
   const ownTags = champDataOfLive(self.championId)?.tags || [];
-  const physical = enemyComp.tags.Marksman + enemyComp.tags.Assassin + enemyComp.tags.Fighter;
-  const magic = enemyComp.tags.Mage + enemyComp.tags.Support;
-  const tanky = enemyComp.tags.Tank + enemyComp.tags.Fighter;
-  const advice = [];
-  if (magic >= 3) advice.push(ownTags.includes('Mage') ? '女妖面纱' : ownTags.includes('Marksman') ? '玛莫提乌斯之噬' : '自然之力');
-  if (physical >= 3) advice.push(ownTags.includes('Marksman') ? '守护天使' : ownTags.includes('Mage') ? '中娅沙漏' : '兰顿之兆');
-  if (tanky >= 3) advice.push(ownTags.includes('Mage') ? '虚空之杖' : ownTags.includes('Marksman') ? '多米尼克领主的致意' : '黑色切割者');
-  if (enemyComp.tags.Support >= 2) advice.push(ownTags.includes('Mage') ? '莫雷洛秘典' : ownTags.includes('Tank') ? '荆棘之甲' : '凡性的提醒');
+  const threat = liveThreatProfile(enemyTeam);
+  const advice = [], alternatives = [], runes = [], reasons = [];
+  const isMage = ownTags.includes('Mage'), isMarksman = ownTags.includes('Marksman'), isTank = ownTags.includes('Tank');
+  if (threat.magic >= threat.physical + 2) {
+    advice.push(isMage ? '女妖面纱' : isMarksman ? '玛莫提乌斯之噬' : '自然之力');
+    alternatives.push(isTank ? '振奋盔甲' : '水银饰带');
+    reasons.push('敌方魔法威胁明显更高');
+    runes.push('抗性碎片优先魔抗');
+  } else if (threat.physical >= threat.magic + 2) {
+    advice.push(isMarksman ? '守护天使' : isMage ? '中娅沙漏' : '兰顿之兆');
+    alternatives.push(isTank ? '冰霜之心' : '铁板靴');
+    reasons.push('敌方物理与普攻威胁偏高');
+    runes.push('抗性碎片优先护甲');
+  }
+  if (threat.control >= 3) {
+    alternatives.push(isTank ? '水银之靴' : '水银饰带');
+    runes.push('韧性 / 坚定优先');
+    reasons.push('敌方控制链较长');
+  }
+  if (threat.dive >= 3) {
+    alternatives.push(isMage ? '中娅沙漏' : isMarksman ? '守护天使' : '斯特拉克的挑战护手');
+    runes.push('保命小符文优先于纯输出');
+    reasons.push('敌方突进点较多');
+  }
+  if (threat.tanks >= 2 || enemyComp.frontline >= 3) {
+    advice.push(isMage ? '虚空之杖' : isMarksman ? '多米尼克领主的致意' : '黑色切割者');
+    reasons.push('敌方前排厚，需要提前准备穿透');
+  }
+  if (threat.sustain >= 2) {
+    advice.push(isMage ? '莫雷洛秘典' : isTank ? '荆棘之甲' : '凡性的提醒');
+    reasons.push('敌方回复与保护较多');
+  }
+  if (ownComp.frontline <= 1 && (isTank || ownTags.includes('Fighter'))) {
+    alternatives.unshift('优先成型一件生存装');
+    reasons.push('己方前排不足，你需要承担更多承伤');
+  }
+  const queueId = Number(window._poroLiveModeContext?.queueId) || 0;
+  if ([450, 2400].includes(queueId)) {
+    runes.push('大乱斗优先持续作战与续航');
+    reasons.push('当前为单线团战模式，成装速度与持续作战权重更高');
+  } else if (String(self.position || '').toUpperCase() === 'JUNGLE') {
+    runes.push('打野优先第一轮资源节奏与移速');
+    reasons.push('当前位置为打野，需要兼顾第一轮资源与支援效率');
+  }
   const ownedNames = new Set((self.items || []).map(id => allItems?.[String(id)]?.name).filter(Boolean));
-  return [...new Set(advice)].filter(name => !ownedNames.has(name)).slice(0, 3);
+  return {
+    items: [...new Set(advice)].filter(name => !ownedNames.has(name)).slice(0, 3),
+    alternatives: [...new Set(alternatives)].filter(name => !ownedNames.has(name)).slice(0, 3),
+    runes: [...new Set(runes)].slice(0, 3),
+    reasons: [...new Set(reasons)].slice(0, 4),
+    role: String(self.position || '未知位置').toUpperCase(),
+    mode: window._poroLiveModeContext?.label || '当前模式'
+  };
+}
+
+function liveItemAdvice(self, enemyComp, ownComp, enemyTeam) {
+  return liveContextAdvice(self, ownComp || { frontline: 0 }, enemyComp, enemyTeam || []).items;
 }
 
 function buildLiveDecisionPanel(data, selfPuuid) {
@@ -571,11 +646,13 @@ function buildLiveDecisionPanel(data, selfPuuid) {
   const self = data.find(p => selfPuuid && p.puuid === selfPuuid) || data.find(p => p.name && window._myPuuid && p.puuid === window._myPuuid);
   const ownComp = self && (self.team === 200 || self.team === '200') ? redComp : blueComp;
   const enemyComp = ownComp === blueComp ? redComp : blueComp;
+  const enemyTeam = ownComp === blueComp ? red : blue;
   const draft = window.PoroDraftCoach ? window.PoroDraftCoach.build(data, {
     selfTeam: self && +self.team === 200 ? 200 : 100,
     champOf: champOfLive
   }) : null;
-  const itemAdvice = liveItemAdvice(self, enemyComp);
+  const contextAdvice = liveContextAdvice(self, ownComp, enemyComp, enemyTeam);
+  const itemAdvice = contextAdvice.items;
   const phase = window._gameflowPhase || 'ChampSelect';
   const plan = phase === 'ChampSelect'
     ? (draft?.winCondition || '先确认阵容缺口，再围绕资源安排英雄选择。')
@@ -599,7 +676,12 @@ function buildLiveDecisionPanel(data, selfPuuid) {
       <div class="ld-head"><div><span>综合态势不是官方胜率，由阵容结构与玩家近期表现生成</span></div></div>
       ${draftHtml}
       <div class="ld-grid">${teamCard('蓝方', blueComp, blueEdge, 'blue')}${teamCard('红方', redComp, redEdge, 'red')}</div>
-      <div class="ld-plan"><b>己方建议</b><span>${escapeHtml(plan)}</span>${itemAdvice.length ? `<em>装备方向：${escapeHtml(itemAdvice.join(' / '))}</em>` : ''}</div>
+      <div class="ld-plan"><b>己方建议</b><span>${escapeHtml(plan)}</span>
+        <div class="ld-context-grid">
+          <section><small>${escapeHtml(contextAdvice.mode)} · ${escapeHtml(contextAdvice.role)}</small><strong>装备偏离</strong><p>${escapeHtml(itemAdvice.join(' / ') || '保持英雄常规核心装')}</p>${contextAdvice.alternatives.length ? `<em>备选：${escapeHtml(contextAdvice.alternatives.join(' / '))}</em>` : ''}</section>
+          <section><small>按阵容调整</small><strong>符文方向</strong><p>${escapeHtml(contextAdvice.runes.join(' / ') || '保持熟悉的通用符文')}</p>${contextAdvice.reasons.length ? `<em>${escapeHtml(contextAdvice.reasons.join('；'))}</em>` : ''}</section>
+        </div>
+      </div>
       <div class="ld-ask"><label>问本局 <select onchange="answerLiveQuestion(this.value)"><option value="">选择一个问题…</option><option value="danger">谁最危险？</option><option value="fight">这波该不该打？</option><option value="win">我们怎么赢？</option><option value="weak">阵容短板是什么？</option></select></label><span id="liveQuestionAnswer"></span></div>
     </div>
   </details>`;
@@ -649,6 +731,7 @@ function toggleLiveRecentExpanded(force) {
   liveRecentExpanded = typeof force === 'boolean' ? force : !liveRecentExpanded;
   document.getElementById('page-live')?.classList.toggle('live-expanded', liveRecentExpanded);
   syncLiveExpandButton();
+  scheduleLiveRowAlignment();
 }
 
 // 战绩时间: "01-18 19:31"。SGP 给毫秒时间戳, LCU 也是; 缺失时返回空串, 不占位。
@@ -693,6 +776,90 @@ function livePlayerKey(p) {
   return String(p?.puuid || p?.name || `${p?.team || 0}:${p?.championId || 0}`);
 }
 
+const LIVE_ROLE_LABELS = { TOP: '上路', JUNGLE: '打野', MIDDLE: '中路', MID: '中路', BOTTOM: '下路', ADC: '下路', UTILITY: '辅助', SUPPORT: '辅助', NONE: '未识别' };
+let liveDrawerFilters = { champion: 'all', role: 'all' };
+
+function normalizeLiveRole(value) {
+  const key = String(value || '').toUpperCase();
+  return key === 'MID' ? 'MIDDLE' : key === 'ADC' ? 'BOTTOM' : key === 'SUPPORT' ? 'UTILITY' : (key || 'NONE');
+}
+
+function liveDrawerRecent(player) {
+  return (player?.recent || []).filter(row => {
+    if (liveDrawerFilters.champion !== 'all' && String(row.champId) !== liveDrawerFilters.champion) return false;
+    if (liveDrawerFilters.role !== 'all' && normalizeLiveRole(row.position) !== liveDrawerFilters.role) return false;
+    return true;
+  });
+}
+
+function renderLivePlayerDrawer(player) {
+  const body = document.getElementById('livePlayerDrawerBody');
+  if (!body || !player) return;
+  const recent = liveDrawerRecent(player);
+  const allRecent = player.recent || [];
+  const wins = recent.filter(row => row.win === true || row.win === 'Win').length;
+  const kills = recent.reduce((sum, row) => sum + Number(row.k || 0), 0);
+  const deaths = recent.reduce((sum, row) => sum + Number(row.d || 0), 0);
+  const assists = recent.reduce((sum, row) => sum + Number(row.a || 0), 0);
+  const kda = recent.length ? ((kills + assists) / Math.max(1, deaths)).toFixed(1) : '--';
+  const champIds = [...new Set(allRecent.map(row => String(row.champId || '')).filter(Boolean))];
+  const roles = [...new Set(allRecent.map(row => normalizeLiveRole(row.position)).filter(role => role !== 'NONE'))];
+  const behavior = typeof deriveBehaviorTags === 'function' ? deriveBehaviorTags(player.behaviorSamples || []) : [];
+  const currentChamp = champOfLive(player.championId);
+  const heroCounts = allRecent.reduce((map, row) => map.set(String(row.champId), (map.get(String(row.champId)) || 0) + 1), new Map());
+  const heroPool = [...heroCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id, count]) => `${champOfLive(id)?.name || '未知英雄'} ${count}场`).join(' · ');
+  const premade = player.premadeGroupId ? `本局识别为开黑组 ${player.premadeGroupId}；依据挑战组或近 30 场共同出场记录推断。` : '本局未发现达到阈值的共同出场证据。';
+  const jungleText = normalizeLiveRole(player.position) === 'JUNGLE' || roles.includes('JUNGLE')
+    ? `近期英雄池：${heroPool || '样本不足'}。打野样本 ${allRecent.filter(row => normalizeLiveRole(row.position) === 'JUNGLE').length} 场。`
+    : `当前识别位置：${LIVE_ROLE_LABELS[normalizeLiveRole(player.position)] || player.position || '未知'}。近期英雄池：${heroPool || '样本不足'}。`;
+  body.innerHTML = `<header class="lpd-head">
+      <img src="${currentChamp ? champImg(currentChamp.id) : placeholder('?')}" ${currentChamp ? champIconAttrs(currentChamp.id, currentChamp.name) : ''}>
+      <div><h2 id="livePlayerDrawerTitle">${escapeHtml(player.name || '未知玩家')}</h2><p>${escapeHtml(player.rank || '无段位')} · ${escapeHtml(currentChamp?.name || '英雄未识别')}</p></div>
+      ${player.puuid ? `<button type="button" class="btn-secondary" onclick="searchPlayerByPuuid(${inlineArg(player.puuid)},${inlineArg(player.name || '')},null,{platformId:${inlineArg(player.platformId || '')}})">打开主页</button>` : ''}
+    </header>
+    <div class="lpd-stats"><span><b>${recent.length ? Math.round(wins / recent.length * 100) + '%' : '--'}</b><small>筛选胜率</small></span><span><b>${kda}</b><small>KDA</small></span><span><b>${recent.length}</b><small>有效样本</small></span><span><b>${player.flashPreference?.preferred || '--'}</b><small>闪现位置</small></span></div>
+    <div class="lpd-filters">
+      <label>英雄<select onchange="setLiveDrawerFilter('champion',this.value)"><option value="all">全部英雄</option>${champIds.map(id => `<option value="${escapeHtml(id)}"${liveDrawerFilters.champion === id ? ' selected' : ''}>${escapeHtml(champOfLive(id)?.name || id)}</option>`).join('')}</select></label>
+      <label>位置<select onchange="setLiveDrawerFilter('role',this.value)"><option value="all">全部位置</option>${roles.map(role => `<option value="${role}"${liveDrawerFilters.role === role ? ' selected' : ''}>${escapeHtml(LIVE_ROLE_LABELS[role] || role)}</option>`).join('')}</select></label>
+    </div>
+    <section class="lpd-section"><h3>近期对局</h3><div class="lpd-recent">${recent.length ? recent.map(row => recentIcon(row, player)).join('') : '<p class="lpd-empty">当前筛选没有对局</p>'}</div></section>
+    <div class="lpd-two-col">
+      <section class="lpd-section"><h3>行为画像</h3>${behavior.length ? behavior.map(tag => `<div class="lpd-evidence"><b>${escapeHtml(tag.label)}</b><span>${escapeHtml(tag.detail)}</span></div>`).join('') : '<p class="lpd-empty">样本不足，暂不下结论</p>'}</section>
+      <section class="lpd-section"><h3>组队证据</h3><p>${escapeHtml(premade)}</p></section>
+    </div>
+    <section class="lpd-section"><h3>英雄与位置倾向</h3><p>${escapeHtml(jungleText)}</p></section>`;
+}
+
+function openLivePlayerDrawer(event, key) {
+  if (event?.target?.closest('button,select,a,.lp-name-link,.lp-mark,.ri-card,input,label')) return;
+  const player = window._poroLivePlayerMap?.get(String(key));
+  if (!player) return;
+  window._poroLiveDrawerPlayer = player;
+  liveDrawerFilters = { champion: 'all', role: 'all' };
+  renderLivePlayerDrawer(player);
+  const backdrop = document.getElementById('livePlayerDrawerBackdrop');
+  if (backdrop) { backdrop.hidden = false; requestAnimationFrame(() => backdrop.classList.add('show')); }
+  document.body.classList.add('live-drawer-open');
+}
+
+function closeLivePlayerDrawer() {
+  const backdrop = document.getElementById('livePlayerDrawerBackdrop');
+  if (!backdrop) return;
+  backdrop.classList.remove('show');
+  setTimeout(() => { if (!backdrop.classList.contains('show')) backdrop.hidden = true; }, 180);
+  document.body.classList.remove('live-drawer-open');
+}
+
+function setLiveDrawerFilter(type, value) {
+  if (type !== 'champion' && type !== 'role') return;
+  liveDrawerFilters[type] = String(value || 'all');
+  renderLivePlayerDrawer(window._poroLiveDrawerPlayer);
+}
+
+if (typeof window?.addEventListener === 'function') {
+  window.addEventListener('keydown', event => { if (event.key === 'Escape') closeLivePlayerDrawer(); });
+}
+
 function flashPreferenceHtml(pref) {
   if (!pref || !pref.total) return '';
   const label = pref.inconsistent
@@ -719,7 +886,7 @@ function liveStreak(recent) {
   return n >= 2 ? { win: first, n } : null;
 }
 
-function liveMetricPills(recent) {
+function liveMetricPills(recent, reservedSlots = 0) {
   const rs = (recent || []).filter(r => r && r.dmgPct != null);
   if (!rs.length) return '';
   const avg = f => {
@@ -739,9 +906,21 @@ function liveMetricPills(recent) {
   const streakHtml = streak
     ? `<span class="lp-metric lp-metric-${streak.win ? 'winstreak' : 'lossstreak'}" title="最近 ${streak.n} 场${streak.win ? '全胜' : '全负'}">${streak.n}${streak.win ? '连胜' : '连败'}</span>`
     : '';
-  return streakHtml + items.map(([cls, label, val, unit, tip]) =>
+  // 实时卡片优先给战绩留空间：默认只放 3 个最有辨识度的指标，
+  // 其余指标仍保留在卡片里，通过“+更多”查看，避免标签换行吞掉战绩。
+  const visibleCount = reservedSlots > 0 ? 2 : 3;
+  const visible = items.slice(0, visibleCount);
+  const hidden = items.slice(visibleCount);
+  const visibleHtml = visible.map(([cls, label, val, unit, tip]) =>
     `<span class="lp-metric lp-metric-${cls}" title="近 ${rs.length} 场平均${tip}">${label}<b>${val}${unit}</b></span>`
   ).join('');
+  const hiddenHtml = hidden.map(([cls, label, val, unit, tip]) =>
+    `<span class="lp-metric lp-metric-${cls} lp-extra-metric" title="近 ${rs.length} 场平均${tip}">${label}<b>${val}${unit}</b></span>`
+  ).join('');
+  const moreHtml = hidden.length
+    ? `<button class="lp-tags-more" type="button" title="展开其余队内指标" aria-label="展开其余队内指标" onclick="this.closest('.lp-row').classList.toggle('lp-tags-open'); this.textContent=this.closest('.lp-row').classList.contains('lp-tags-open')?'收起':'+' + this.dataset.count; scheduleLiveRowAlignment()" data-count="${hidden.length}">+${hidden.length}</button>`
+    : '';
+  return streakHtml + visibleHtml + moreHtml + `<span class="lp-extra-metrics">${hiddenHtml}</span>`;
 }
 
 // 概览行的 KDA 用「大数字 + 小标签」，与胜率形成一对主指标。
@@ -751,6 +930,7 @@ function liveKdaHtml(kda) {
 }
 function updateLivePlayerRow(p, idx) {
   const key = livePlayerKey(p);
+  window._poroLivePlayerMap?.set(key, p);
   const rows = [...document.querySelectorAll('.lp-row')];
   // idx 兜底仅对没有 puuid 的条目 (BOT/名字未补全) 开放: 有 puuid 时按下标写
   // 可能在队伍分组变化后把战绩写到别的玩家卡上, 宁可等下一次全量重绘。
@@ -774,6 +954,37 @@ function updateLivePlayerRow(p, idx) {
     winRateEl.classList.toggle('positive', winRate != null && winRate >= 50);
   }
   if (kdaEl) kdaEl.innerHTML = liveKdaHtml(kda);
+  scheduleLiveRowAlignment();
+}
+
+// 卡片可用高度经常不是战绩行高的整数倍。把滚动区收敛到完整行，
+// 避免底部露出半条记录；10 场数据、滚动与展开模式都保持不变。
+function scheduleLiveRowAlignment() {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(alignLiveRecentRows);
+  else alignLiveRecentRows();
+}
+function alignLiveRecentRows() {
+  const page = document.getElementById('page-live');
+  document.querySelectorAll('#page-live .lp-recent').forEach(list => {
+    list.style.removeProperty('height');
+    list.style.removeProperty('flex');
+    list.style.removeProperty('margin-bottom');
+    if (page?.classList.contains('live-expanded')) return;
+    const first = list.querySelector('.ri-card');
+    if (!first) return;
+    const available = list.clientHeight;
+    const rowHeight = first.getBoundingClientRect().height;
+    const computed = getComputedStyle(list);
+    const gap = parseFloat(computed.rowGap || computed.gap) || 0;
+    const step = rowHeight + gap;
+    const visible = Math.max(1, Math.floor((available + gap) / step));
+    const exact = visible * step - gap;
+    if (exact > 0 && exact < available - 0.5) {
+      list.style.flex = '0 1 auto';
+      list.style.height = `${exact}px`;
+      list.style.marginBottom = `${Math.max(0, available - exact)}px`;
+    }
+  });
 }
 
 // 选人期对手情报: 复用已拉到的近期战绩, 聚合出"对手在玩什么"和一条 ban 建议。
@@ -802,6 +1013,10 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   let selfPuuid = null;
   try { const st = await lolAPI.lcuStatus(); selfPuuid = st.summoner?.puuid; } catch(e) {}
   if (expectedToken != null && expectedToken !== liveRenderToken) return;
+  window._poroLivePlayerMap = new Map(data.map(player => {
+    player.premadeGroupId = premadeGroups && player.puuid ? premadeGroups[player.puuid] : null;
+    return [livePlayerKey(player), player];
+  }));
   // 每次姓名补全后都允许重试；addEncounter 内部按 gameKey 持久去重，既不会漏记
   // 首次为空、稍后才解析出的姓名，也不会因实时页重复刷新而虚增次数。
   const seen = new Set();
@@ -829,13 +1044,16 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const riskHtml = '';
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
-    const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent)}${behaviorTagsHtml(p.behaviorSamples)}`;
+    const behaviorHtml = behaviorTagsHtml(p.behaviorSamples);
+    const reservedSlots = (premadeTag ? 1 : 0) + (behaviorHtml ? 1 : 0);
+    const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent, reservedSlots)}${behaviorHtml}`;
     const recordSummary = liveRecordText(p.recent.length, wins, '近期战绩加载中');
     const inlineStats = `<span class="lp-inline-stats" title="${escapeHtml(recordSummary)}"><span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span><span class="lp-kda">${liveKdaHtml(kda)}</span></span>`;
     const profileClick = p.puuid
-      ? ` onclick="searchPlayerByPuuid(${inlineArg(p.puuid)},${inlineArg(name)},null,{platformId:${inlineArg(p.platformId || '')}})" role="button" tabindex="0"`
+      ? ` onclick="event.stopPropagation();searchPlayerByPuuid(${inlineArg(p.puuid)},${inlineArg(name)},null,{platformId:${inlineArg(p.platformId || '')}})" role="button" tabindex="0"`
       : '';
-    return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(livePlayerKey(p))}">
+    const drawerKey = livePlayerKey(p);
+    return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(drawerKey)}" onclick="openLivePlayerDrawer(event,${inlineArg(drawerKey)})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLivePlayerDrawer(event,${inlineArg(drawerKey)})}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
@@ -888,10 +1106,15 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
   // 渲染是纯确定性的 (无时间戳/随机值), 字符串比对可靠; 数据真变了自然不相等。
   if (body.innerHTML !== pageHtml) body.innerHTML = pageHtml;
+  scheduleLiveRowAlignment();
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
   pushGameLiveBoard(data, premadeGroups);
   updateChampSelectCounterHint(data);
   syncLiveExpandButton(true);
+}
+
+if (typeof window?.addEventListener === 'function') {
+  window.addEventListener('resize', scheduleLiveRowAlignment);
 }
 // ---------- F9 对局战报浮窗: 数据准备 (推送紧凑版 10 人摘要) ----------
 let _gameLiveBoardKey = '';

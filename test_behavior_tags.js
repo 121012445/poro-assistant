@@ -144,9 +144,9 @@ assert.ok(/recent, teamGames, behaviorSamples,/.test(live), '行为样本应进�
 assert.ok(live.includes('p.behaviorSamples = Array.isArray(profile.behaviorSamples) ? profile.behaviorSamples : [];'));
 // 1.5.61 在两者之间插了 伤转率/视野 小标签, 所以不再断言"紧挨着",
 // 只锁住语义: 两个都在, 且系统画像在行为标签前面。
-assert.ok(live.includes('${behaviorTagsHtml(p.behaviorSamples)}'), '行为标签要渲染进球员卡');
+assert.ok(live.includes('const behaviorHtml = behaviorTagsHtml(p.behaviorSamples)') && live.includes('${behaviorHtml}'), '行为标签要渲染进球员卡');
 assert.ok(live.indexOf('${riskHtml}') >= 0
-  && live.indexOf('${riskHtml}') < live.indexOf('${behaviorTagsHtml(p.behaviorSamples)}'),
+  && live.indexOf('${riskHtml}') < live.indexOf('${behaviorHtml}'),
   '标签渲染在系统画像后面');
 assert.ok(!/lcuProfileFor[\s\S]{0,2500}extractBehavior/.test(live.slice(live.indexOf('async function lcuProfileFor'), live.indexOf('function recentProfileFor'))), '外服 LCU 路径不应编造行为数据');
 const html = read('renderer/index.html');

@@ -10,6 +10,7 @@ let _autoBPBusy = false;   // 正在写客户端；选人保底据此让路
 function toggleAutoBP(on) {
   if (on && !guardAutomation('自动BP')) { document.getElementById('autoBPToggle').checked = false; return; }
   autoBPEnabled = on;
+  automationLog?.('自动 BP', on ? '已开启' : '已关闭');
   const status = document.getElementById('autoBPStatus');
   if (status) {
     status.textContent = on ? '已开启' : '未开启';
@@ -105,7 +106,9 @@ async function doAutoBP() {
     try {
       const flow = await lolAPI.lcuRequest('GET', '/lol-gameflow/v1/session');
       queueId = flow?.gameData?.queue?.id || flow?.gameData?.queueId || 0;
+      window.updateAutomationModeContext?.(queueId, flow?.gameData?.queue?.gameMode || flow?.map?.gameMode || '');
     } catch (e) {}
+    if (window.automationModeAllows && !window.automationModeAllows('autoBPToggle', queueId)) return;
     if (!autoBPRuleMatches(autoBPRules, queueId, mySlot.assignedPosition || mySlot.position)) return;
     
     const allActions = session.actions.flat();

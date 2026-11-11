@@ -5,6 +5,7 @@
 // 全程守卫 complianceOn; 单次对局只执行一轮, 失败重试上限 3 次。
 let _autoReturn = { enabled: false, autoQueue: false, running: false, attempt: 0, lastQueueId: null };
 let _autoReturnSeenEnd = false;
+let _autoReturnCancelToken = 0;
 
 function autoReturnLoad() {
   try {
@@ -23,14 +24,26 @@ function initAutoReturnToggles() {
   if (row) row.style.display = _autoReturn.enabled ? '' : 'none';
 }
 function toggleAutoReturnLobby(on) {
+  if (on && !guardAutomation('自动返回房间')) {
+    const el = document.getElementById('autoReturnLobbyToggle');
+    if (el) el.checked = false;
+    return;
+  }
   _autoReturn.enabled = !!on;
+  automationLog?.('自动返回房间', on ? '已开启' : '已关闭');
   storeSet('autoReturnLobby', on ? '1' : '');
   const q = document.getElementById('autoReturnQueueRow');
   if (q) q.style.display = on ? '' : 'none';
   toolMsg(on ? '对局结束后将自动返回房间' : '已关闭自动返回房间');
 }
 function toggleAutoReturnQueue(on) {
+  if (on && !guardAutomation('自动开始排队')) {
+    const el = document.getElementById('autoReturnQueueToggle');
+    if (el) el.checked = false;
+    return;
+  }
   _autoReturn.autoQueue = !!on;
+  automationLog?.('自动开始排队', on ? '已开启' : '已关闭');
   storeSet('autoReturnQueue', on ? '1' : '');
 }
 
@@ -53,24 +66,31 @@ async function autoReturnRun() {
   if (_autoReturn.running) return;
   _autoReturn.running = true;
   _autoReturn.attempt = 0;
+  const cancelToken = ++_autoReturnCancelToken;
+  automationLog?.('自动返回房间', '执行中');
   try {
     // 等客户端离开结算界面 (EndOfGame → None), 最多 40s
     let settled = false;
     for (let i = 0; i < 20; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const phase = window._gameflowPhase;
+      if (complianceOn || cancelToken !== _autoReturnCancelToken) return;
       if (phase === 'None' || phase === 'Lobby') { settled = true; break; }
       if (['ChampSelect', 'GameStart', 'InProgress'].includes(phase)) { _autoReturn.running = false; return; } // 已在下一局
     }
     if (!settled) { showToast('自动返回房间: 客户端未退出结算界面', 'negative'); return; }
     const queueId = _autoReturn.lastQueueId || 430;
+    if (window.automationModeAllows && !window.automationModeAllows('autoReturnLobbyToggle', queueId)) return;
     while (_autoReturn.attempt < 3) {
+      if (complianceOn || cancelToken !== _autoReturnCancelToken) return;
       _autoReturn.attempt++;
       try {
         await autoReturnCreateRoom(queueId);
         showToast('已自动返回房间 (' + (QUEUE_NAMES[queueId] || queueId) + ')', 'positive');
+        automationLog?.('自动返回房间', '完成', QUEUE_NAMES[queueId] || queueId);
         if (_autoReturn.autoQueue) {
           await new Promise(r => setTimeout(r, 1200));
+          if (complianceOn || cancelToken !== _autoReturnCancelToken) return;
           await autoReturnStartQueue();
           showToast('已自动开始排队', 'positive');
         }
@@ -81,9 +101,14 @@ async function autoReturnRun() {
       }
     }
     showToast('自动返回房间失败 (重试 3 次)', 'negative');
+    automationLog?.('自动返回房间', '失败', '重试 3 次');
   } finally {
     _autoReturn.running = false;
   }
+}
+
+function cancelAutoReturn() {
+  _autoReturnCancelToken++;
 }
 
 // 挂接点: handleGameflowPhase 的 EndOfGame 分支调用
@@ -97,7 +122,10 @@ function autoReturnMaybeTrigger(phase) {
     try {
       lolAPI.lcuRequest('GET', '/lol-gameflow/v1/session').then(gs => {
         const qid = gs?.gameData?.queue?.id;
-        if (qid) _autoReturn.lastQueueId = qid;
+        if (qid) {
+          _autoReturn.lastQueueId = qid;
+          window.updateAutomationModeContext?.(qid, gs?.gameData?.queue?.gameMode || gs?.map?.gameMode || '');
+        }
       }).catch(() => {});
     } catch (e) {}
     return;

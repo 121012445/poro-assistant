@@ -93,7 +93,7 @@ async function importPoroBackup() {
     'benchAlert', 'benchOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
     'compliance', 'gsCameraMode', 'hexDataScope', 'includePractice', 'opggLoadout',
     'sideAnnounce', 'uiTheme', 'navCollapsed',
-    'pickGuard', 'pickGuardLockSec',
+    'pickGuard', 'pickGuardLockSec', 'automationModeMatrix',
     // 语音设置 (commentary* 是历史 key, 1.5.82 删掉解说模式后仍沿用, 免得重置用户设置)
     'aiReviewStyle', 'commentaryRate', 'commentaryVolume',
     'commentaryEngine', 'commentaryVoice', 'commentaryStyle', 'liveTips', 'liveBoard',

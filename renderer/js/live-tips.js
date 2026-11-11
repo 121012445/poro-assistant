@@ -781,7 +781,8 @@ function liveTipsHandleGameState(gd) {
 // ---------- 轮询与阶段 ----------
 // 只要还想看浮窗数据或听提示就得采样
 function liveTipsAnyActive() {
-  return liveTipsAnyOn() || liveBoardOn;
+  const tipsAllowed = !window.automationModeAllows || window.automationModeAllows('liveTipsMaster');
+  return (liveTipsAnyOn() && tipsAllowed) || liveBoardOn;
 }
 
 async function liveTipsPoll() {
@@ -797,10 +798,17 @@ async function liveTipsPoll() {
 }
 
 function liveTipsStartPolling() {
-  if (_cmtPollTimer) return;
+  if (document.hidden || _cmtPollTimer) return;
   liveTipsEnsureItemPrices();
   liveTipsPoll();
   _cmtPollTimer = setInterval(liveTipsPoll, 4000);
+}
+
+if (typeof document?.addEventListener === 'function') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) liveTipsStopPolling();
+    else if (liveTipsAnyActive() && (window._gameflowPhase === 'InProgress' || window._gameflowPhase === 'PRACTICETOOL')) liveTipsStartPolling();
+  });
 }
 
 function liveTipsStopPolling() {

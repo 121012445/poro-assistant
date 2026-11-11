@@ -6,8 +6,10 @@
 let complianceOn = false;
 function toggleCompliance(on) {
   complianceOn = !!on;
+  if (complianceOn && typeof cancelAutoReturn === 'function') cancelAutoReturn();
   storeSet('compliance', on ? '1' : '');
   applyComplianceState();
+  if (typeof refreshStatusCenter === 'function') refreshStatusCenter();
   toolMsg(on ? '<span style="color:var(--positive)">合规模式已开启: 自动化功能全部停用, 仅保留只读数据</span>' : '合规模式已关闭');
 }
 function applyComplianceState() {
@@ -17,7 +19,9 @@ function applyComplianceState() {
     autoRuneToggle: typeof autoRuneEnabled !== 'undefined' && !!autoRuneEnabled,
     gsLockToggle: typeof storeGet === 'function' && storeGet('gsLockOn') === '1',
     autoHonorToggle: typeof autoflow !== 'undefined' && !!autoflow.honor,
-    autoReconnectToggle: typeof autoflow !== 'undefined' && !!autoflow.reconnect
+    autoReconnectToggle: typeof autoflow !== 'undefined' && !!autoflow.reconnect,
+    autoReturnLobbyToggle: typeof _autoReturn !== 'undefined' && !!_autoReturn.enabled,
+    pickGuardToggle: typeof pickGuardOn !== 'undefined' && !!pickGuardOn
   };
   for (const [id, preferred] of Object.entries(preferences)) {
     const el = document.getElementById(id);
@@ -58,6 +62,7 @@ function guardWrite(name) {
 function toggleAutoAccept(on) {
   if (on && !guardAutomation('自动接受')) { document.getElementById('autoAcceptToggle').checked = false; return; }
   autoAcceptOn = on;
+  automationLog?.('自动接受', on ? '已开启' : '已关闭');
   saveConfig();
   // 立即同步状态文字, 关闭时显示"已关闭", 开启时拉取一次对局状态
   if (on) toolMsg('<span style="color:var(--positive)">自动接受已开启</span>');
@@ -101,6 +106,7 @@ async function updateReadyCheck() {
 // 阶段/WS/轮询共享的接受函数: POST 幂等, busy 锁防并发, 全程诊断日志
 async function acceptReadyCheckNow() {
   if (!autoAcceptOn || complianceOn) return;
+  if (window.automationModeAllows && !window.automationModeAllows('autoAcceptToggle')) return;
   if (_readyCheckAccepting) return;
   _readyCheckAccepting = true;
   try {

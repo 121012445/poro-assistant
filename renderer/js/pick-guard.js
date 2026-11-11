@@ -79,6 +79,7 @@ function togglePickGuard(on) {
     return;
   }
   pickGuardOn = !!on;
+  automationLog?.('选人保底', on ? '已开启' : '已关闭');
   storeSet('pickGuard', on ? '1' : '');
   pickGuardState(on ? (pickGuardLockSec > 0 ? `已开启 · 剩余 ${pickGuardLockSec} 秒自动锁定` : '已开启 · 只补悬停') : '已关闭', on ? 'positive' : '');
   if (!on) pickGuardReset(true);
@@ -95,6 +96,7 @@ function setPickGuardLock(value) {
 // 主入口：由 handleChampSelectEvent 每秒调用（已经过 1 秒限流）
 async function pickGuardTick(session) {
   if (!pickGuardOn || complianceOn || !lcuConnected || _pickGuardBusy) return;
+  if (window.automationModeAllows && !window.automationModeAllows('pickGuardToggle')) return;
   // 自动 BP 正在写客户端时让路，避免两边对同一个动作各 PATCH 一次、后者覆盖前者。
   if (typeof _autoBPBusy !== 'undefined' && _autoBPBusy) return;
   if (!session || !Array.isArray(session.actions)) return;

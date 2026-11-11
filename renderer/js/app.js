@@ -230,6 +230,7 @@ async function init() {
     window.__appVersion = appVer;
     setVersionText('');
     await loadStore();
+    window.reloadAutomationModeMatrix?.();
     // 把用户自定义热键下发给主进程 (主进程默认键位在收到前先用内置值)
     if (typeof syncHotkeysToMain === 'function') syncHotkeysToMain();
     // 主题要在拿到持久化配置后立刻应用, 否则深色用户每次启动都先闪一下浅色
@@ -273,6 +274,10 @@ async function init() {
     })();
     // 加载持久化配置
     loadConfig();
+    // 持久化开关是在工具箱摘要的 DOMContentLoaded 之后恢复的，
+    // 配置完成后立即让顶部摘要和左下状态中心读取同一份最终状态。
+    if (typeof refreshToolsOverview === 'function') refreshToolsOverview();
+    if (typeof refreshStatusCenter === 'function') refreshStatusCenter();
     loadBlacklist();
     renderBlacklist();
     loadEncounters();
@@ -285,6 +290,8 @@ async function init() {
   await gsRestore();
   // gsRestore 会根据持久化偏好恢复勾选；最后再应用合规模式，确保文字、开关和实际有效状态一致。
   applyComplianceState();
+  if (typeof refreshToolsOverview === 'function') refreshToolsOverview();
+  if (typeof refreshStatusCenter === 'function') refreshStatusCenter();
   populateBgChampionList();
   loadHexDB().then(() => loadHexAugments()).then(() => { if (document.getElementById("hexList")) renderHexList(); });
   loadJadeCalib();

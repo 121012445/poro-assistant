@@ -1,15 +1,15 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026110529">
-<link rel="stylesheet" href="css/extras.css?v=2026110529">
-<link rel="stylesheet" href="css/dark.css?v=2026110529">
-<link rel="stylesheet" href="css/premium.css?v=2026110529">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026110529">
+<link rel="stylesheet" href="css/style.css?v=2026111203">
+<link rel="stylesheet" href="css/extras.css?v=2026111203">
+<link rel="stylesheet" href="css/dark.css?v=2026111203">
+<link rel="stylesheet" href="css/premium.css?v=2026111203">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111203">
 </head>
 <body>
 
@@ -73,8 +73,23 @@
     </a>
   </nav>
   <div class="sidebar-footer">
-    <div class="lcu-status" onclick="reconnectLcu()" title="点击重新检测客户端">
+    <button class="sidebar-status-toggle" id="statusCenterToggle" type="button" onclick="toggleStatusCenter()" aria-expanded="false" aria-controls="sidebarStatusPanel">
       <span class="status-dot" id="lcuDot"></span><span id="lcuStatusText">LCU 检测中...</span>
+      <span class="sidebar-status-chevron" aria-hidden="true">⌃</span>
+    </button>
+    <div class="sidebar-status-panel" id="sidebarStatusPanel" hidden>
+      <div class="sidebar-status-row"><span>客户端</span><b id="homeStatusClient">检测中…</b></div>
+      <div class="sidebar-status-row"><span>游戏阶段</span><b id="homeStatusPhase">未进入对局</b></div>
+      <div class="sidebar-status-row"><span>自动化</span><b id="homeStatusAutomation">未开启</b></div>
+      <div class="sidebar-status-row"><span>运行模式</span><b id="homeStatusMode">标准模式</b></div>
+      <div class="sidebar-status-title" id="homeStatusTitle">准备就绪</div>
+      <div class="sidebar-status-next" id="homeStatusNext">可以查看战绩、工具和玩家记忆</div>
+      <span class="sidebar-status-pill" id="homeStatusPill">检查中</span>
+      <div class="sidebar-status-actions"><button type="button" id="homeStatusPrimary">打开工具箱</button><button type="button" onclick="switchPage('tools')">工具箱</button></div>
+      <div class="sidebar-status-actions"><button type="button" onclick="switchPage('tools'); setTimeout(() => document.getElementById('diagnosticsOutput')?.scrollIntoView({behavior:'smooth', block:'center'}), 120)">打开诊断</button></div>
+      <div class="sidebar-status-log" id="automationLogSummary">暂无自动化记录</div>
+      <button class="sidebar-status-reconnect" type="button" onclick="stopPoroAutomation()">停止全部自动化</button>
+      <button class="sidebar-status-reconnect" type="button" onclick="reconnectLcu()">重新检测客户端</button>
     </div>
     <div class="sidebar-extras">
       <button class="theme-picker-btn" id="themePickerBtn" onclick="toggleThemePicker(event)" title="主题">
@@ -199,7 +214,22 @@
   <div class="page" id="page-tools">
     <div class="page-header">
       <h2>工具箱</h2>
+      <div class="tools-header-actions">
+        <div class="tools-search" role="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="toolsSearch" type="search" placeholder="搜索工具…" autocomplete="off" oninput="filterTools(this.value)" aria-label="搜索工具">
+        </div>
+      </div>
     </div>
+    <div class="tools-overview" id="toolsOverview" aria-live="polite">
+      <div class="tools-overview-main"><span class="tools-overview-dot" id="toolsOverviewDot"></span><b id="toolsOverviewTitle">运行状态</b><span id="toolsOverviewSummary">正在读取设置…</span></div>
+      <div class="tools-overview-chips" id="toolsOverviewChips"></div>
+    </div>
+    <details class="automation-mode-card">
+      <summary><span><b>按游戏模式生效</b><small id="automationModeSummary">尚未识别模式</small></span><i>配置</i></summary>
+      <div class="automation-mode-help">总开关决定是否启用；这里决定该功能在哪些模式真正执行。当前模式列会高亮。</div>
+      <div class="automation-matrix" id="automationModeMatrix"></div>
+    </details>
     <!-- 分类小标签: 26 个设置平铺在一页里, 没有这一排标签就只能靠滚轮瞎找。
          内容由 js/tools-nav.js 按 .tools-section 现算, 增删设置行不用改这里。 -->
     <nav class="tools-nav" id="toolsNav" aria-label="工具分类"></nav>
@@ -668,6 +698,14 @@
   </div>
 </div>
 
+<!-- 实时对局玩家详情：卡片保持紧凑，完整画像和筛选放进右侧抽屉。 -->
+<div class="live-player-drawer-backdrop" id="livePlayerDrawerBackdrop" hidden onclick="if(event.target===this)closeLivePlayerDrawer()">
+  <aside class="live-player-drawer" id="livePlayerDrawer" role="dialog" aria-modal="true" aria-labelledby="livePlayerDrawerTitle">
+    <button class="live-player-drawer-close" type="button" onclick="closeLivePlayerDrawer()" title="关闭" aria-label="关闭">X</button>
+    <div id="livePlayerDrawerBody"></div>
+  </aside>
+</div>
+
 <!-- 对局提示条 -->
 <div id="globalToast" class="global-toast"></div>
 <!-- 备战区抢英雄倒计时浮层 (大乱斗/海斗) -->
@@ -694,52 +732,57 @@
   <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
 </div>
 
-<script src="js/utils.js?v=2026110529"></script>
-<script src="js/player-index.js?v=2026110529"></script>
-<script src="js/local-cache.js?v=2026110529"></script>
-<script src="js/icons.js?v=2026110529"></script>
-<script src="js/data-model.js?v=2026110529"></script>
-<script src="js/session-state.js?v=2026110529"></script>
-<script src="js/performance.js?v=2026110529"></script>
-<script src="js/diagnostics.js?v=2026110529"></script>
-<script src="js/balance.js?v=2026110529"></script>
-<script src="js/behavior-tags.js?v=2026110529"></script>
-<script src="js/bench.js?v=2026110529"></script>
-<script src="js/champions.js?v=2026110529"></script>
-<script src="js/progress-report.js?v=2026110529"></script>
-<script src="js/home.js?v=2026110529"></script>
-<script src="js/ai-markdown.js?v=2026110529"></script>
-<script src="js/review.js?v=2026110529"></script>
-<script src="js/theme.js?v=2026110529"></script>
-<script src="js/hex.js?v=2026110529"></script>
-<script src="js/history.js?v=2026110529"></script>
-<script src="js/enemy-intel.js?v=2026110529"></script>
-<script src="js/growth-model.js?v=2026110529"></script>
-<script src="js/growth.js?v=2026110529"></script>
-<script src="js/battle-card.js?v=2026110529"></script>
-<script src="js/live.js?v=2026110529"></script>
-<script src="js/weekly.js?v=2026110529"></script>
-<script src="js/friends.js?v=2026110529"></script>
-<script src="js/compliance.js?v=2026110529"></script>
-<script src="js/blacklist.js?v=2026110529"></script>
-<script src="js/social.js?v=2026110529"></script>
-<script src="js/chat.js?v=2026110529"></script>
-<script src="js/translate.js?v=2026110529"></script>
-<script src="js/autobp.js?v=2026110529"></script>
-<script src="js/pick-guard.js?v=2026110529"></script>
-<script src="js/lcu-events.js?v=2026110529"></script>
-<script src="js/opgg-loadout.js?v=2026110529"></script>
-<script src="js/update.js?v=2026110529"></script>
-<script src="js/autoflow.js?v=2026110529"></script>
-<script src="js/chat-status.js?v=2026110529"></script>
-<script src="js/settings.js?v=2026110529"></script>
-<script src="js/persist.js?v=2026110529"></script>
-<script src="js/hotkeys.js?v=2026110529"></script>
-<script src="js/live-metrics.js?v=2026110529"></script>
-<script src="js/live-tips.js?v=2026110529"></script>
-<script src="js/autoreturn.js?v=2026110529"></script>
-<script src="js/sona-extra.js?v=2026110529"></script>
-<script src="js/tools-nav.js?v=2026110529"></script>
-<script src="js/app.js?v=2026110529"></script>
+<script src="js/utils.js?v=2026111203"></script>
+<script src="js/player-index.js?v=2026111203"></script>
+<script src="js/local-cache.js?v=2026111203"></script>
+<script src="js/icons.js?v=2026111203"></script>
+<script src="js/data-model.js?v=2026111203"></script>
+<script src="js/session-state.js?v=2026111203"></script>
+<script src="js/performance.js?v=2026111203"></script>
+<script src="js/diagnostics.js?v=2026111203"></script>
+<script src="js/balance.js?v=2026111203"></script>
+<script src="js/behavior-tags.js?v=2026111203"></script>
+<script src="js/bench.js?v=2026111203"></script>
+<script src="js/champions.js?v=2026111203"></script>
+<script src="js/progress-report.js?v=2026111203"></script>
+<script src="js/home.js?v=2026111203"></script>
+<script src="js/automation-log.js?v=2026111203"></script>
+<script src="js/automation-matrix.js?v=2026111203"></script>
+<script src="js/home-status.js?v=2026111203"></script>
+<script src="js/ai-markdown.js?v=2026111203"></script>
+<script src="js/review.js?v=2026111203"></script>
+<script src="js/theme.js?v=2026111203"></script>
+<script src="js/hex.js?v=2026111203"></script>
+<script src="js/history.js?v=2026111203"></script>
+<script src="js/enemy-intel.js?v=2026111203"></script>
+<script src="js/draft-coach.js?v=2026111203"></script>
+<script src="js/growth-model.js?v=2026111203"></script>
+<script src="js/growth.js?v=2026111203"></script>
+<script src="js/battle-card.js?v=2026111203"></script>
+<script src="js/live.js?v=2026111203"></script>
+<script src="js/weekly.js?v=2026111203"></script>
+<script src="js/friends.js?v=2026111203"></script>
+<script src="js/compliance.js?v=2026111203"></script>
+<script src="js/blacklist.js?v=2026111203"></script>
+<script src="js/social.js?v=2026111203"></script>
+<script src="js/chat.js?v=2026111203"></script>
+<script src="js/translate.js?v=2026111203"></script>
+<script src="js/autobp.js?v=2026111203"></script>
+<script src="js/pick-guard.js?v=2026111203"></script>
+<script src="js/lcu-events.js?v=2026111203"></script>
+<script src="js/opgg-loadout.js?v=2026111203"></script>
+<script src="js/update.js?v=2026111203"></script>
+<script src="js/autoflow.js?v=2026111203"></script>
+<script src="js/chat-status.js?v=2026111203"></script>
+<script src="js/settings.js?v=2026111203"></script>
+<script src="js/persist.js?v=2026111203"></script>
+<script src="js/hotkeys.js?v=2026111203"></script>
+<script src="js/live-metrics.js?v=2026111203"></script>
+<script src="js/live-tips.js?v=2026111203"></script>
+<script src="js/autoreturn.js?v=2026111203"></script>
+<script src="js/sona-extra.js?v=2026111203"></script>
+<script src="js/tools-nav.js?v=2026111203"></script>
+<script src="js/tools-overview.js?v=2026111203"></script>
+<script src="js/app.js?v=2026111203"></script>
 </body>
 </html>

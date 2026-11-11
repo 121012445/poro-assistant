@@ -70,6 +70,9 @@ function handleGameflowPhase(phase) {
   const enteringChampSelect = sessionTransition.entering ?? (phase === 'ChampSelect' && previousPhase !== 'ChampSelect');
   _lastGameflowPhase = phase;
   window._gameflowPhase = phase;
+  if (['Lobby', 'Matchmaking', 'ReadyCheck', 'ChampSelect', 'GameStart', 'InProgress'].includes(phase)) {
+    window.refreshAutomationModeContext?.();
+  }
   lolAPI.reportPhase && lolAPI.reportPhase(phase);
   syncAugmentRecognitionForPhase(phase);
   // 对局结束自动化挂接 (EndOfGame 触发, None 重置); None 时同步重置战力分析标记
@@ -84,7 +87,7 @@ function handleGameflowPhase(phase) {
     // 红蓝方提示的重置由 chat.js 的 resetChampSelectSideAnnouncement 负责
   }
   // 阶段到达 ReadyCheck (匹配确认弹窗出现) 即刻接受: 最可靠触发通道, 不依赖 GET ready-check 的具体字段
-  if (phase === 'ReadyCheck' && autoAcceptOn && !complianceOn) {
+  if (phase === 'ReadyCheck' && autoAcceptOn && !complianceOn && (!window.automationModeAllows || window.automationModeAllows('autoAcceptToggle'))) {
     console.log('[auto-accept] phase=ReadyCheck → 立即接受');
     acceptReadyCheckNow();
   }

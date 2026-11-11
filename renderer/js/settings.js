@@ -171,6 +171,8 @@ let _autoRuneAppliedFor = 0;
 let _autoRuneInFlight = 0;
 async function doAutoRune(championId, champSession) {
   if (!autoRuneEnabled || !lcuConnected || !championId || complianceOn) return;
+  await window.refreshAutomationModeContext?.();
+  if (window.automationModeAllows && !window.automationModeAllows('autoRuneToggle')) return;
   if (_autoRuneAppliedFor === championId || _autoRuneInFlight === championId) return;
   // 选人事件很密集: 同一英雄的配置还在进行时不重复触发
   _autoRuneInFlight = championId;
