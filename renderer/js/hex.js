@@ -1001,6 +1001,10 @@ function renderHexList(filter = "") {
   const context = document.getElementById('hexContext');
   const isHex = !!hexRecommendContext.isHex;
   const championId = isHex ? +hexRecommendContext.champId || 0 : 0;
+  // 没有英雄就没有数据：把统计条、数据筛选、搜索行收起来，别让一页控件
+  // 围着一个空列表转。浮窗设置保留（不进游戏时正是调它的时机）。
+  const hexPage = document.getElementById('page-hex');
+  if (hexPage) hexPage.classList.toggle('is-idle', !championId);
   ensureChampMap();
   const champion = championId ? champNumMap?.[String(championId)] : null;
   const champStats = championId ? hexDB.champs?.[String(championId)] : null;
@@ -1037,11 +1041,17 @@ function renderHexList(filter = "") {
       : (hexWinStats.loading ? '正在加载真实对局胜率…' : `个人总使用 ${tg} 次`);
   }
   if (!isHex) {
-    el.innerHTML = '<div class="hex-empty"><b>等待海克斯大乱斗</b><span>进入选人后显示官方静态强化资料及你的个人使用记录。</span></div>';
+    el.innerHTML = '<div class="poro-empty"><div class="poro-empty-icon" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M7 3h10M7 21h10M8 3v3.6a4 4 0 0 0 1.2 2.8L12 12l2.8-2.6A4 4 0 0 0 16 6.6V3M8 21v-3.6a4 4 0 0 1 1.2-2.8L12 12l2.8 2.6A4 4 0 0 1 16 17.4V21"></path>' +
+      '</svg></div><b>等待海克斯大乱斗</b><span>进入选人后显示官方静态强化资料及你的个人使用记录。</span></div>';
     return;
   }
   if (!championId) {
-    el.innerHTML = '<div class="hex-empty"><b>请选择英雄</b><span>锁定或悬停英雄后，推荐列表会自动出现。</span></div>';
+    el.innerHTML = '<div class="poro-empty"><div class="poro-empty-icon" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"></path><circle cx="12" cy="12" r="3.2"></circle>' +
+      '</svg></div><b>请选择英雄</b><span>锁定或悬停英雄后，推荐列表会自动出现。</span></div>';
     return;
   }
   const f = filter.trim().toLowerCase();
@@ -1702,20 +1712,32 @@ function renderCounterLists(key) {
     : '<div class="meta-loading">无数据</div>';
 }
 let lastClientPickId = "";
-async function updateCounterClientPick() {
+// 选人阶段的两种画面：没进选人 → 一个空态；进了选人 → 英雄卡 + 两张清单。
+// 以前是「三个空框一直挂着」，未进选人时页面像加载到一半。
+function showCounterEmpty() {
+  const layout = document.getElementById("counterLayout");
+  const empty = document.getElementById("counterEmpty");
   const banner = document.getElementById("clientPickBanner");
+  if (layout) layout.hidden = true;
+  if (empty) empty.hidden = false;
+  if (banner) { banner.hidden = true; banner.textContent = ""; }
+}
+function showCounterLayout(text, isActive) {
+  const layout = document.getElementById("counterLayout");
+  const empty = document.getElementById("counterEmpty");
+  const banner = document.getElementById("clientPickBanner");
+  if (layout) layout.hidden = false;
+  if (empty) empty.hidden = true;
+  if (banner) { banner.hidden = false; banner.innerHTML = text; banner.className = isActive ? "client-pick-banner active" : "client-pick-banner"; }
+}
+async function updateCounterClientPick() {
   try {
     const session = await lolAPI.lcuRequest("GET", "/lol-champ-select/v1/session");
-    if (!session) { banner.innerHTML = "当前不在选人阶段"; banner.className = "client-pick-banner"; return; }
+    if (!session) { showCounterEmpty(); return; }
     // 404 = 不在选人阶段(正常状态); 仅真正的 5xx/网络错误才算"数据异常"
     if (session.__error) {
-      if (session.httpStatus === 404) {
-        banner.innerHTML = "当前不在选人阶段";
-        banner.className = "client-pick-banner";
-        return;
-      }
-      banner.innerHTML = "LCU 数据异常";
-      banner.className = "client-pick-banner";
+      if (session.httpStatus === 404) { showCounterEmpty(); return; }
+      showCounterLayout("LCU 数据异常", false);
       return;
     }
     let champId = null;
@@ -1725,8 +1747,7 @@ async function updateCounterClientPick() {
     }
     if (!champId) {
       lastClientPickId = "";
-      banner.innerHTML = "进入选人阶段后自动识别英雄";
-      banner.className = "client-pick-banner";
+      showCounterLayout("进入选人阶段后自动识别英雄", false);
       const elC = document.getElementById("counterChampLeft");
       const elW = document.getElementById("counterWeakLeft");
       const elS = document.getElementById("counterStrongLeft");
@@ -1740,14 +1761,13 @@ async function updateCounterClientPick() {
     if (!c) return;
     lastClientPickId = champId;
     if (!opggMap[champId]) {
-      banner.innerHTML = "检测到 " + c.name + " - 加载克制数据...";
+      showCounterLayout("检测到 " + c.name + " - 加载克制数据...", false);
       try { await loadOpgg(); } catch(e) { console.error("op.gg reload failed:", e); }
     }
-    banner.innerHTML = "检测到当前选择: " + c.name + " (" + c.id + ")";
-    banner.className = "client-pick-banner active";
+    showCounterLayout("检测到当前选择: " + c.name + " (" + c.id + ")", true);
     renderCounterLists(c.id);
   } catch(e) {
     console.error("error:", e);
-    banner.innerHTML = "LCU 连接失败: " + e.message;
+    showCounterLayout("LCU 连接失败: " + e.message, false);
   }
 }

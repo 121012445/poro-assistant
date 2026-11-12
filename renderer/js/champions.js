@@ -97,7 +97,7 @@ function renderChampionGrid(filter = "", role = "all") {
       <div class="champ-rank">${idx + 1}</div>
       <img class="champ-icon" src="${champImg(c.id)}" ${champIconAttrs(c.id, c.name)} loading="lazy" decoding="async">
       <div class="champ-name">${escapeHtml(c.name)}</div>
-      <div class="champ-tier t-${tier}">${tier}</div>
+      <div class="champ-tier t-${tier}" title="OP.GG 梯队评级，T1 为最强">T${tier}</div>
       <div class="champ-pos pos-${posIcon}">${poroIcon(POS_GLYPH[posIcon] || 'sword')}${entry.position}</div>
       <div class="champ-wr ${parseFloat(wr) >= 50 ? 'pos' : 'neg'}">${wr}%</div>
       <div class="champ-pr">${pr}%</div>

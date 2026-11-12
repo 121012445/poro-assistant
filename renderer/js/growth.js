@@ -159,6 +159,8 @@ function growthDrawChart(canvas, weeks) {
   const padL = 26, padR = 4, padT = 8, padB = 18;
   const css = getComputedStyle(document.body);
   const cText = css.getPropertyValue('--text-muted').trim() || '#888';
+  // canvas 默认字体是 Arial, 和界面用的 Segoe UI 不是一套; 9px 也在可读下限之下。
+  const cFont = css.getPropertyValue('font-family').trim() || 'sans-serif';
   const cWin = css.getPropertyValue('--positive').trim() || '#27ae60';
   const cLoss = css.getPropertyValue('--negative').trim() || '#e74c3c';
   ctx.clearRect(0, 0, W, H);
@@ -170,7 +172,7 @@ function growthDrawChart(canvas, weeks) {
   ctx.setLineDash([3, 3]);
   ctx.beginPath(); ctx.moveTo(padL, y50); ctx.lineTo(W - padR, y50); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = cText; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillStyle = cText; ctx.font = '10px ' + cFont; ctx.textAlign = 'left';
   ctx.fillText('50%', 2, y50 - 3);
 
   const n = weeks.length || 1;
@@ -183,15 +185,18 @@ function growthDrawChart(canvas, weeks) {
     const h = Math.max(2, innerH * (wr / 100));
     const y = padT + innerH - h;
     ctx.fillStyle = thin ? 'rgba(140,140,150,0.30)' : (wr >= 50 ? cWin : cLoss);
-    ctx.fillRect(cx - barW / 2, y, barW, h);
+    // 样本 <2 的周画成一枚 3px 小点, 而不是和柱子同宽的 2px 短横 ——
+    // 否则空数据周连成一排横线, 看着像坐标轴上多了一串破折号。
+    if (thin) ctx.fillRect(cx - 1.5, padT + innerH - 2, 3, 2);
+    else ctx.fillRect(cx - barW / 2, y, barW, h);
     if (w.n && !thin) {
-      ctx.fillStyle = cText; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = cText; ctx.font = '10px ' + cFont; ctx.textAlign = 'center';
       ctx.fillText(String(wr), cx, y - 3);
     }
     // 每 2 周标一次日期，避免挤在一起
     if (i % 2 === (n - 1) % 2) {
       const d = new Date(w.start);
-      ctx.fillStyle = cText; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = cText; ctx.font = '10px ' + cFont; ctx.textAlign = 'center';
       const isCurrent = i === n - 1;
       ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}${isCurrent ? ' 本周' : ''}`, cx, H - 5);
     }

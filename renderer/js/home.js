@@ -69,19 +69,25 @@ function mmrJadeEstimate(agg, soloMmr) {
   return { v: Math.max(1000, Math.min(3000, Math.round(base + perf))), basis };
 }
 
-// 段位晋升追踪: LP 进度条 + 预计晋级场次 (按每胜约 +15LP 估算; 大师以上无分段 LP 不封顶, 不显示)
+// 段位晋升追踪: LP 进度条 + 预计晋级场次 (按每胜约 +15LP 估算)
+// 以前"翡翠 I / 钻石 I"这类 I 段不给进度条, 两张并排的段位卡就一张有内容一张空着,
+// 看着像左边没加载完。现在所有有段位的卡都有进度条, 文案按情况区分。
 function rankPromoHtml(q) {
   const lp = q.leaguePoints || 0;
   const tier = String(q.tier || '').toUpperCase();
-  if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tier)) return '';
-  if (String(q.division || '').toUpperCase() === 'I') {
-    return lp >= 100 ? '<div class="rank-promo"><span>已进入晋级赛, 祝好运!</span></div>' : '';
+  if (['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(tier)) {
+    // 大师以上无分段, LP 不封顶, 画不出进度; 用一行说明把卡片高度撑齐
+    return '<div class="rank-promo"><span>大师以上无分段, LP 不封顶</span></div>';
   }
-  const wins = Math.max(1, Math.ceil((100 - lp) / 15));
   const pct = Math.max(0, Math.min(100, lp));
+  const wins = Math.max(1, Math.ceil((100 - lp) / 15));
+  const label = lp >= 100 ? '已达晋级线, 打一场晋级赛'
+    : (String(q.division || '').toUpperCase() === 'I'
+      ? '距晋级赛约 <b>' + wins + '</b> 胜'
+      : '距晋级约 <b>' + wins + '</b> 胜');
   return '<div class="rank-promo" title="按每胜约 +15LP 估算, 仅供参考">'
     + '<div class="rank-promo-bar"><i style="width:' + pct + '%"></i></div>'
-    + '<span>距晋级约 <b>' + wins + '</b> 胜</span></div>';
+    + '<span>' + label + '</span></div>';
 }
 
 // 段位卡片 (统一用 home-ranks 大卡片, 与 premium 设计一致; 旧 rank-mini 已弃用)
@@ -2349,10 +2355,29 @@ function buildHomeTemplate(v) {
       <div class="home-stats">
         <div class="stat-card"><div class="stat-card-val">${totalDurH}:${String(totalDurM).padStart(2, '0')}</div><div class="stat-card-label">总游戏时长</div></div>
         <div class="stat-card"><div class="stat-card-val">${fmtDur}</div><div class="stat-card-label">场均用时</div></div>
-        <div class="stat-card"><div class="stat-card-val">${totK} / ${totD} / ${totA}</div><div class="stat-card-label">总击杀/死亡/助攻</div></div>
+        <div class="stat-card stat-card-split">
+          <div class="stat-split">
+            <div><b>${totK}</b><i>击杀</i></div>
+            <div><b>${totD}</b><i>死亡</i></div>
+            <div><b>${totA}</b><i>助攻</i></div>
+          </div>
+          <div class="stat-card-label">总击杀 / 死亡 / 助攻</div>
+        </div>
         <div class="stat-card"><div class="stat-card-val">${avgKda}</div><div class="stat-card-label">场均 KDA</div></div>
-        <div class="stat-card"><div class="stat-card-val">${maxK} / ${maxD}</div><div class="stat-card-label">单局最高杀/死</div></div>
-        <div class="stat-card"><div class="stat-card-val">${penta} / ${fb}</div><div class="stat-card-label">五杀 / 一血</div></div>
+        <div class="stat-card stat-card-split">
+          <div class="stat-split stat-split-2">
+            <div><b>${maxK}</b><i>击杀</i></div>
+            <div><b>${maxD}</b><i>死亡</i></div>
+          </div>
+          <div class="stat-card-label">单局最高杀 / 死</div>
+        </div>
+        <div class="stat-card stat-card-split">
+          <div class="stat-split stat-split-2">
+            <div><b>${penta}</b><i>五杀</i></div>
+            <div><b>${fb}</b><i>一血</i></div>
+          </div>
+          <div class="stat-card-label">五杀 / 一血</div>
+        </div>
       </div>
       ${buildPostGameCoach(games)}
       <a href="#" class="home-profile-entry" onclick="switchPage('profile');return false;">

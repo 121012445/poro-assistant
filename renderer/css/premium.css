@@ -387,26 +387,22 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
   border-radius: var(--radius);
   background: var(--bg-card);
 }
-/* 数值：6 色轮换 —— **原装设计，用户明确要求恢复**。
-   原注释写得很直白："Data should feel informative, not like a wall of black text"
-   （数据要有信息感，不要黑压压一片）。v1.5.4/v1.5.5 曾以"位置不表达语义"为由
-   收敛成单色，用户反馈"这一块还是没变"（即仍是一片黑）→ 恢复原装。
-   重新评估：这 6 张卡是并列的不同指标，相邻不同色确实划出了卡片边界、
-   降低了扫读成本，属有意的视觉分组而非纯装饰。以用户偏好为准。
-   逃生口：ui-tokens-ok(.stat-card): 用户明确要求保留原装统计卡六色轮换 */
+/* 数值：v4 起改为「统一深墨数字 + 顶部类别色条」。
+   历史：v1.5.4 曾收敛成单色，当时卡片无阴影无底色阶梯，六张卡整片黑确实闷，
+   用户要求恢复六色轮换。v4 补齐层级之后，彩色的必要性消失了 —— 但"有信息感"
+   这个诉求成立，所以保留色相识别，改承载位置：色相从"整串数字"挪到卡片顶部
+   一条 20x2 的色条，数值本身统一 --ink-1。
+   收益：六张卡扫读重量一致（不再有的一张炸眼有的发灰），色相仍在但不互相打架。 */
 .stat-card-val {
-  color: var(--data-blue);
+  color: var(--ink-1);
   font-size: var(--fs-2xl);
   font-weight: 600;
   letter-spacing: -.025em;
   font-variant-numeric: tabular-nums;
 }
-.home-stats .stat-card:nth-child(6n + 1) .stat-card-val { color: var(--data-teal); }
-.home-stats .stat-card:nth-child(6n + 2) .stat-card-val { color: var(--data-blue); }
-.home-stats .stat-card:nth-child(6n + 3) .stat-card-val { color: var(--data-violet); }
-.home-stats .stat-card:nth-child(6n + 4) .stat-card-val { color: var(--data-gold); }
-.home-stats .stat-card:nth-child(6n + 5) .stat-card-val { color: var(--data-rose); }
-.home-stats .stat-card:nth-child(6n + 6) .stat-card-val { color: #2b8ca1; }
+/* 顶部色条试做后否决：六个短色条在卡顶连成一条断续的虚线，比彩色数字更碎。
+   最终形态是中性的 —— 数值深墨 + 标签灰，靠排版而不是色彩区分六张卡。
+   这也正是成熟数据面板（Bloomberg / TradingView 指标条）的做法。 */
 .stat-card-label { color: var(--text-muted); font-size: var(--fs-sm); }
 
 /* hover 只加深边框，不位移、不加阴影 —— 整页卡片一起跳最显廉价 */

@@ -71,7 +71,17 @@ function renderBlacklistPage() {
   const unresolvedCount = Object.values(typeof encounterMap === 'object' && encounterMap ? encounterMap : {})
     .filter(item => !isKnownPlayerName(item?.name)).length;
   if (!blacklist.length && !memories.length && !unresolvedCount) {
-    el.innerHTML = '<div class="bl-empty">还没有玩家档案。可在实时对局中点击玩家名旁的 📌 添加标签或备注。</div>';
+    el.innerHTML = `<div class="poro-empty poro-empty--fill">
+      <div class="poro-empty-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.6 13.4 13 21a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.4 12.4V5a2 2 0 0 1 2-2h7.4a2 2 0 0 1 1.4.6l7.4 7.4a2 2 0 0 1 0 2.4Z"></path>
+          <circle cx="7.5" cy="7.5" r="1.3"></circle>
+        </svg>
+      </div>
+      <b>还没有玩家档案</b>
+      <span>在实时对局里点击玩家名旁的标记按钮，就能给他加标签或备注。黑名单和备注只存在这台机器上。</span>
+    </div>`;
     return;
   }
   const memoryHtml = memories.map(m => `<div class="pm-list-item" style="--memory-color:${m.color}">

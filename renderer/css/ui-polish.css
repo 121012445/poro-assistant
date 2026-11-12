@@ -14,42 +14,16 @@ h1, h2, h3 { letter-spacing: .01em; }
 ::-webkit-scrollbar-thumb { background: rgba(120, 138, 158, .32); border-radius: var(--radius); border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(120, 138, 158, .55); border: 2px solid transparent; background-clip: content-box; }
 
-/* ---------- 备选主题方向 (预览用, body 上挂 theme-a / theme-b[+dark] / theme-c) ---------- */
-/* A: 雾紫浅色 —— Seraphine 气质 (明确的紫罗兰 identity, 与 C 的蓝色明显区分) */
-body.theme-a {
-  --bg-primary: #f4f3fb; --bg-secondary: #ebe9f7; --bg-card: #ffffff; --bg-hover: #efedfb;
-  --border: #e2dff2;
-  --text-primary: #2b2743; --text-secondary: #5f5b7d; --text-muted: #928eae;
-  --accent: #7a5cf0; --accent-deep: #5b3fd6; --accent2: #c3b4fa;
-  --positive: #1fa971; --negative: #e5484d; --warning: #f5a524;
-  --radius: 18px;
-}
-body.theme-a .page-header h2::before { background: linear-gradient(180deg, #8a6cf5, #6a4fe0); }
-body.theme-a .nav-item.active { color: #5b3fd6; }
-/* B: 暗色玻璃 —— Akari 气质 (与 body.dark 叠加) */
-body.dark.theme-b {
-  --bg-primary: #121316; --bg-secondary: #17181c;
-  --bg-card: rgba(255, 255, 255, .035); --bg-hover: rgba(255, 255, 255, .06);
-  --border: rgba(255, 255, 255, .07);
-  --accent: #38bdf8; --accent-deep: #7dd3fc; --accent-bright: #67e0ff;
-  --data-blue: #38bdf8; --data-teal: #2dd4bf;
-  background:
-    radial-gradient(1100px 480px at 88% -10%, rgba(56, 189, 248, .07), transparent 60%),
-    radial-gradient(900px 420px at -8% 108%, rgba(139, 92, 246, .06), transparent 60%),
-    #121316;
-}
-body.dark.theme-b .tool-card { backdrop-filter: blur(6px); }
-body.dark.theme-b .btn-primary { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
-body.dark.theme-b .switch input:checked + .slider { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
-/* C: 现浅色精修 —— 提高内容区与卡片的对比度和层次 */
-body.theme-c {
-  --bg-primary: #edf0f6; --bg-secondary: #e4e8f1; --bg-card: #ffffff;
-  --border: #dce2ee;
-  --text-primary: #182234; --text-secondary: #4d5f78; --text-muted: #8494ab;
-  --accent: #2f7de1; --accent-deep: #1f5fc0;
-  --shadow-soft: 0 1px 2px rgba(16, 32, 56, .06), 0 8px 24px rgba(16, 32, 56, .08);
-}
-body.theme-c .tool-card { box-shadow: 0 1px 2px rgba(16, 32, 56, .05), 0 10px 28px rgba(16, 32, 56, .07); }
+/* ---------- 主题：只换强调色，表面阶梯统一由 v4.css 定义 ----------
+   历史：这里曾有 theme-a(雾紫) 与 theme-b(暗色玻璃) 两套完整色板，
+   theme-a 甚至把 --radius 改成 18px、theme-b 给 body 加径向渐变。
+   结果是"选个主题"= 换了一整套设计语言（圆角、底色、阴影全变），
+   三套色板互相打架，同一处 UI 在三个主题下要维护三份。
+   v4 起主题只承担一件事：**告诉用户当前是哪个强调色**。
+   表面色阶、圆角、间距、阴影一律保持不变，这样任何主题下层级都一致。
+   brand 变量的定义统一交给 v4.css（:root 承担默认浅蓝，theme-a 承担雾紫），
+   这里不再重复声明，否则同一份雾紫有两处出处。 */
+body.theme-a .page-header h2::before { background: var(--brand); }
 
 /* ---------- 主题切换: 侧边栏调色板按钮 + 弹出面板 ---------- */
 .theme-picker-btn {
@@ -83,9 +57,9 @@ body.theme-c .tool-card { box-shadow: 0 1px 2px rgba(16, 32, 56, .05), 0 10px 28
 
 .theme-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
   border: 1px solid rgba(255, 255, 255, .55); box-shadow: 0 1px 3px rgba(16, 32, 56, .25); }
-.theme-dot.t-c { background: linear-gradient(135deg, #3498db, #2176ae); }
+.theme-dot.t-c { background: linear-gradient(135deg, #2f92bd, #1f7ba6); }
 .theme-dot.t-a { background: linear-gradient(135deg, #8a6cf5, #5b3fd6); }
-.theme-dot.t-b { background: linear-gradient(135deg, #16202e 30%, #0ea5e9); }
+.theme-dot.t-b { background: linear-gradient(135deg, #16202e 30%, #5aabd4); }
 .theme-dot.t-dark { background: linear-gradient(135deg, #4a4a52, #17181c); }
 
 /* ---------- 窗口栏 + 侧边栏: 与内容区同一色系 (浅色), 深色主题单独还原深色导航 ---------- */
@@ -107,21 +81,6 @@ body.theme-c .tool-card { box-shadow: 0 1px 2px rgba(16, 32, 56, .05), 0 10px 28
 .nav-item { color: var(--text-secondary); border-radius: var(--radius); position: relative; }
 .nav-item svg { opacity: .85; }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-.nav-item.active {
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--accent) 15%, transparent),
-    color-mix(in srgb, var(--accent) 4%, transparent));
-  color: var(--accent-deep);
-  border-left: none;
-  padding-left: 16px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.nav-item.active::before {
-  content: ""; position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
-  width: 3px; height: 16px; border-radius: var(--radius-xs);
-  background: var(--accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 70%, transparent);
-}
 .sidebar-footer { color: var(--text-muted); border-top: 1px solid var(--border); }
 .sidebar .lcu-status { cursor: pointer; transition: background .15s ease; }
 .sidebar .lcu-status:hover { background: var(--bg-hover); }
@@ -143,16 +102,7 @@ body.dark .logo-text { color: #eaf2ff; }
 body.dark .logo-text span { color: #6d80a0; }
 body.dark .nav-item { color: #8fa1bd; }
 body.dark .nav-item:hover { background: rgba(255, 255, 255, .07); color: #e8eefb; }
-body.dark .nav-item.active {
-  background: linear-gradient(90deg, rgba(77, 142, 247, .28), rgba(77, 142, 247, .10));
-  color: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(122, 170, 250, .22);
-}
-body.dark .nav-item.active::before {
-  background: linear-gradient(180deg, #6ea8ff, #4d8ef7);
-  box-shadow: 0 0 8px rgba(90, 150, 250, .8);
-}
-body.dark .sidebar-footer { color: #5d6f8d; border-top: 1px solid rgba(255, 255, 255, .07); }
+body.dark body.dark body.dark .sidebar-footer { color: #5d6f8d; border-top: 1px solid rgba(255, 255, 255, .07); }
 body.dark .sidebar .lcu-status { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .10); color: #9db0cd; }
 body.dark .sidebar .lcu-status:hover { background: rgba(255, 255, 255, .13); color: #dfe9fa; }
 body.dark .sidebar .theme-toggle { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .10); color: #9db0cd; }
@@ -272,8 +222,7 @@ body.dark .tool-card, body.dark .modal-content { box-shadow: none; }
 body.dark .tool-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); box-shadow: 0 8px 22px rgba(0, 0, 0, .3); }
 body.dark .btn-primary { background: transparent; color: var(--accent-deep); }
 body.dark .btn-secondary { background: var(--bg-secondary); }
-body.dark .nav-item.active { background: linear-gradient(90deg, rgba(77, 142, 247, .30), rgba(77, 142, 247, .10)); }
-body.dark ::-webkit-scrollbar-thumb { background: rgba(150, 165, 190, .26); border: 2px solid transparent; background-clip: content-box; }
+body.dark body.dark ::-webkit-scrollbar-thumb { background: rgba(150, 165, 190, .26); border: 2px solid transparent; background-clip: content-box; }
 
 /* 弹窗关闭按钮: 图标严格居中 */
 .modal-close { display: grid; place-items: center; width: 32px; height: 32px; font-size: 0; padding: 0; }

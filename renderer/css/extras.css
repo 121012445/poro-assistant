@@ -350,25 +350,19 @@
 .home-fun-card b { margin:2px 0; color:var(--text-primary); font-size:var(--fs-md); font-weight:600; }
 .home-fun-card em { color:var(--text-secondary); font-size:var(--fs-xs); font-style:normal; }
 
-/* 分类着色（6 色循环）：teal / blue / violet / gold / rose / accent2。
-   2026-10-02 重构时曾以"位置不表达语义 = 视觉噪音"为由整套移除，
-   用户随后明确要求恢复（"首页和我的画像页面字体颜色恢复成原装，不要现在这个黑的"）。
-   重新评估：这 20 张卡是一屏并列的"趣味档案"，数值全是短字符串，
-   给它们分组着色确实降低了扫读成本（相邻两个数值不同色更容易分辨边界），
-   **是有意的视觉分组而非纯装饰**。以用户偏好为准，此处 `:nth-child` 属知情决策。
-   逃生口：ui-tokens-ok(.home-fun-card): 用户明确要求保留原装分类着色 */
-.home-fun-card:nth-child(6n + 1) > i { color:var(--data-teal,var(--positive)); background:color-mix(in srgb,var(--data-teal,var(--positive)) 13%,var(--bg-hover)); }
-.home-fun-card:nth-child(6n + 1) b { color:var(--data-teal,var(--positive)); }
-.home-fun-card:nth-child(6n + 2) > i { color:var(--data-blue,var(--accent)); background:color-mix(in srgb,var(--data-blue,var(--accent)) 13%,var(--bg-hover)); }
-.home-fun-card:nth-child(6n + 2) b { color:var(--data-blue,var(--accent)); }
-.home-fun-card:nth-child(6n + 3) > i { color:var(--data-violet,var(--accent)); background:color-mix(in srgb,var(--data-violet,var(--accent)) 13%,var(--bg-hover)); }
-.home-fun-card:nth-child(6n + 3) b { color:var(--data-violet,var(--accent)); }
-.home-fun-card:nth-child(6n + 4) > i { color:var(--data-gold,var(--warning)); background:color-mix(in srgb,var(--data-gold,var(--warning)) 13%,var(--bg-hover)); }
-.home-fun-card:nth-child(6n + 4) b { color:var(--data-gold,var(--warning)); }
-.home-fun-card:nth-child(6n + 5) > i { color:var(--data-rose,var(--negative)); background:color-mix(in srgb,var(--data-rose,var(--negative)) 12%,var(--bg-hover)); }
-.home-fun-card:nth-child(6n + 5) b { color:var(--data-rose,var(--negative)); }
-.home-fun-card:nth-child(6n + 6) > i { color:var(--accent2); background:color-mix(in srgb,var(--accent2) 13%,var(--bg-hover)); }
-.home-fun-card:nth-child(6n + 6) b { color:color-mix(in srgb,var(--accent2) 72%,var(--text-primary)); }
+/* 分类着色：只作用于 28px 的图标方块，**数值一律走 --ink-1**。
+   历史：2026-10-02 曾整套移除六色，用户反馈"字体颜色恢复成原装，不要现在这个黑的"。
+   该反馈的前提是当时卡片既无底色阶梯也无阴影，20 张卡的深色数字连成一片确实闷。
+   v4 补齐层级后，数值统一深墨不再发闷；颜色挪到图标上（面积 28px，不参与扫读），
+   既保住了"有色彩节奏"，又让 20 个数值的视觉重量一致 —— 这是两次诉求的交集。
+   色相走 --cat-* 有序色环（同饱和同明度），不是随手挑的六个高饱和色。
+   逃生口：ui-tokens-ok(.home-fun-card): 仅图标着色，数值由 v4 统一为 --ink-1 */
+.home-fun-card:nth-child(6n + 1) > i { color: var(--cat-teal); background: color-mix(in srgb, var(--cat-teal) 12%, var(--surface-2)); }
+.home-fun-card:nth-child(6n + 2) > i { color: var(--cat-blue); background: color-mix(in srgb, var(--cat-blue) 12%, var(--surface-2)); }
+.home-fun-card:nth-child(6n + 3) > i { color: var(--cat-violet); background: color-mix(in srgb, var(--cat-violet) 12%, var(--surface-2)); }
+.home-fun-card:nth-child(6n + 4) > i { color: var(--cat-amber); background: color-mix(in srgb, var(--cat-amber) 12%, var(--surface-2)); }
+.home-fun-card:nth-child(6n + 5) > i { color: var(--cat-rose); background: color-mix(in srgb, var(--cat-rose) 12%, var(--surface-2)); }
+.home-fun-card:nth-child(6n + 6) > i { color: var(--cat-cyan); background: color-mix(in srgb, var(--cat-cyan) 12%, var(--surface-2)); }
 .home-fun-card-wide { grid-column:span 2; }
 .home-fun-card-wide > span { width:100%; }
 .home-fun-card-wide b { display:-webkit-box; overflow:hidden; white-space:normal; text-overflow:clip; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }

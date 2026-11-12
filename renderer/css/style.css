@@ -379,47 +379,6 @@ body {
   flex-wrap: wrap;
   gap: 6px;
 }
-/* ========== 克制关系简化布局 ========== */
-.counter-simple-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.counter-hero-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.counter-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-.counter-champ {
-  text-align: center;
-}
-.counter-list-section {
-  padding: 12px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.counter-section-title {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-.counter-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 @media (max-width: 768px) {
   body { grid-template-columns: 60px 1fr; }
   .sidebar { width: 60px; }
@@ -1254,8 +1213,21 @@ body {
 .bl-item-name { font-size: 14px; font-weight: 600; color: var(--text-primary); flex: 1; }
 .bl-item-reason { font-size: var(--fs-xs); color: var(--text-muted); }
 .bl-item-time { font-size: var(--fs-2xs); color: var(--text-muted); white-space: nowrap; }
-.bl-item-remove { background: var(--negative, #e74c3c); color: #fff; border: none; border-radius: var(--radius-sm); padding: 4px 12px; font-size: var(--fs-xs); font-weight: 700; cursor: pointer; }
-.bl-item-remove:hover { filter: brightness(1.15); }
+/* 移出是低频破坏性操作，不需要一颗红色实心按钮在列表里抢注意力：
+   默认隐形、悬停才浮出负向色。 */
+.bl-item-remove {
+  background: transparent;
+  color: var(--ink-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.bl-item:hover .bl-item-remove { color: var(--neg); border-color: var(--line); }
+.bl-item-remove:hover { background: var(--neg-soft); border-color: transparent; color: var(--neg); filter: none; }
 .bl-empty { text-align: center; color: var(--text-muted); padding: 40px; font-size: 13px; }
 /* 战绩详情页 🚫 按钮 */
 .ak-bl-btn { font-size: var(--fs-2xs); cursor: pointer; margin-left: 4px; opacity: 0.5; transition: opacity 0.15s; }

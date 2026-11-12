@@ -288,6 +288,7 @@ function drawTimelineChart(chart) {
     const y = v => padT + (1 - (v + maxAbs) / (2 * maxAbs)) * (H - padT - padB);
     const css = getComputedStyle(document.body);
     const cText = css.getPropertyValue('--text-muted').trim() || '#888';
+    const cFont = css.getPropertyValue('font-family').trim() || 'sans-serif';
     const cWin = css.getPropertyValue('--positive').trim() || '#27ae60';
     const cLoss = css.getPropertyValue('--negative').trim() || '#e74c3c';
     ctx.clearRect(0, 0, W, H);
@@ -297,7 +298,7 @@ function drawTimelineChart(chart) {
     for (const gm of [5, 10, 15, 20, 25, 30, 35, 40]) {
       if (gm > tMax) break;
       ctx.beginPath(); ctx.moveTo(x(gm), padT); ctx.lineTo(x(gm), H - padB); ctx.stroke();
-      ctx.fillStyle = cText; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = cText; ctx.font = '10px ' + cFont; ctx.textAlign = 'center';
       ctx.fillText(gm + '分', x(gm), H - 4);
     }
     // 零轴
@@ -324,7 +325,7 @@ function drawTimelineChart(chart) {
       ctx.fill();
     }
     // 图例
-    ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+    ctx.font = '10px ' + cFont; ctx.textAlign = 'left';
     ctx.fillStyle = cText;
     ctx.fillText('蓝方领先 ↑', padL + 4, padT + 2);
     ctx.fillText(`最终 ${lastD.diff >= 0 ? '蓝' : '红'}方领先 ${fmtGoldShort(Math.abs(lastD.diff))}`, padL + 80, padT + 2);

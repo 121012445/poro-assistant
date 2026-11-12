@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026111302">
-<link rel="stylesheet" href="css/extras.css?v=2026111302">
-<link rel="stylesheet" href="css/dark.css?v=2026111302">
-<link rel="stylesheet" href="css/premium.css?v=2026111302">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026111302">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111302">
+<link rel="stylesheet" href="css/style.css?v=2026111305">
+<link rel="stylesheet" href="css/extras.css?v=2026111305">
+<link rel="stylesheet" href="css/dark.css?v=2026111305">
+<link rel="stylesheet" href="css/premium.css?v=2026111305">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111305">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111305">
+<link rel="stylesheet" href="css/v4.css?v=2026111305">
 </head>
 <body>
 
@@ -157,8 +158,9 @@
     <div class="page-header">
       <h2>克制关系</h2>
     </div>
-    <div class="client-pick-banner" id="clientPickBanner">进入选人阶段后，自动识别你当前选择的英雄</div>
-    <div class="counter-simple-layout">
+    <p class="page-desc">进入选人阶段后自动识别你选的英雄，按对位胜率列出被克制与克制的英雄。</p>
+    <div class="client-pick-banner" id="clientPickBanner" hidden>进入选人阶段后，自动识别你当前选择的英雄</div>
+    <div class="counter-simple-layout" id="counterLayout" hidden>
       <div class="counter-hero-section">
         <div class="counter-label">你的英雄</div>
         <div class="counter-champ" id="counterChampLeft">--</div>
@@ -171,6 +173,17 @@
         <div class="counter-section-title">克制</div>
         <div class="counter-list" id="counterStrongLeft"></div>
       </div>
+    </div>
+    <!-- 不在选人阶段时不再摆三个空框（"你的英雄 --" + 两个空列表），整页只留一个空态。 -->
+    <div class="poro-empty poro-empty--fill" id="counterEmpty">
+      <div class="poro-empty-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="9" cy="9" r="5"></circle><circle cx="15" cy="15" r="5"></circle>
+        </svg>
+      </div>
+      <b>还没进入选人阶段</b>
+      <span>这里没有可以预先查的克制表：它按你实际选的英雄现算，对位胜率来自 OP.GG 样本。</span>
     </div>
   </div>
 <!-- 实时对局 -->
@@ -192,22 +205,33 @@
     </div>
     <p class="hex-page-desc">按当前英雄、强化轮次、已选组合和样本可信度排序；进入游戏后三选一会自动识别，也可按 F6 手动重扫。只做提示，不会自动选择。</p>
     <div id="hexContext" class="hex-context waiting">
-      <div class="hex-context-mark">⌛</div>
+      <div class="hex-context-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 3h10M7 21h10M8 3v3.6a4 4 0 0 0 1.2 2.8L12 12l2.8-2.6A4 4 0 0 0 16 6.6V3M8 21v-3.6a4 4 0 0 1 1.2-2.8L12 12l2.8 2.6A4 4 0 0 1 16 17.4V21"></path>
+        </svg>
+      </div>
       <div><b>等待海克斯大乱斗选人</b><span>进入模式后会自动识别当前所选英雄。</span></div>
     </div>
     <div id="hexStats" class="hex-stats-bar">样本统计中...</div>
+    <!-- 两组控件分开：左边是"看哪份数据"，右边是"浮窗怎么摆"。后者不进游戏也该能调，
+         所以空闲态只收左边那组。 -->
     <div class="hex-filter-bar">
-      <label>数据范围<select id="hexScope" onchange="setHexDataScope(this.value)"><option value="all">全分段</option><option value="high">高分段</option></select></label>
-      <label>强化轮次<select id="hexStage" onchange="setHexBrowseStage(this.value)"><option value="all">综合</option><option value="1">第 1 轮</option><option value="2">第 2 轮</option><option value="3">第 3 轮</option><option value="4">第 4 轮</option></select></label>
-      <label>浮窗位置<select id="augmentOverlayAnchor" onchange="saveAugmentOverlayLayout()"><option value="top-left">左上</option><option value="top-right">右上</option><option value="bottom-left">左下</option><option value="bottom-right">右下</option></select></label>
-      <label>浮窗大小<select id="augmentOverlayScale" onchange="saveAugmentOverlayLayout()"><option value="0.85">紧凑</option><option value="1">标准</option><option value="1.15">放大</option></select></label>
-      <span>胜率已按样本量做可信度修正，避免小样本虚高。</span>
+      <div class="hex-filter-data">
+        <label>数据范围<select id="hexScope" onchange="setHexDataScope(this.value)"><option value="all">全分段</option><option value="high">高分段</option></select></label>
+        <label>强化轮次<select id="hexStage" onchange="setHexBrowseStage(this.value)"><option value="all">综合</option><option value="1">第 1 轮</option><option value="2">第 2 轮</option><option value="3">第 3 轮</option><option value="4">第 4 轮</option></select></label>
+        <span class="hex-filter-note">胜率已按样本量做可信度修正，避免小样本虚高。</span>
+      </div>
+      <div class="hex-filter-overlay">
+        <label>浮窗位置<select id="augmentOverlayAnchor" onchange="saveAugmentOverlayLayout()"><option value="top-left">左上</option><option value="top-right">右上</option><option value="bottom-left">左下</option><option value="bottom-right">右下</option></select></label>
+        <label>浮窗大小<select id="augmentOverlayScale" onchange="saveAugmentOverlayLayout()"><option value="0.85">紧凑</option><option value="1">标准</option><option value="1.15">放大</option></select></label>
+      </div>
     </div>
-    <details ontoggle="if(this.open) renderAugmentJournal()"><summary>海克斯选择档案 · 仅本机保存</summary><div id="augmentJournal" style="max-height:360px;overflow:auto"></div></details>
+    <details class="hex-journal" ontoggle="if(this.open) renderAugmentJournal()"><summary>海克斯选择档案 · 仅本机保存</summary><div id="augmentJournal" style="max-height:360px;overflow:auto"></div></details>
     <div id="hexGuides" class="hex-guide-grid"></div>
-    <div class="tool-row" style="margin:12px 0;">
+    <div class="tool-row hex-search-row">
       <input type="text" id="hexSearch" placeholder="搜索强化名称..." class="tool-input" style="flex:1" oninput="filterHexList()">
-      <button class="btn-secondary" onclick="renderHexList()" style="font-size:11px;">刷新</button>
+      <button class="btn-secondary" onclick="renderHexList()">刷新</button>
     </div>
     <div id="hexList" class="hex-list hex-page-list"></div>
   </div>
@@ -734,58 +758,58 @@
   <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
 </div>
 
-<script src="js/utils.js?v=2026111302"></script>
-<script src="js/player-index.js?v=2026111302"></script>
-<script src="js/local-cache.js?v=2026111302"></script>
-<script src="js/icons.js?v=2026111302"></script>
-<script src="js/data-model.js?v=2026111302"></script>
-<script src="js/session-state.js?v=2026111302"></script>
-<script src="js/performance.js?v=2026111302"></script>
-<script src="js/diagnostics.js?v=2026111302"></script>
-<script src="js/balance.js?v=2026111302"></script>
-<script src="js/behavior-tags.js?v=2026111302"></script>
-<script src="js/bench.js?v=2026111302"></script>
-<script src="js/champions.js?v=2026111302"></script>
-<script src="js/progress-report.js?v=2026111302"></script>
-<script src="js/home.js?v=2026111302"></script>
-<script src="js/automation-log.js?v=2026111302"></script>
-<script src="js/automation-matrix.js?v=2026111302"></script>
-<script src="js/home-status.js?v=2026111302"></script>
-<script src="js/ai-markdown.js?v=2026111302"></script>
-<script src="js/review.js?v=2026111302"></script>
-<script src="js/theme.js?v=2026111302"></script>
-<script src="js/hex.js?v=2026111302"></script>
-<script src="js/history.js?v=2026111302"></script>
-<script src="js/enemy-intel.js?v=2026111302"></script>
-<script src="js/draft-coach.js?v=2026111302"></script>
-<script src="js/growth-model.js?v=2026111302"></script>
-<script src="js/growth.js?v=2026111302"></script>
-<script src="js/battle-card.js?v=2026111302"></script>
-<script src="js/build-engine.js?v=2026111302"></script>
-<script src="js/live.js?v=2026111302"></script>
-<script src="js/weekly.js?v=2026111302"></script>
-<script src="js/friends.js?v=2026111302"></script>
-<script src="js/compliance.js?v=2026111302"></script>
-<script src="js/blacklist.js?v=2026111302"></script>
-<script src="js/social.js?v=2026111302"></script>
-<script src="js/chat.js?v=2026111302"></script>
-<script src="js/translate.js?v=2026111302"></script>
-<script src="js/autobp.js?v=2026111302"></script>
-<script src="js/pick-guard.js?v=2026111302"></script>
-<script src="js/lcu-events.js?v=2026111302"></script>
-<script src="js/opgg-loadout.js?v=2026111302"></script>
-<script src="js/update.js?v=2026111302"></script>
-<script src="js/autoflow.js?v=2026111302"></script>
-<script src="js/chat-status.js?v=2026111302"></script>
-<script src="js/settings.js?v=2026111302"></script>
-<script src="js/persist.js?v=2026111302"></script>
-<script src="js/hotkeys.js?v=2026111302"></script>
-<script src="js/live-metrics.js?v=2026111302"></script>
-<script src="js/live-tips.js?v=2026111302"></script>
-<script src="js/autoreturn.js?v=2026111302"></script>
-<script src="js/sona-extra.js?v=2026111302"></script>
-<script src="js/tools-nav.js?v=2026111302"></script>
-<script src="js/tools-overview.js?v=2026111302"></script>
-<script src="js/app.js?v=2026111302"></script>
+<script src="js/utils.js?v=2026111305"></script>
+<script src="js/player-index.js?v=2026111305"></script>
+<script src="js/local-cache.js?v=2026111305"></script>
+<script src="js/icons.js?v=2026111305"></script>
+<script src="js/data-model.js?v=2026111305"></script>
+<script src="js/session-state.js?v=2026111305"></script>
+<script src="js/performance.js?v=2026111305"></script>
+<script src="js/diagnostics.js?v=2026111305"></script>
+<script src="js/balance.js?v=2026111305"></script>
+<script src="js/behavior-tags.js?v=2026111305"></script>
+<script src="js/bench.js?v=2026111305"></script>
+<script src="js/champions.js?v=2026111305"></script>
+<script src="js/progress-report.js?v=2026111305"></script>
+<script src="js/home.js?v=2026111305"></script>
+<script src="js/automation-log.js?v=2026111305"></script>
+<script src="js/automation-matrix.js?v=2026111305"></script>
+<script src="js/home-status.js?v=2026111305"></script>
+<script src="js/ai-markdown.js?v=2026111305"></script>
+<script src="js/review.js?v=2026111305"></script>
+<script src="js/theme.js?v=2026111305"></script>
+<script src="js/hex.js?v=2026111305"></script>
+<script src="js/history.js?v=2026111305"></script>
+<script src="js/enemy-intel.js?v=2026111305"></script>
+<script src="js/draft-coach.js?v=2026111305"></script>
+<script src="js/growth-model.js?v=2026111305"></script>
+<script src="js/growth.js?v=2026111305"></script>
+<script src="js/battle-card.js?v=2026111305"></script>
+<script src="js/build-engine.js?v=2026111305"></script>
+<script src="js/live.js?v=2026111305"></script>
+<script src="js/weekly.js?v=2026111305"></script>
+<script src="js/friends.js?v=2026111305"></script>
+<script src="js/compliance.js?v=2026111305"></script>
+<script src="js/blacklist.js?v=2026111305"></script>
+<script src="js/social.js?v=2026111305"></script>
+<script src="js/chat.js?v=2026111305"></script>
+<script src="js/translate.js?v=2026111305"></script>
+<script src="js/autobp.js?v=2026111305"></script>
+<script src="js/pick-guard.js?v=2026111305"></script>
+<script src="js/lcu-events.js?v=2026111305"></script>
+<script src="js/opgg-loadout.js?v=2026111305"></script>
+<script src="js/update.js?v=2026111305"></script>
+<script src="js/autoflow.js?v=2026111305"></script>
+<script src="js/chat-status.js?v=2026111305"></script>
+<script src="js/settings.js?v=2026111305"></script>
+<script src="js/persist.js?v=2026111305"></script>
+<script src="js/hotkeys.js?v=2026111305"></script>
+<script src="js/live-metrics.js?v=2026111305"></script>
+<script src="js/live-tips.js?v=2026111305"></script>
+<script src="js/autoreturn.js?v=2026111305"></script>
+<script src="js/sona-extra.js?v=2026111305"></script>
+<script src="js/tools-nav.js?v=2026111305"></script>
+<script src="js/tools-overview.js?v=2026111305"></script>
+<script src="js/app.js?v=2026111305"></script>
 </body>
 </html>

@@ -1,0 +1,1564 @@
+/* ============================================================================
+   Poro UI v4 — 「冷静数据板」
+   ----------------------------------------------------------------------------
+   加载顺序最后，唯一职责是把前三代层叠收敛成同一个视觉语言。
+
+   v1 (style.css)     : 早期卡片 + 渐变
+   v2 (extras.css)    : 六色分类着色、花纹背景
+   v3 (ui-system-v3)  : token 骨架 + 圆角/层级收敛
+   v4 (本文件)        : 层级、密度、语义色、控件规格 —— 只改"看起来怎样"
+
+   设计约束（改动前先读）：
+   1. 颜色必须承载语义。位置、序号、分类不构成语义，一律中性色。
+      语义只有四种：positive(胜/涨) negative(负/跌) warning(需注意) accent(可交互)。
+   2. 浅色靠"底色阶梯 + 极轻阴影"分层，深色靠"明度阶梯 + 1px 高光边"分层。
+      卡片不用装饰性边框（v3 的 1px --border 全包围是最伤高级感的一处）。
+   3. 间距走 4px 基准，字号走 9 档阶梯，控件只有 28/32 两档高度。
+   4. 一切 hover/focus 都给反馈，但位移不超过 1px —— 数据面板不该跳。
+   ========================================================================== */
+
+:root {
+  /* ---- 表面阶梯：浅色 ---- */
+  --surface-canvas: #eef1f3;
+  --surface-1: #ffffff;
+  --surface-2: #f7f9fa;
+  --surface-3: #edf1f4;
+  --surface-inset: #e6ebef;
+
+  /* ---- 分隔 ---- */
+  --line-subtle: #eaeef1;
+  --line: #e7edf1;   /* 4000 行旧 CSS 写 border: 1px solid var(--border)，
+                        这里比结构分隔线再淡一点，让"框"退成"线" */
+  --line-strong: #ccd5dc;
+
+  /* ---- 文本三级（对比度均 >= 4.5:1 on --surface-1） ---- */
+  --ink-1: #16202b;
+  --ink-2: #4a5a68;
+  --ink-3: #78868f;
+
+  /* ---- 强调：青，唯一可交互色 ---- */
+  /* 强调色只有一份定义（浅蓝）。默认主题就是它，所以不再写 body.theme-c —— 
+     以前 :root 是青绿、theme-c 是浅蓝，而 body 上永远挂着主题类，于是 :root
+     那份青绿从未生效；偏偏暗色玻璃（theme-b）没定义 brand，又回落到青绿，
+     变成一个主题两种蓝。现在 :root / body.dark 就是默认身份，theme-a 才覆盖。 */
+  --brand: #1f7ba6;
+  --brand-deep: #196589;
+  --brand-soft: #e6f1f7;
+  --brand-line: rgba(31, 123, 166, .32);
+
+  /* ---- 语义（不参与装饰） ---- */
+  --pos: #128a4d;
+  --pos-soft: #e6f6ec;
+  --neg: #c8382f;
+  --neg-soft: #fdeceb;
+  --warn: #a86612;
+  --warn-soft: #fbf1e0;
+
+  /* ---- 阴影三档：静止 / 悬停 / 浮层 ---- */
+  --e1: 0 1px 2px rgba(16, 26, 35, .05), 0 1px 1px rgba(16, 26, 35, .03);
+  --e2: 0 2px 6px rgba(16, 26, 35, .07), 0 1px 2px rgba(16, 26, 35, .04);
+  --e3: 0 10px 30px rgba(16, 26, 35, .13), 0 2px 8px rgba(16, 26, 35, .06);
+
+  /* ---- 间距（4px 基准，2px 只用于行内微调） ---- */
+  --s1: 2px;
+  --s2: 4px;
+  --s3: 6px;
+  --s4: 8px;
+  --s5: 12px;
+  --s6: 16px;
+  --s7: 20px;
+  --s8: 24px;
+  --s9: 32px;
+
+  /* ---- 控件 ---- */
+  --ctl-h-sm: 28px;
+  --ctl-h: 32px;
+  --ctl-h-lg: 36px;
+  --ctl-pad: 10px;
+
+  /* ---- 动效 ---- */
+  --t-fast: 110ms cubic-bezier(.4, 0, .2, 1);
+  --t-base: 170ms cubic-bezier(.4, 0, .2, 1);
+  --t-pop: 200ms cubic-bezier(.2, .8, .3, 1);
+}
+
+body.dark {
+  --surface-canvas: #0f1214;
+  --surface-1: #171b1e;
+  --surface-2: #1d2226;
+  --surface-3: #242a2f;
+  --surface-inset: #121618;
+
+  --line-subtle: rgba(255, 255, 255, .055);
+  --line: rgba(255, 255, 255, .065);
+  --line-strong: rgba(255, 255, 255, .145);
+
+  --ink-1: #e9eef1;
+  --ink-2: #a9b5bd;
+  --ink-3: #77838c;
+
+  --brand: #5aabd4;
+  --brand-deep: #7dc0e0;
+  --brand-soft: rgba(90, 171, 212, .14);
+  --brand-line: rgba(90, 171, 212, .36);
+
+  --pos: #4fc482;
+  --pos-soft: rgba(79, 196, 130, .13);
+  --neg: #f07b74;
+  --neg-soft: rgba(240, 123, 116, .13);
+  --warn: #dda75c;
+  --warn-soft: rgba(221, 167, 92, .13);
+
+  --e1: 0 1px 2px rgba(0, 0, 0, .30);
+  --e2: 0 2px 8px rgba(0, 0, 0, .38);
+  --e3: 0 12px 34px rgba(0, 0, 0, .55);
+}
+
+/* 主题变体只换强调色，表面阶梯不动 —— 保证任何主题下层级一致 */
+/* 主题变体只换强调色，表面阶梯不动 —— 保证任何主题下层级一致。
+   默认（浅蓝）由 :root 承担，这里只留唯一的替代主题「雾紫」。 */
+body.theme-a { --brand: #6d55c9; --brand-deep: #5941b0; --brand-soft: #eeebfa; --brand-line: rgba(109, 85, 201, .32); }
+body.dark.theme-a { --brand: #a595ef; --brand-deep: #bcb0f5; --brand-soft: rgba(165, 149, 239, .14); --brand-line: rgba(165, 149, 239, .36); }
+
+/* ============================================================================
+   1. 骨架
+   ========================================================================== */
+
+body {
+  background: var(--surface-canvas);
+  color: var(--ink-1);
+  font-size: var(--fs-sm);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 全局 [hidden]。此前没有这条，于是 extras/premium/style 里各自打了十几个
+   `.xxx[hidden] { display: none }` 补丁 —— 因为组件自己的 display:flex 会把
+   hidden 属性顶掉。有了这条，切换逻辑只管改 hidden 就行。 */
+[hidden] { display: none !important; }
+
+/* 全局变量改名映射：让既有 4000 行 CSS 不动也能吃到 v4 色板 */
+:root {
+  --bg-primary: var(--surface-canvas);
+  --bg-secondary: var(--surface-2);
+  --bg-card: var(--surface-1);
+  --bg-hover: var(--surface-3);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --text-primary: var(--ink-1);
+  --text-secondary: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --accent: var(--brand);
+  --accent-deep: var(--brand-deep);
+  --accent-soft: var(--brand-soft);
+  --positive: var(--pos);
+  --negative: var(--neg);
+  --warning: var(--warn);
+  --shadow: var(--e3);
+  --shadow-soft: var(--e1);
+  --focus-ring: 0 0 0 3px var(--brand-line);
+}
+body.dark {
+  --bg-primary: var(--surface-canvas);
+  --bg-secondary: var(--surface-2);
+  --bg-card: var(--surface-1);
+  --bg-hover: var(--surface-3);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --text-primary: var(--ink-1);
+  --text-secondary: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --accent: var(--brand);
+  --accent-deep: var(--brand-deep);
+  --accent-soft: var(--brand-soft);
+  --positive: var(--pos);
+  --negative: var(--neg);
+  --warning: var(--warn);
+  --shadow: var(--e3);
+  --shadow-soft: var(--e1);
+  --focus-ring: 0 0 0 3px var(--brand-line);
+}
+
+/* ---- 侧边栏：与画布同族，只靠一条 hairline 分隔，不再是一块黑 ---- */
+.sidebar {
+  background: var(--surface-1);
+  border-right: 1px solid var(--line-subtle);
+  padding: var(--s4) var(--s3);
+  gap: var(--s1);
+}
+body.dark .sidebar,
+body.dark .window-bar {
+  background: #0c0f11;
+  border-color: var(--line-subtle);
+}
+.window-bar {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--line-subtle);
+}
+.window-title {
+  color: var(--ink-1);
+  font-weight: 650;
+  letter-spacing: .2px;
+  font-size: var(--fs-sm);
+}
+.nav-item {
+  height: 30px;
+  padding: 0 var(--s4);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  gap: var(--s4);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.nav-item svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.7;
+  opacity: .82;
+  flex: 0 0 auto;
+}
+.nav-item:hover {
+  background: var(--surface-3);
+  color: var(--ink-1);
+}
+.nav-item.active {
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+  font-weight: 600;
+  box-shadow: none;
+  border: none;
+}
+.nav-item.active svg { opacity: 1; stroke-width: 1.9; }
+
+.main-content {
+  padding: var(--s6) var(--s7);
+  background: var(--surface-canvas);
+}
+
+/* ---- 滚动条：细、无轨道，滑过才显形 ---- */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ============================================================================
+   1b. 旧版 "数据强调色" 的语义回收
+   ----------------------------------------------------------------------------
+   v2 引入过一套 --data-{blue,teal,violet,gold,rose} 五色彩虹，按位置分配给
+   并列卡片，等于"颜色不表达任何东西"。这里不改调用点（17 处），而是把这五个
+   变量重新绑定到已有的语义色上：
+     blue / violet -> brand（可交互、荣誉信息）
+     teal          -> pos  （正向数据）
+     gold          -> warn
+     rose          -> neg
+   结果是全站彩色从 6 种收敛到「1 强调 + 3 语义」。真要区分类别时用 --cat-*，
+   它只允许出现在 <=20px 的细条或圆点上，不允许给整段文字上色。
+   ========================================================================== */
+:root {
+  --data-blue: var(--brand);
+  --data-violet: var(--brand);
+  --data-teal: var(--pos);
+  --data-gold: var(--warn);
+  --data-rose: var(--neg);
+
+  /* 分类色环：同饱和、同明度，只变色相。用于统计卡顶部细条这种极小面积。 */
+  --cat-teal: #109a92;
+  --cat-blue: #2260d4;
+  --cat-violet: #7b4ad8;
+  --cat-amber: #c47a1c;
+  --cat-rose: #d02c55;
+  --cat-cyan: #1f8fb8;
+}
+body.dark {
+  --cat-teal: #4dc9be;
+  --cat-blue: #6da4f0;
+  --cat-violet: #a48cf0;
+  --cat-amber: #e0aa5c;
+  --cat-rose: #ef7090;
+  --cat-cyan: #55b8d6;
+}
+
+/* ============================================================================
+   10. 卡片：去装饰边框，靠底色阶梯 + 极轻阴影浮起
+   ========================================================================== */
+
+.tool-card, .stat-card, .meta-card, .champion-card, .rank-card, .counter-setup,
+.profile-card, .settings-card, .match-card, .home-card, .modal-content,
+.ako-card, .counter-card, .bl-card, .hex-panel {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--e1);
+  transition: box-shadow var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+body.dark .tool-card, body.dark .stat-card, body.dark .meta-card, body.dark .champion-card,
+body.dark .rank-card, body.dark .profile-card, body.dark .match-card, body.dark .home-card,
+body.dark .modal-content, body.dark .ako-card, body.dark .counter-card, body.dark .hex-panel {
+  border-color: var(--line-subtle);
+  box-shadow: none;
+}
+.tool-card:hover, .stat-card:hover, .meta-card:hover, .champion-card:hover,
+.rank-card:hover, .profile-card:hover, .match-card:hover, .home-card:hover {
+  border-color: transparent;
+  box-shadow: var(--e2);
+  transform: none;
+}
+body.dark .tool-card:hover, body.dark .stat-card:hover, body.dark .meta-card:hover,
+body.dark .champion-card:hover, body.dark .rank-card:hover, body.dark .profile-card:hover,
+body.dark .match-card:hover, body.dark .home-card:hover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+/* 卡内次级块：比卡片再浅/深一档，用来分组而不需要再套一层"卡中卡" */
+.subpanel,
+.meta-item,
+.tool-row,
+.settings-row {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================================
+   3. 页头：标题 + 副标题 + 右侧操作，底部一条 hairline
+   ========================================================================== */
+
+.page-header {
+  gap: var(--s3);
+  margin-bottom: var(--s6);
+  padding-bottom: var(--s5);
+  border-bottom: 1px solid var(--line-subtle);
+  align-items: flex-end;
+}
+.page-header h2 {
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -.2px;
+  line-height: 1.2;
+  color: var(--ink-1);
+}
+.page-header p, .page-subtitle {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   4. 控件：只有两档高度，圆角 4px，focus 用外环不用粗边框
+   ========================================================================== */
+
+.btn-primary, button.btn-primary, .btn-secondary, button.btn-secondary,
+.home-search button, .back-to-me, .tool-btn, .tab-btn, .role-btn {
+  min-height: var(--ctl-h);
+  height: var(--ctl-h);
+  padding: 0 var(--s5);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
+  transform: none;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.btn-primary, button.btn-primary, .home-search button {
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+body.dark .btn-primary, body.dark button.btn-primary, body.dark .home-search button { color: #0b1113; }
+.btn-primary:hover, button.btn-primary:hover, .home-search button:hover {
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+  box-shadow: none;
+  transform: none;
+}
+.btn-secondary, button.btn-secondary, .back-to-me {
+  border: 1px solid var(--line-strong);
+  background: var(--surface-1);
+  color: var(--ink-2);
+}
+.btn-secondary:hover, button.btn-secondary:hover, .back-to-me:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  color: var(--ink-1);
+  box-shadow: none;
+  transform: none;
+}
+
+.tool-input, .tool-select, .search-box, .search-box input,
+input[class*="search"], textarea {
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-1);
+  font-size: var(--fs-xs);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.tool-input, .tool-select, input[class*="search"], textarea {
+  min-height: var(--ctl-h);
+  height: var(--ctl-h);
+  padding: 0 var(--s5);
+}
+.tool-input::placeholder, input::placeholder, textarea::placeholder { color: var(--ink-3); }
+.tool-input:focus, .tool-select:focus, .search-box:focus-within,
+input[class*="search"]:focus, textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-line);
+  outline: none;
+}
+select.tool-select, .toolbar select, .hex-bar select { padding-right: var(--s8); }
+
+/* 分段选择器（全部/上单/打野…）：统一成一个整体，而不是一排独立方块 */
+.role-btn, .tab-btn, [class*="filter-btn"] {
+  border: 1px solid var(--line-strong);
+  background: var(--surface-1);
+  color: var(--ink-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  height: var(--ctl-h);
+  padding: 0 var(--s5);
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.role-btn:hover, .tab-btn:hover, [class*="filter-btn"]:hover {
+  background: var(--surface-3);
+  color: var(--ink-1);
+  border-color: var(--line-strong);
+}
+.role-btn.active, .tab-btn.active, [class*="filter-btn"].active {
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+  border-color: var(--brand-line);
+  font-weight: 650;
+  transform: none;
+}
+
+/* ============================================================================
+   5. 表格：行高收紧，斑马纹取消，hover 才给底色，数字等宽对齐
+   ========================================================================== */
+
+.champion-table, .bl-table, table.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-xs);
+}
+.champion-table thead th, .bl-table thead th, table.data-table thead th {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: none;
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--line-subtle);
+  position: sticky;
+  top: 0;
+}
+.champion-table tbody td, .bl-table tbody td, table.data-table tbody td {
+  padding: var(--s2) var(--s5);
+  border-bottom: 1px solid var(--line-subtle);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.champion-table tbody tr:hover td, .bl-table tbody tr:hover td,
+table.data-table tbody tr:hover td { background: var(--surface-2); }
+.champion-table tbody tr:last-child td, .bl-table tbody tr:last-child td,
+table.data-table tbody tr:last-child td { border-bottom: none; }
+.champion-table .num, .bl-table .num, table.data-table .num { font-variant-numeric: tabular-nums; }
+
+/* ============================================================================
+   6. 徽章 / 标签：低饱和底 + 同色文字，不用纯色块
+   ========================================================================== */
+
+.ako-tag, .chip, .pill, .tag, .bl-tag, [class*="badge"] {
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  padding: 1px var(--s3);
+  border: 1px solid transparent;
+}
+
+/* ============================================================================
+   7. 空态：一个组件，不是十一套
+   ----------------------------------------------------------------------------
+   原来全站有 11 个各自实现的空态类（hs-empty / ri-empty / lbp-empty /
+   gw-empty / lpd-empty / hex-empty / tools-overview-empty / rv-ai-empty /
+   home-champ-empty / bl-empty / empty），padding 从 1px 到 40px、字号从
+   --fs-2xs 到 14px、有的居中有的左对齐、有的还画一圈虚线框。空态是用户
+   最常看到的画面（没进对局、没数据、没搜到），十一套写法直接导致「每页
+   长得都不像同一个软件」。
+
+   收敛成两级：
+     .poro-empty      区块级 —— 图标 + 标题 + 说明（可选行动），垂直居中
+     .poro-empty-inline  行内级 —— 一行灰字，用于卡片/列表内部的小空位
+
+   旧的十一个类名不改 HTML，直接并到对应层级的选择器里。
+   ========================================================================== */
+
+.poro-empty,
+.hex-empty, .bl-empty, .ri-empty, .home-champ-empty, .lbp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+  text-align: center;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  line-height: 1.65;
+}
+/* 区块级空态撑起画面中部，但不撑满整页（撑满会把页头挤到视野外） */
+.poro-empty--fill { min-height: 42vh; }
+.poro-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  /* 白底 + 阴影而不是 surface-2：空态既可能落在画布上，也可能落进白卡里，
+     surface-2 在画布上几乎看不见（#f7f9fa on #eef1f3）。 */
+  background: var(--surface-1);
+  border: 1px solid var(--line-subtle);
+  box-shadow: var(--e1);
+  color: var(--brand);
+  font-size: 22px;
+  line-height: 1;
+}
+body.dark .poro-empty-icon { box-shadow: none; }
+/* 空态不画虚线框：卡片本身已有底色，虚线只是又一层噪点 */
+.hex-empty { border: 0; min-height: 150px; }
+.poro-empty b,
+.hex-empty b {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-1);
+  letter-spacing: .1px;
+}
+.poro-empty span,
+.hex-empty span {
+  max-width: 38em;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+.poro-empty-action { margin-top: var(--s2); }
+
+/* 行内级：不放图标、不居中，就是一句解释 */
+.poro-empty-inline,
+.hs-empty, .gw-empty, .lpd-empty, .rv-ai-empty, .tools-overview-empty {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  line-height: 1.65;
+}
+
+.empty-state, .msg-empty, .loading-state {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  padding: var(--s9) var(--s6);
+}
+
+/* ============================================================================
+   8. 焦点可见（键盘）—— 鼠标点击不显示环，避免花
+   ========================================================================== */
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ============================================================================
+   9. 页面精修 · 首页
+   ========================================================================== */
+
+/* ---- 搜索行：下拉 / 输入 / 两个按钮，高度统一到 36px ---- */
+.home-search {
+  margin-bottom: var(--s5);
+  gap: var(--s4);
+  align-items: center;
+}
+.home-search input {
+  min-height: var(--ctl-h-lg);
+  height: var(--ctl-h-lg);
+  padding: 0 var(--s5);
+  font-size: var(--fs-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  box-shadow: var(--e1);
+}
+.home-search input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-line); }
+.home-search button {
+  min-height: var(--ctl-h-lg);
+  height: var(--ctl-h-lg);
+  min-width: 0;
+  padding: 0 var(--s6);
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-sm);
+}
+.home-search select {
+  height: var(--ctl-h-lg);
+  min-height: var(--ctl-h-lg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  padding: 0 var(--s5);
+  box-shadow: var(--e1);
+}
+
+/* ---- 玩家概览：头像 + 身份 + 胜率 ---- */
+.home-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s6);
+  padding: var(--s6);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  box-shadow: var(--e1);
+  margin-bottom: var(--s5);
+}
+body.dark .home-header { border-color: var(--line-subtle); box-shadow: none; }
+.home-avatar img { border-radius: var(--radius-sm); }
+.home-name {
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -.2px;
+  color: var(--ink-1);
+  line-height: 1.25;
+}
+.home-server {
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  margin-top: var(--s1);
+  line-height: 1.45;
+}
+.home-mmr {
+  margin-top: var(--s3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.home-mmr small {
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  margin-right: var(--s1);
+}
+.mmr-chip {
+  font-size: var(--fs-2xs);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  padding: 2px var(--s3);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.mmr-chip b { color: var(--brand-deep); font-size: var(--fs-2xs); }
+.home-winrate { text-align: right; margin-left: auto; flex: 0 0 auto; }
+.home-winrate-val {
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -.9px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.home-winrate-val.pos { color: var(--pos); }
+.home-winrate-val.neg { color: var(--neg); }
+.home-winrate-label { color: var(--ink-3); font-size: var(--fs-2xs); margin-top: var(--s1); }
+
+.home-data-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--s5);
+  margin: 0 0 var(--s4);
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+}
+
+/* ---- 段位卡：两卡等高，进度条区域永远占位，避免一张有一张没有 ---- */
+.home-ranks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s5);
+  margin-bottom: var(--s5);
+}
+.rank-card {
+  min-height: 148px;
+  padding: var(--s6) var(--s7);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  box-shadow: var(--e1);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  text-align: left;
+}
+body.dark .rank-card { border-color: var(--line-subtle); box-shadow: none; }
+.rank-card-label {
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .3px;
+}
+.rank-card-tier {
+  font-size: var(--fs-2xl);
+  font-weight: 680;
+  letter-spacing: -.4px;
+  color: var(--ink-1);
+  line-height: 1.15;
+  margin: var(--s2) 0 var(--s1);
+}
+.rank-card-record {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+/* 促销/进度区永远贴底；无促销数据时整卡不留空洞（记录行紧跟在段位下面） */
+.rank-promo {
+  margin-top: auto;
+  padding-top: var(--s4);
+}
+.rank-card .rank-promo-bar,
+.rank-card .promo-bar,
+.rank-card [class*="progress"] {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--surface-inset);
+  overflow: hidden;
+}
+.rank-card .rank-promo-bar > i,
+.rank-card .promo-bar > i,
+.rank-card [class*="progress"] > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--brand);
+}
+.rank-card .rank-promo-text { color: var(--ink-3); font-size: var(--fs-2xs); margin-top: var(--s2); }
+
+/* ---- 统计卡：统一内高，图标区与数值基线对齐 ---- */
+.home-stats {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--s5);
+  margin-bottom: var(--s5);
+}
+.home-stats .stat-card {
+  min-height: 96px;
+  padding: var(--s5) var(--s5) var(--s4);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: left;
+}
+.home-stats .stat-card-val {
+  font-size: var(--fs-2xl);
+  line-height: 1.1;
+}
+.home-stats .stat-card-label {
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 拆分型统计卡（K/D/A 这类三值并列）：值在上、微标签在下，永不折行 */
+.stat-split {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s3);
+  align-items: baseline;
+}
+.stat-split.stat-split-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat-split > div { display: flex; flex-direction: column; min-width: 0; }
+.stat-split b {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  color: var(--ink-1);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.2px;
+}
+.stat-split i {
+  font-style: normal;
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  line-height: 1.4;
+  margin-top: 1px;
+}
+
+/* ---- 画像入口 ---- */
+.home-profile-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  margin-bottom: var(--s5);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  box-shadow: var(--e1);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: box-shadow var(--t-fast), background var(--t-fast);
+}
+body.dark .home-profile-entry { border-color: var(--line-subtle); box-shadow: none; }
+.home-profile-entry:hover { box-shadow: var(--e2); background: var(--surface-1); }
+.home-profile-entry .hpe-text b { color: var(--ink-1); font-size: var(--fs-sm); font-weight: 650; }
+.home-profile-entry .hpe-text small { color: var(--ink-3); font-size: var(--fs-2xs); }
+.home-profile-entry em { margin-left: auto; color: var(--brand); font-style: normal; font-size: var(--fs-xs); }
+
+/* ---- 底部双栏 ---- */
+.home-bottom { gap: var(--s5); }
+.home-champs, .home-friends, .home-mode-stats {
+  padding: var(--s6);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  box-shadow: var(--e1);
+}
+body.dark .home-champs, body.dark .home-friends, body.dark .home-mode-stats {
+  border-color: var(--line-subtle);
+  box-shadow: none;
+}
+.home-champs h4, .home-friends h4, .home-mode-stats h4 {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--ink-1);
+  margin-bottom: var(--s4);
+  letter-spacing: 0;
+}
+
+/* ============================================================================
+   11. 页面精修 · 我的画像
+   ========================================================================== */
+
+.home-fun {
+  padding: var(--s6);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  box-shadow: var(--e1);
+}
+body.dark .home-fun { border-color: var(--line-subtle); box-shadow: none; }
+.home-fun-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  margin-bottom: var(--s5);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line-subtle);
+}
+.home-fun-head b { color: var(--ink-1); font-size: var(--fs-sm); font-weight: 650; }
+.home-fun-head small { color: var(--ink-3); font-size: var(--fs-2xs); margin-left: var(--s3); }
+.home-fun-head > em {
+  margin-left: auto;
+  padding: 1px var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  color: var(--ink-3);
+  background: var(--surface-2);
+  font-size: var(--fs-2xs);
+  font-style: normal;
+}
+.home-fun-grid { gap: var(--s3); }
+.home-fun-card {
+  align-items: flex-start;
+  gap: var(--s4);
+  padding: var(--s4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  min-height: 62px;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+body.dark .home-fun-card { border-color: var(--line-subtle); }
+.home-fun-card:hover { border-color: var(--line); background: var(--surface-2); box-shadow: none; transform: none; }
+.home-fun-card > i {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: var(--radius-xs);
+  font-size: 14px;
+  margin-top: 1px;
+}
+.home-fun-card > span { min-width: 0; flex: 1 1 auto; }
+.home-fun-card small { color: var(--ink-3); font-size: var(--fs-2xs); line-height: 1.35; }
+.home-fun-card b {
+  color: var(--ink-1);
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 1px 0;
+  letter-spacing: -.1px;
+}
+.home-fun-card em { color: var(--ink-3); font-size: var(--fs-2xs); line-height: 1.35; }
+.home-fun-card-wide b { line-height: 1.3; }
+
+@media (max-width: 1250px) { .home-fun-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* ============================================================================
+   12. 容器层级：把散落在 5 个文件里的页面级区块统一成同一套表现
+   ----------------------------------------------------------------------------
+   L1 页面区块（直接放在画布上）：白底 + e1 阴影
+   L2 区块内的数据格（嵌在 L1 里）：surface-2 底 + 无阴影
+   两级都去掉装饰性实边框。深色下反过来：L1 用 1px 高光边（因为阴影在深色里看不见）。
+   ========================================================================== */
+
+.gw-card, .counter-setup, .counter-result,
+.cl-card, .bl-item, .bc-card, .rv-box, .rv-auto-review, .player-panel, .summoner-card,
+.timer-card, .meta-card, .match-card, .build-card, .ld-build, .is-block, .hex-guide-card,
+.hex-context, .pm-dialog, .home-coach, .postgame-coach, .tools-overview, .match-summary,
+.og-summary, .rk-summary-bar, .lp-team, .live-prep-summary, .champ-stat {
+  border: 1px solid transparent;
+  background: var(--surface-1);
+  border-radius: var(--radius);
+  box-shadow: var(--e1);
+}
+body.dark .gw-card, body.dark .counter-setup, body.dark .counter-result,
+body.dark .cl-card,
+body.dark .bl-item, body.dark .bc-card, body.dark .rv-box, body.dark .rv-auto-review,
+body.dark .player-panel, body.dark .summoner-card, body.dark .timer-card,
+body.dark .meta-card, body.dark .match-card, body.dark .build-card, body.dark .ld-build,
+body.dark .is-block, body.dark .hex-guide-card, body.dark .hex-context, body.dark .pm-dialog,
+body.dark .home-coach, body.dark .postgame-coach, body.dark .tools-overview,
+body.dark .match-summary, body.dark .og-summary, body.dark .rk-summary-bar,
+body.dark .lp-team, body.dark .live-prep-summary, body.dark .champ-stat {
+  border-color: var(--line-subtle);
+  box-shadow: none;
+}
+
+/* L2 数据格 */
+.gw-kpi, .hc-champ, .cs-cell, .rune-item, .skill-item, .pm-list-item, .rv-md-item,
+.counter-hero-section, .counter-list-section {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+body.dark .gw-kpi, body.dark .hc-champ, body.dark .cs-cell, body.dark .rune-item,
+body.dark .skill-item, body.dark .pm-list-item, body.dark .rv-md-item,
+body.dark .counter-hero-section, body.dark .counter-list-section {
+  border-color: var(--line-subtle);
+}
+
+/* 成长页 KPI：数值大、标签小，五格等高 */
+.gw-kpis { gap: var(--s3); margin-bottom: var(--s5); }
+.gw-kpi { padding: var(--s4) var(--s5); min-height: 62px; display: flex; flex-direction: column; justify-content: center; }
+.gw-kpi b {
+  font-size: var(--fs-xl);
+  font-weight: 680;
+  color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.3px;
+  line-height: 1.15;
+}
+.gw-kpi span { font-size: var(--fs-2xs); color: var(--ink-3); margin-top: 1px; }
+.gw-delta { font-style: normal; font-size: var(--fs-2xs); margin-left: var(--s2); }
+.gw-delta.up { color: var(--pos); }
+.gw-delta.down { color: var(--neg); }
+
+/* 图表外框：图表自己画网格，外框不要再叠一层边。
+   原来这里是"白底 + 1px 边框"，嵌在白卡里就是一个套娃方框；按 L2 约定
+   改成 surface-2 底 + 无边框，读作卡片里的一块内嵌画布。 */
+.gw-chart-wrap {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: none;
+  padding: var(--s4) var(--s5) var(--s3);
+}
+.gw-chart-note { color: var(--ink-3); font-size: var(--fs-2xs); margin-top: var(--s3); }
+.gw-champcol + .gw-champcol { margin-left: var(--s5); }
+.gw-champhead {
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: none;
+}
+.gw-champ {
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  padding: 2px var(--s3) 2px 2px;
+}
+.gw-champ b { color: var(--ink-2); font-weight: 550; font-size: var(--fs-2xs); }
+.gw-champ i { color: var(--ink-3); font-size: var(--fs-2xs); font-style: normal; }
+.gw-breakdown {
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  padding: 2px var(--s3);
+}
+.gw-breakdown b { color: var(--ink-2); font-weight: 600; font-size: var(--fs-2xs); }
+.gw-breakdown i { color: var(--ink-1); font-style: normal; font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; }
+.gw-breakdown small { color: var(--ink-3); font-size: var(--fs-2xs); }
+.gw-foot { color: var(--ink-3); font-size: var(--fs-2xs); line-height: 1.6; margin-top: var(--s4); }
+
+/* ============================================================================
+   13. 页面精修 · 实时对局
+   ----------------------------------------------------------------------------
+   这一页是信息密度最高的地方，也是最需要"安静"的地方。原来的问题是每张
+   玩家卡自带 145deg 渐变 + backdrop-filter 毛玻璃 + 内白高光，十张卡叠在一
+   起像十块磨砂塑料。数据面板不需要玻璃质感 —— 底色干净、卡片边界清楚就够了。
+   ========================================================================== */
+
+#page-live .lp-team {
+  padding: var(--s3);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+body.dark #page-live .lp-team { border-color: var(--line-subtle); }
+#page-live .lp-blue,
+#page-live .lp-red {
+  border-color: transparent;
+}
+#page-live .lp-team-head {
+  min-height: 28px;
+  padding: 0 var(--s4);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+#page-live .lp-team-head strong { font-size: var(--fs-sm); font-weight: 650; letter-spacing: 0; }
+#page-live .lp-team-count { color: var(--ink-3); opacity: 1; font-size: var(--fs-2xs); }
+#page-live .lp-team-grid { gap: var(--s3); padding-top: var(--s2); }
+
+#page-live .lp-row {
+  padding: var(--s3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  box-shadow: var(--e1);
+  backdrop-filter: none;
+  transition: box-shadow var(--t-fast), border-color var(--t-fast);
+}
+body.dark #page-live .lp-row {
+  border-color: var(--line-subtle);
+  box-shadow: none;
+}
+#page-live .lp-row:hover {
+  box-shadow: var(--e2);
+  transform: none;
+}
+body.dark #page-live .lp-row:hover { border-color: var(--line); box-shadow: none; }
+/* 自己那张卡：用一条 2px 强调色左边线, 不整卡染色 */
+#page-live .lp-self {
+  background: var(--surface-1);
+  box-shadow: inset 2px 0 0 var(--brand), var(--e1);
+}
+
+/* ---- 指标行：全部中性，胜负连胜才用语义色 ---- */
+#page-live .lp-profile-line .lp-metric {
+  border: 1px solid transparent;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 13px;
+  padding: 0 var(--s2);
+  border-radius: var(--radius-xs);
+}
+/* 不限定 .lp-profile-line 祖先：可见胶囊与「+N」浮层里的是同一批类名，
+   字面色块（红伤害/青承伤/金经济/紫参团）在十张卡上叠成一片彩色噪点，
+   而它们之间的差别对判断"这人打得怎么样"没有任何帮助。 */
+#page-live .lp-metric-dmg,
+#page-live .lp-metric-tank,
+#page-live .lp-metric-gold,
+#page-live .lp-metric-dmgGold,
+#page-live .lp-metric-kp,
+#page-live .lp-metric-vision,
+.lp-metric-dmg, .lp-metric-tank, .lp-metric-gold,
+.lp-metric-dmgGold, .lp-metric-kp, .lp-metric-vision {
+  color: var(--ink-2);
+  background: var(--surface-3);
+}
+body.dark .lp-metric-dmg, body.dark .lp-metric-tank, body.dark .lp-metric-gold,
+body.dark .lp-metric-dmgGold, body.dark .lp-metric-kp, body.dark .lp-metric-vision {
+  color: var(--ink-2);
+  background: var(--surface-3);
+}
+#page-live .lp-profile-line .lp-metric-winstreak {
+  color: var(--pos);
+  background: var(--pos-soft);
+  font-weight: 650;
+}
+#page-live .lp-profile-line .lp-metric-lossstreak {
+  color: var(--neg);
+  background: var(--neg-soft);
+  font-weight: 650;
+}
+
+/* ---- 战绩列表：去掉逐行边框，只用 hairline 分隔 + hover 底色 ---- */
+#page-live .lp-recent-row,
+#page-live .ri-row {
+  border-bottom: 1px solid var(--line-subtle);
+  background: transparent;
+}
+#page-live .lp-recent-row:hover,
+#page-live .ri-row:hover { background: var(--surface-2); }
+
+/* ---- 顶部「本局作战计划」条 ---- */
+#page-live .live-head-slot {
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  box-shadow: var(--e1);
+}
+body.dark #page-live .live-head-slot { border-color: var(--line-subtle); box-shadow: none; }
+
+/* 战绩行：原来每行左侧 3px 红/蓝竖条，行高只有 12px，连在一起就成了一条
+   贯穿整卡的竖线 —— 看起来像报错标记而不是胜负。改成只留文字色。 */
+#page-live .ri-win,
+#page-live .ri-loss {
+  border-left-width: 0;
+  border-left-color: transparent;
+}
+
+/* ============================================================================
+   14. 页面精修 · 英雄库
+   ========================================================================== */
+
+/* 评级：原来 t-1..t-5 是蓝/绿/橙/灰/深灰五块高饱和实心色。
+   五档梯度用「同色相的浓度」表达比换色相更准确：T1 最强、T5 最弱，
+   读者一眼看到的是深浅而不是"这是哪个颜色"。改后只有 T1 使用强调色。 */
+.champ-tier {
+  justify-self: center;
+  min-width: 30px;
+  padding-inline: var(--s2);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  padding: 1px 0;
+  border-radius: var(--radius-xs);
+  text-align: center;
+  letter-spacing: .2px;
+  color: var(--ink-2);
+  background: var(--surface-3);
+  font-variant-numeric: tabular-nums;
+}
+.champ-tier.t-OP { background: var(--brand); color: #fff; font-weight: 800; }
+.champ-tier.t-1 { background: var(--brand); color: #fff; }
+body.dark .champ-tier.t-1 { color: #0b1113; }
+.champ-tier.t-2 { background: var(--brand-soft); color: var(--brand-deep); }
+.champ-tier.t-3 { background: var(--surface-3); color: var(--ink-2); }
+.champ-tier.t-4 { background: transparent; color: var(--ink-3); }
+.champ-tier.t-5 { background: transparent; color: var(--ink-3); opacity: .7; }
+
+/* 表格：行高收紧到 44px，头像 28px，去掉圆头像的粗白边 */
+.champ-table { background: transparent; border-radius: 0; }
+.champ-table-header,
+.champ-row {
+  display: grid;
+  grid-template-columns: 32px 28px minmax(0, 1fr) 58px 88px 86px 86px 86px;
+  gap: var(--s3);
+  align-items: center;
+  padding: 0 var(--s5);
+}
+.champ-table-header {
+  height: 30px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-subtle);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: .3px;
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+.champ-row {
+  height: 44px;
+  border-bottom: 1px solid var(--line-subtle);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.champ-row:last-child { border-bottom: none; }
+.champ-row:hover { background: var(--surface-2); }
+.champ-rank { font-size: var(--fs-2xs); color: var(--ink-3); text-align: center; font-variant-numeric: tabular-nums; }
+.champ-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  display: block;
+}
+.champ-name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-1); }
+.champ-pos { font-size: var(--fs-2xs); color: var(--ink-3); display: flex; align-items: center; gap: var(--s1); }
+.champ-wr { font-size: var(--fs-xs); font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; }
+.champ-wr.pos { color: var(--pos); }
+.champ-wr.neg { color: var(--neg); }
+.champ-pr, .champ-br {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 筛选条：与搜索框同一行、同一高度 */
+#page-champions .page-header { align-items: center; }
+#page-champions .role-btn,
+#page-champions [class*="filter-btn"] { height: var(--ctl-h); padding: 0 var(--s4); }
+
+/* ==========================================================================
+   15. 队伍归属色：从"每张卡一条"改成"每队一条"
+   --------------------------------------------------------------------------
+   原来 .lp-row::before 给每张玩家卡左侧画 3px 蓝/红条，5 张卡重复 5 次同一个
+   信息。队伍归属在标题行已经写明了，卡片上再画一遍就是噪音。改成队标题左侧
+   一个 3px 竖条，一处即可。
+   ========================================================================== */
+#page-live .lp-row::before { display: none; }
+#page-live .lp-team-head { position: relative; }
+#page-live .lp-team-head::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 0 2px 2px 0;
+}
+#page-live .lp-blue .lp-team-head::before { background: var(--live-blue, #2f6fb5); }
+#page-live .lp-red .lp-team-head::before { background: var(--live-red, #b8443c); }
+
+/* 表头数值列右对齐，与数据行的 tabular-nums 对齐 */
+.champ-table-header > div:nth-child(n + 6) { text-align: right; }
+.champ-table-header > div:nth-child(4),
+.champ-table-header > div:nth-child(5) { text-align: left; }
+
+/* 队伍色：原来的 #3d9be9 / #e26868 是 UI 蓝和 UI 红，饱和度高到和强调色抢。
+   压到与数据面板相称的浓度，只用于队标题那一处 3px 竖条。 */
+:root, body.dark {
+  --live-blue: #3f7fc4;
+  --live-red: #bb5a52;
+}
+body.dark {
+  --live-blue: #5b9bd8;
+  --live-red: #d97a72;
+}
+
+/* ==========================================================================
+   16. 工具页 / 空态 / 复盘列表
+   ========================================================================== */
+
+/* 工具卡：同一行等高、底部动作行贴底。
+   原来每张卡高度取决于文案行数，一行文字的三张卡和四行文字的三张卡并排，
+   底部的开关会落在不同高度 —— 这是最典型的"看起来没对齐"。
+
+   注意：这里**不能**用 grid-auto-rows: 1fr。分类标题 .tools-section 也是网格项
+   （grid-column: 1 / -1），1fr 会把它和卡片算进同一套等分轨道，于是每个分类标题
+   都被撑成 414px 高、文字顶在格子上沿，下方留 400px 空白 —— 工具页因此多出
+   5 个 400px 的空洞，整页 8660px 高。同一行的卡片本来就会自动等高。 */
+.tools-grid { gap: var(--s4); }
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 132px;
+  padding: var(--s5);
+}
+.tool-card > *:last-child { margin-top: auto; }
+.tool-card h3 {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--ink-1);
+  margin: 0 0 var(--s2);
+}
+.tool-card p, .tool-card .tool-desc {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  line-height: 1.55;
+  margin: 0 0 var(--s3);
+}
+
+/* 开关行：统一高度、统一左右布局 */
+.tool-card .switch-row,
+.tool-card .tool-actions,
+.tool-card label.switch,
+.tool-card .tool-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 26px;
+  margin-top: var(--s3);
+}
+
+/* Tab 条：做成一个整体分段控件 */
+.tools-nav, .tools-tabs, #page-tools .tab-row {
+  display: flex;
+  gap: var(--s2);
+  padding: var(--s2);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--s5);
+}
+.tools-nav .tools-nav-chip, .tools-tabs > * {
+  height: 26px;
+  padding: 0 var(--s4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+.tools-nav .tools-nav-chip.active, .tools-tabs > *.active {
+  background: var(--surface-1);
+  color: var(--ink-1);
+  border-color: var(--line);
+  box-shadow: var(--e1);
+}
+
+/* 空态：三行结构，高度收敛，不再撑满整页 */#page-counters .counter-hero-section,
+#page-counters .counter-list-section,
+#page-hex .hex-guide-card {
+  padding: var(--s7) var(--s6);
+}
+#page-counters .counter-hero-section { text-align: center; }
+#page-counters .counter-list-section { min-height: 76px; display: flex; flex-direction: column; justify-content: center; }
+#page-counters .counter-list-section > * { color: var(--ink-3); font-size: var(--fs-xs); }
+#page-counters .counter-list-section > *:first-child {
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .3px;
+  margin-bottom: var(--s2);
+}
+
+/* 复盘列表：编号列表贴紧，去掉默认 1.6 行高造成的松散 */
+.postgame-coach { padding: var(--s5) var(--s6); }
+.postgame-coach-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-bottom: var(--s3);
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--line-subtle);
+}
+.postgame-coach-head b { font-size: var(--fs-sm); font-weight: 650; color: var(--ink-1); }
+.postgame-coach-head span { font-size: var(--fs-2xs); color: var(--ink-3); }
+.postgame-coach ol { margin: 0 0 var(--s3); padding-left: var(--s6); }
+.postgame-coach ol li {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  line-height: 1.7;
+  padding-left: var(--s1);
+}
+.postgame-coach ol li::marker { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.postgame-coach small { font-size: var(--fs-2xs); color: var(--ink-3); }
+
+/* 段位名是数据不是操作入口，用主文本色。强调色留给真正可点的东西。 */
+#page-home .rank-card-tier,
+#page-home .rank-card-tier * { color: var(--ink-1); }
+
+/* 深色下 T1 用低饱和底 + 亮字：列表里 T1 占多数，整块实心青会连成一片。
+   浅色下反过来 —— 白底上小块实心是最省事的"最强者"标记。 */
+body.dark .champ-tier.t-1,
+body.dark .champ-tier.t-OP {
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+  font-weight: 750;
+}
+body.dark .champ-table-header {
+  background: var(--surface-3);
+  color: var(--ink-3);
+}
+body.dark .champ-row:hover { background: var(--surface-2); }
+
+/* 20 张卡 × 4 列 = 5 行整。原来「常用三件套」跨 2 格 → 21 格, 最后一行只剩
+   一张卡孤零零挂在左下角。改成全部 1 格、长值折两行截断(title 里有全文),
+   换来 5 行完全填满的网格。 */
+@media (max-width: 1250px) {
+  .home-fun-card-wide { grid-column: span 1; }
+  .home-fun-card-wide b { -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+}
+
+/* 归属提示条：原来左侧 3px 实心强调竖条 + 7% 底色, 在深色下像一条高亮警告。
+   改成中性小标签, 只在"看的是别人"时用警告色。 */
+.profile-owner-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 2px var(--s4);
+  border: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-radius: 99px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  line-height: 1.7;
+}
+.profile-owner-note.is-other {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   17. 页面精修 · 海斗强化资料
+   ----------------------------------------------------------------------------
+   这一页原本的骨架是「一块横幅卡 + 一条统计带 + 一行六个控件 + 折叠项 +
+   搜索框 + 一个空列表」。没有数据时六个控件里有两个是死的（数据范围、
+   强化轮次选了也没内容），搜索框搜不到任何东西 —— 一页控件围着一个空列表，
+   看着像加载到一半。现在：控件分成「看哪份数据 / 浮窗怎么摆」两组，
+   空闲时只收掉前一组和搜索行。
+   ========================================================================== */
+
+.hex-stats-bar {
+  padding: var(--s3) var(--s4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  border: 0;
+}
+
+.hex-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s3) var(--s6);
+  margin: var(--s4) 0 var(--s5);
+}
+.hex-filter-data, .hex-filter-overlay {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s2) var(--s4);
+}
+/* 标签在上、控件在下，比「标签 + 下拉框」挤在同一行更好扫 */
+.hex-filter-bar label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: .2px;
+}
+.hex-filter-bar select {
+  height: var(--ctl-h-sm);
+  padding: 0 var(--s5) 0 var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--ink-1);
+  font-size: var(--fs-xs);
+}
+.hex-filter-bar select:hover { border-color: var(--ink-3); }
+.hex-filter-note {
+  flex: 1 1 100%;
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  font-weight: 400;
+}
+#page-hex.is-idle .hex-filter-data,
+#page-hex.is-idle .hex-search-row { display: none; }
+
+/* 折叠项原来是一行裸文字 + 三角，和周围的卡片完全不是一个物种 */
+.hex-journal {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--e1);
+  margin-bottom: var(--s5);
+  overflow: hidden;
+}
+body.dark .hex-journal { border-color: var(--line-subtle); box-shadow: none; }
+.hex-journal > summary {
+  padding: var(--s3) var(--s4);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  user-select: none;
+}
+.hex-journal > summary::-webkit-details-marker { display: none; }
+.hex-journal > summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid var(--ink-3);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--t-fast);
+}
+.hex-journal[open] > summary::before { transform: rotate(90deg); }
+.hex-journal > summary:hover { background: var(--surface-2); color: var(--ink-1); }
+.hex-journal #augmentJournal { padding: 0 var(--s4) var(--s4); }
+
+.hex-search-row { margin: var(--s4) 0; }
+
+/* 横幅卡：等待态是灰底图标，激活态不再整块染成主色（一块浅青色底把整页
+   都带偏了），只让 44px 的图标位承担强调。 */
+.hex-context { padding: var(--s4) var(--s5); gap: var(--s4); margin-bottom: var(--s4); }
+.hex-context > img,
+.hex-context-mark {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: 20px;
+}
+.hex-context.active { border-color: var(--line); background: var(--surface-1); }
+.hex-context.active > img { background: transparent; }
+.hex-context.active .hex-context-mark { background: var(--brand-soft); color: var(--brand-deep); }
+.hex-context b { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-1); margin-bottom: 2px; }
+.hex-context span { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.6; }
+
+/* 页面说明文字：三种写法（.page-desc / .hex-page-desc / .pm-page-desc）本质是
+   同一个东西，收敛成一条规则，行高与上边距统一。 */
+.page-desc, .hex-page-desc, .pm-page-desc {
+  margin: calc(var(--s2) * -1) 0 var(--s5);
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  max-width: 82em;
+}
+
+/* 工具页分类标题：去掉 grid-auto-rows 之后标题和卡片贴到了一起，
+   给它上方一段气口、下方一小段，让"分组"看得出来。 */
+.tools-section {
+  margin: var(--s6) 0 var(--s2);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: var(--ink-3);
+  text-transform: none;
+}
+.tools-section:first-child { margin-top: 0; }
