@@ -68,28 +68,23 @@
     const panel = document.getElementById('sidebarStatusPanel');
     const toggle = document.getElementById('statusCenterToggle');
     if (!panel || !toggle || panel.hidden) return;
-    if (document.body.classList.contains('nav-collapsed')) {
-      // The collapsed sidebar deliberately clips horizontal overflow. Portal the
-      // open panel to body and anchor it beside the sidebar so it cannot be cut off.
-      if (panel.parentElement !== document.body) document.body.appendChild(panel);
-      panel.classList.add('is-popover');
-      const toggleRect = toggle.getBoundingClientRect();
-      panel.style.position = 'fixed';
-      panel.style.left = Math.max(8, Math.min(toggleRect.right + 8, window.innerWidth - 240)) + 'px';
-      panel.style.width = '224px';
-      panel.style.zIndex = '10000';
-      panel.style.bottom = Math.max(8, window.innerHeight - toggleRect.top + 6) + 'px';
-      panel.style.top = 'auto';
-      panel.style.maxHeight = Math.max(120, window.innerHeight - 24) + 'px';
-      panel.style.overflowY = 'auto';
-    } else {
-      panel.classList.remove('is-popover');
-      panel.removeAttribute('style');
-      if (panel.parentElement !== panelOriginalParent && panelOriginalParent) {
-        const toggleNext = toggle.nextSibling;
-        panelOriginalParent.insertBefore(panel, toggleNext);
-      }
-    }
+    // 侧栏实际只有 196px 宽, 而面板内容是 11 块 (4 行状态 + 标题 + 提示 + 徽标 +
+    // 2 个动作按钮 + 自动化记录 + 2 个 reconnect), 约需 250px 宽 / 450px 高。
+    // 内联摆放必然被侧栏裁掉: 文字断在半句, 按钮只露半截 (2026-11-12 用户报障)。
+    // 因此两种侧栏状态统一按浮层处理: portal 到 body, 贴侧栏右侧展开,
+    // 高度可用整个视口, 不再受 176px 内容宽和底栏剩余空间限制。
+    if (panel.parentElement !== document.body) document.body.appendChild(panel);
+    panel.classList.add('is-popover');
+    const W = 252;
+    const r = toggle.getBoundingClientRect();
+    panel.style.position = 'fixed';
+    panel.style.left = Math.max(8, Math.min(r.right + 8, window.innerWidth - W - 8)) + 'px';
+    panel.style.width = W + 'px';
+    panel.style.zIndex = '10000';
+    panel.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+    panel.style.top = 'auto';
+    panel.style.maxHeight = Math.max(160, r.top - 16) + 'px';
+    panel.style.overflowY = 'auto';
   }
 
   window.addEventListener('DOMContentLoaded', () => {

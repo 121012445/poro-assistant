@@ -267,6 +267,44 @@ function msg(id, body, fromId) {
 
   console.log('— OCR 聊天框通道 (1.5.46 / 1.5.51 收紧) —');
   {
+    // 1.5.114: LCU 里的旧会话也会增加 _gtFreshTotal。它不能再关闭整局 OCR，
+    // 否则国服游戏内真正发出的聊天永远进不了翻译管线。
+    const e = makeEnv({ messages: [] });
+    let ocrCalls = 0;
+    e.ctx.lolAPI.gameTranslateOcrChat = async () => { ocrCalls++; return null; };
+    await e.run('gameTranslateOnPhase')('InProgress');
+    e.set('_gtFreshTotal', 3);
+    e.advance(1600);
+    await e.run('gtScan')();
+    await flushAsync();
+    ok('LCU 已读到消息后 OCR 仍持续扫描', ocrCalls === 1, { ocrCalls, fresh: e.get('_gtFreshTotal') });
+  }
+  {
+    // 网络翻译可能卡几秒。采集使用独立 busy 标记后，此时仍应继续读取 LCU，
+    // 以免后发的消息只能等上一批翻译完成才被发现。
+    const e = makeEnv({ messages: [] });
+    e.set('gtBusy', true);
+    await e.run('gtScan')();
+    ok('翻译进行中仍继续扫描 LCU', e.urls.some(u => /\/messages$/.test(u)), e.urls);
+    ok('LCU 扫描结束会释放独立 busy 标记', e.get('gtScanBusy') === false, e.get('gtScanBusy'));
+  }
+  {
+    // OCR 比 900ms 调度周期慢时不能堆积截图/PowerShell 请求。
+    const e = makeEnv({});
+    let resolveOcr;
+    let ocrCalls = 0;
+    e.ctx.lolAPI.gameTranslateOcrChat = () => {
+      ocrCalls++;
+      return new Promise(resolve => { resolveOcr = resolve; });
+    };
+    const first = e.run('gtOcrScan')();
+    await e.run('gtOcrScan')();
+    ok('上一轮 OCR 未完成时不启动重叠请求', ocrCalls === 1, ocrCalls);
+    resolveOcr(null);
+    await first;
+    ok('OCR 完成后释放 busy 标记', e.get('_gtOcrBusy') === false, e.get('_gtOcrBusy'));
+  }
+  {
     // 1.5.51 契约变更: 只认"时间戳+频道"齐全的聊天头。没有头部的文字
     // (界面提示、系统播报、别的窗口内容) 一律不进翻译管线 —— 它们是幻影消息的来源。
     const e = makeEnv({});
@@ -674,6 +712,20 @@ function msg(id, body, fromId) {
     ok('不同消息各占一行', lines.length === 2, lines);
   }
   {
+    // 1.5.115 真实报障: 相邻两条只差一个字母也可能是玩家真的分别发送，
+    // 有不同时间戳时不能再被正文模糊去重合并。
+    const e = makeEnv({
+      ocr: [
+        '19:27 [队伍] 雨未散: top gop\n19:39 [队伍] 雨未散: top gap\n20:01 [队伍] 雨未散: good jib\n20:02 [队伍] 雨未散: good job'
+      ]
+    });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('不同时间戳的相似短句不会互相吞掉',
+      lines.length === 4 && lines.map(x => x.body).join('|') === 'top gop|top gap|good jib|good job', lines);
+  }
+  {
     // 1.5.68 真实报障 (用户截图: "marry me 和 good job 中间又插了一条旧消息")。
     // 05:57 局 [GT OCR] 原文里, 同一句 "hello everyone" 这一帧的频道方括号被读成
     // "」 五 ]" (走冒号兜底), 下一帧才读成 "[ 队 伍 ]"。1.5.67 的键是"频道|时间戳",
@@ -933,6 +985,9 @@ function msg(id, body, fromId) {
     ok('乱码词修回真词 (eyÄryone → everyone)', fix('hello eyÄryone') === 'hello everyone', fix('hello eyÄryone'));
     ok('词中间夹标点也能修 (eye,ryone → everyone)',
       fix('hello eye,ryone') === 'hello everyone', fix('hello eye,ryone'));
+    ok('全角标点按正常分句处理，不把 well，im 错改成 good',
+      fix('do well，im good at fight') === 'do well, im good at fight',
+      fix('do well，im good at fight'));
     ok('短词同样修 (jÖb → job)', fix('good jÖb') === 'good job', fix('good jÖb'));
     ok('干净的句子原样返回', fix('hello everyone') === 'hello everyone', fix('hello everyone'));
     // 撇号是合法英文, 不能当"词中间夹标点"去搜索最近的词 ——
@@ -942,6 +997,24 @@ function msg(id, body, fromId) {
     ok('玩家 ID 不瞎改 (faker is good)', fix('faker is good') === 'faker is good', fix('faker is good'));
     ok('含中文的行不当乱码词处理 (交给正文校验整条丢)',
       fix('gra 卣 白 tion') === 'gra tion', fix('gra 卣 白 tion'));
+  }
+  {
+    // 1.5.116 真实报障: 全角逗号与左右单词粘在一个 OCR 框里，旧的乱码修复把
+    // `well，im` 整段改成 `good`，浮窗最终显示 `do good at fight`。这类首帧先等
+    // 同一时间戳的下一次读数，既保住正常标点，也避免单帧误判立即进入翻译。
+    const e = makeEnv({ ocr: [
+      '01:25 [队伍] 雨未散（不破之誓）: do well，im good at fight',
+      '01:25 [队伍] 雨未散（不破之誓）: do well, im good at fight'
+    ] });
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    ok('可疑全角分隔符首帧先等待确认', e.pushed.length === 0, e.pushed);
+    e.advance(2400);
+    await e.run('gtOcrScan')();
+    await flushAsync();
+    const lines = e.pushed.length ? e.pushed[e.pushed.length - 1].lines : [];
+    ok('下一帧按同一时间戳发布完整正文',
+      lines.length === 1 && lines[0].body === 'do well, im good at fight', lines);
   }
   {
     // 1.5.79 —— 翻译慢的时候浮窗上先挂"（翻译中…）", 翻完原地替换。

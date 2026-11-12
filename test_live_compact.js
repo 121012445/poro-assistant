@@ -129,7 +129,10 @@ const body = makeEl('liveGameArea');
   assert.ok(/<button[^>]*class="lp-expand-btn"[^>]*id="liveExpandBtn"[^>]*onclick="toggleLiveRecentExpanded\(\)"/.test(liveSrc), '「展开全部战绩」应由 live.js 渲染进队伍栏');
   assert.ok(!/id="liveExpandBtn"/.test(html), 'index.html 里不应再有展开按钮 (否则会重新占一行高度)');
   assert.ok(!/id="page-live"[\s\S]{0,400}<h2>实时对局<\/h2>/.test(html), '实时对局页不应再有重复的页面标题');
-  assert.ok(/withExpand/.test(liveSrc) && /teamPanel\(blue, '蓝方', 'lp-blue', true\)/.test(liveSrc), '展开按钮只挂在第一个队伍栏上');
+  // 1.5.121 起 teamPanel 多了第 5 个参数 (withBuild: 「推荐出装」按钮挂在自己那一队),
+  // 所以这里不再写死右括号, 改成分别校验蓝方带展开、红方不带 —— 比原来只匹配蓝方一处更严格。
+  assert.ok(/withExpand/.test(liveSrc) && /teamPanel\(blue, '蓝方', 'lp-blue', true[,)]/.test(liveSrc), '展开按钮只挂在第一个队伍栏上');
+  assert.ok(/teamPanel\(red, '红方', 'lp-red', false[,)]/.test(liveSrc), '红方队伍栏不应挂「展开全部战绩」');
   assert.ok(liveSrc.includes('syncLiveExpandButton(false);'), '离开对局时应隐藏按钮');
   assert.ok(/syncLiveExpandButton\(!!body\.querySelector\('\.lp-wrap'\)\)/.test(liveSrc), '渲染结束后应按是否有阵容校准按钮');
 

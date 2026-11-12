@@ -800,6 +800,25 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 #liveExpandBtn[hidden] { display: none; }
 body.dark #liveExpandBtn:hover { border-color: rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .05); }
 
+/* 「推荐出装」: 和「展开全部战绩」并排在队伍标题栏, 不新增任何行高。
+   用强调色区分主次 —— 出装是开局就要看的, 展开战绩是偶尔翻的。 */
+#liveBuildBtn {
+  margin-left: 6px; min-height: 0; height: 20px; padding: 0 9px;
+  font-size: 10.5px; line-height: 1; border-radius: 999px; font-weight: 600;
+  color: var(--accent-deep); cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+#liveBuildBtn:hover {
+  color: var(--accent-deep); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+body.dark #liveBuildBtn {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 /* 展开全部战绩: 不再把两队压进一屏，每张卡完整显示最近 10 场，由 #liveGameArea 整体滚动 */
 #page-live.live-expanded .lp-wrap { flex: 0 0 auto; overflow: visible; }
 #page-live.live-expanded .lp-team { flex: 0 0 auto; }
@@ -941,6 +960,11 @@ body.dark .ei-champ { background: rgba(255, 255, 255, .05); }
   width: min(940px, calc(100vw - 300px));
   border-radius: 12px;
   box-shadow: 0 16px 38px rgba(20, 30, 50, .18);
+  /* 展开浮层原先只能继承 extras.css 的 225px, 而内容 (教练/态势/建议/三套出装/提问)
+     远超这个高度, 出装卡被压到滚动区外面 —— 表现为"打开作战计划看不到出装"。
+     这里按视口给足高度, 超出才滚动。 */
+  max-height: min(72vh, 620px);
+  overflow: auto;
 }
 #page-live .lp-wrap { gap: 10px; }
 #page-live .lp-team {
@@ -1368,20 +1392,44 @@ body.dark #page-live .lp-row { background: rgba(255,255,255,.035); box-shadow: 0
   cursor: pointer;
 }
 #page-live .lp-tags-more:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-#page-live .lp-tags-open .lp-profile-line {
-  flex: 0 0 48px;
-  height: 48px;
-  min-height: 48px;
-  max-height: 48px;
-  flex-wrap: wrap;
-  white-space: normal;
-  align-items: flex-start;
-  align-content: flex-start;
-  overflow: hidden;
+/* 1.5.125: 指标行恒为一行 (17px), 多出的指标走浮层, 不再把行撑到 48px。
+   原来 `.lp-tags-open` 展开态写死 height:48px —— 比收起高 31px, 而卡片总高不变,
+   这 31px 全从战绩里抢, 等于少看两场记录; 卡片窄到 148px 时「收起」按钮还会被
+   裁在 overflow:hidden 之外, 点了根本收不回去。
+   另外「+N」原来是普通 flex 子项, 窄卡片下会被裁掉 (用户看不到入口), 现在贴右固定。 */
+#page-live .lp-profile-line { padding-right: 22px; }
+#page-live .lp-tags-more {
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0;
 }
-#page-live .lp-tags-open .lp-extra-metrics { display: contents !important; }
-#page-live .lp-tags-open .lp-tags-more { order: 0; }
-#page-live .lp-tags-open .lp-recent { min-height: 0; }
+#page-live .lp-tags-more[hidden] { display: none; }
+
+/* 队内指标浮层: fixed 定位, 不参与文档流 */
+.lp-metric-pop {
+  position: fixed; z-index: 13000;
+  min-width: 132px; max-width: 232px;
+  padding: 8px 9px 9px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 12px 30px rgba(20, 30, 50, .20);
+}
+body.dark .lp-metric-pop {
+  background: var(--bg-card);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .52);
+}
+.lp-metric-pop[hidden] { display: none; }
+.lp-metric-pop-head { margin-bottom: 6px; font-size: 10px; color: var(--text-muted); letter-spacing: .2px; }
+.lp-metric-pop-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.lp-metric-pop-grid .lp-metric {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 15px;
+}
 #page-live .lp-row::after,
 #page-live .lp-self::after { display: none; }
 #page-live .lp-recent { gap: 2px; }

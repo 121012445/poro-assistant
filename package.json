@@ -1,6 +1,6 @@
 {
   "name": "poro-assistant",
-  "version": "1.5.111",
+  "version": "1.5.125",
   "description": "Poro - 英雄联盟游戏工具",
   "main": "main/index.js",
   "scripts": {
@@ -70,6 +70,8 @@
       "main/native/PoroInput.exe",
       "main/native/PoroOcr.ps1",
       "main/native/PoroOcrWorker.ps1",
+      "main/native/PoroChatOcrWorker.ps1",
+      "main/native/PoroRapidOcrWorker.py",
       "node_modules/**/*.node"
     ]
   },

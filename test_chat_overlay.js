@@ -23,7 +23,7 @@ function makeEnv(opts = {}) {
 
   function makeEl() {
     const el = {
-      textContent: '', _html: '', value: '', disabled: false,
+      textContent: '', _html: '', value: '', disabled: false, scrollTop: 0, clientHeight: 80,
       _classes: new Set(),
       children: [], _parent: null,
       classList: {
@@ -55,6 +55,10 @@ function makeEnv(opts = {}) {
     Object.defineProperty(el, 'firstElementChild', {
       configurable: true,
       get() { return el.children[0] || null; }
+    });
+    Object.defineProperty(el, 'scrollHeight', {
+      configurable: true,
+      get() { return el.children.length * 40; }
     });
     Object.defineProperty(el, 'innerHTML', {
       configurable: true,
@@ -159,6 +163,20 @@ function ok(cond, label, detail) {
     e.intervalFns.forEach(fn => fn());
     ok(e.els.gtLines.children[0] === first, '同一条消息重复推送时 DOM 节点保持不变');
     ok(e.els.gtLines.children.length === 1, '节点没有成倍增加');
+  }
+
+  console.log('— 新消息自动滚到最新 —');
+  {
+    const e = makeEnv();
+    e.dataCbs[0]({ lines: [
+      { name: 'A', body: 'one', translated: '一', ts: e.clock.t, k: '00:01', ord: 1 },
+      { name: 'B', body: 'two', translated: '二', ts: e.clock.t, k: '00:02', ord: 2 },
+      { name: 'C', body: 'three', translated: '三', ts: e.clock.t, k: '00:03', ord: 3 }
+    ] });
+    ok(e.els.gtLines.scrollTop === 40, '收到数据后滚动到列表底部', e.els.gtLines.scrollTop);
+    e.els.gtLines.scrollTop = 0;
+    e.intervalFns.forEach(fn => fn());
+    ok(e.els.gtLines.scrollTop === 0, '仅淡出刷新不抢用户滚动位置', e.els.gtLines.scrollTop);
   }
 
   console.log('— 后补读到的一条老消息: 按聊天时间插回原位, 不追加到底部 —');

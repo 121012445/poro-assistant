@@ -167,6 +167,15 @@ function checkFocusRing(css, out) {
   else out.push(['PASS', '焦点环令牌存在']);
 }
 
+// 状态中心固定在深色侧栏上，浅色主题的通用 button 规则不能把它改回深色文字。
+function checkStatusCenterContrast(css, out) {
+  const block = extractBlock(stripComments(css), /\.sidebar-status-panel \.sidebar-status-actions button,[\s\S]*?\.sidebar-status-panel \.sidebar-status-reconnect\s*\{([\s\S]*?)\}/);
+  const required = ['color', 'background', 'font-size'];
+  const missing = !block ? required : required.filter(prop => !new RegExp(prop + '\\s*:[^;]+!important').test(block));
+  if (missing.length) out.push(['FAIL', '状态中心按钮缺少主题隔离：' + missing.join(' / ') + ' 必须使用 !important 抵消浅色主题的高优先级通用按钮规则']);
+  else out.push(['PASS', '状态中心按钮已与浅色主题通用按钮规则隔离']);
+}
+
 // ============ 运行 ============
 function runAll(cssMap) {
   const out = [];
@@ -223,6 +232,7 @@ for (const t of SELFTEST) {
 }
 
 const results = runAll(cssMap);
+checkStatusCenterContrast(read('ui-system-v3.css'), results);
 const fails = results.filter(([s]) => s === 'FAIL');
 console.log('');
 console.log('=== UI 令牌门禁 ===');

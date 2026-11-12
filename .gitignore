@@ -2,6 +2,11 @@ node_modules/
 dist/
 dist-limited/
 backup-20260831/
+# 每次部署前的回滚备份 (exe + asar 各一份, 上百 MB) 是本地运维产物, 不入库
+backup-1.*/
+# 部署脚本按版本号堆积, 且写死了本机 D 盘路径, 属于本地运维脚本
+deploy-1*.ps1
+deploy-1*.ps1.bak
 *.log
 *.txt
 Poro/

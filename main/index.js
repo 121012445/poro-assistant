@@ -1459,9 +1459,15 @@ function imageLooksBlack(img) {
   } catch (e) { return false; }
 }
 
+// Alternate the two proven chat scales instead of running both serially in one
+// request. A usable first result now returns after one OCR pass; the next scan
+// automatically tries the other scale when the current frame is difficult.
+let _gtChatOcrScaleIndex = 0;
+let _gtLastChatOcrEngine = 'none';
+
 ipcMain.handle('game-translate:ocr-chat', async (e) => {
   try {
-    if (process.platform !== 'win32' || !augmentOcr.isAvailable()) return null;
+    if (process.platform !== 'win32' || !chatOcrAvailable()) return null;
     const gameRect = winRect.getLeagueGameRect();
     if (!gameRect || !gameRect.width || !gameRect.height) return null;
     let screenshot = null;
@@ -1540,31 +1546,24 @@ ipcMain.handle('game-translate:ocr-chat', async (e) => {
     let crop = screenshot.crop(chatRect);
     if (crop.isEmpty()) return null;
     const cs = crop.getSize();
-    // 1.5.56: 单档放大倍数在**不同帧之间会互相打架** —— 实测同一批帧里
-    // 5x 能把 "goodluck" 读对而把另一帧读成 "hello eve 吖 on e"(含中文直接废掉),
-    // 6x 恰好相反。所以两档都跑, 结果拼在一起交回渲染层:
-    // 解析器按出现顺序收, 同一句话的第二个版本会被模糊去重吃掉 —— 等于自动择优。
-    // 代价: 每 4 秒多一次 OCR, 实测每次 ~250ms。
-    // 1.5.72: 倍数不再写死 5/6, 改成按目标宽度反推 (见 overlay-position.chatOcrScales)。
-    // 05:44 局实证 5x/6x 会把 "top" 切成 "to p"、把 "01:18" 读成 "山：18"。
+    // 1.5.114: 两档不再在一次 IPC 中串行执行。之前每条消息必须等两次 OCR
+    // 才返回，实测固定多出约一半等待时间。现在每帧只跑一档，下一帧轮换另一档；
+    // 去重层仍会把两帧里的同一句合并，所以保留容错能力但首个结果更快。
     const scales = overlayPosition.chatOcrScales(cs.width);
+    // RapidOCR performs its own detector resize. Feeding the original crop is both
+    // faster and sharper than enlarging the tiny UI text twice with interpolation.
+    const k = chatOcrUsesRapid() ? 1 : scales[_gtChatOcrScaleIndex++ % scales.length];
     const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const texts = [];
-    for (let si = 0; si < scales.length; si++) {
-      const k = scales[si];
-      const ocrImage = crop.resize({ width: cs.width * k, height: cs.height * k, quality: 'best' });
-      const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}-${si}.png`);
-      fs.writeFileSync(imagePath, ocrImage.toPNG());
-      try {
-        const t = String(await requestAugmentOcr(imagePath) || '');
-        if (t) texts.push(t);
-      } finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
-    }
-    const text = texts.join('\n');
+    const ocrImage = crop.resize({ width: cs.width * k, height: cs.height * k, quality: 'best' });
+    const imagePath = path.join(USER_DATA, `gt-chat-ocr-${stamp}.png`);
+    fs.writeFileSync(imagePath, ocrImage.toPNG());
+    let text = '';
+    try { text = String(await requestChatOcr(imagePath) || ''); }
+    finally { try { fs.unlinkSync(imagePath); } catch (e2) {} }
     // 诊断: OCR 原文留痕 (内容变化才写), "没翻译"时先看这里读到没读到;
     // 换行用 ⏎ 标记保留 —— OCR 是否把多条聊天合并成一行直接影响解析
     const diagText = text.replace(/\r?\n/g, ' ⏎ ').replace(/[ \t]+/g, ' ').trim().substring(0, 160);
-    const diagLine = `[GT OCR] via=${via} img=${size.width}x${size.height} crop=${chatRect.x},${chatRect.y},${chatRect.width}x${chatRect.height} overlay=${overlayRect ? 'yes' : '-'} len=${text.length} text=${diagText}`;
+    const diagLine = `[GT OCR] engine=${_gtLastChatOcrEngine} via=${via} scale=${k} img=${size.width}x${size.height} crop=${chatRect.x},${chatRect.y},${chatRect.width}x${chatRect.height} overlay=${overlayRect ? 'yes' : '-'} len=${text.length} text=${diagText}`;
     if (!text.length) {
       // 空结果以前被 periodicLog 去重吃掉, 日志里完全看不到 —— 表现为"功能静默消失"。
       // 每 10 次空结果强制留一行, 并带上连续空帧数。
@@ -1587,6 +1586,26 @@ function augmentOcrWorkerPath() {
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'main', 'native', 'PoroOcrWorker.ps1')
     : path.join(__dirname, 'native', 'PoroOcrWorker.ps1');
 }
+function chatOcrWorkerPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'main', 'native', 'PoroChatOcrWorker.ps1')
+    : path.join(__dirname, 'native', 'PoroChatOcrWorker.ps1');
+}
+function rapidChatOcrWorkerPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'main', 'native', 'PoroRapidOcrWorker.py')
+    : path.join(__dirname, 'native', 'PoroRapidOcrWorker.py');
+}
+function rapidChatPythonPath() {
+  const candidates = [
+    process.env.PORO_RAPID_OCR_PYTHON,
+    'D:\\PoroRuntime\\rapidocr\\Scripts\\python.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'PoroRuntime', 'rapidocr', 'Scripts', 'python.exe')
+  ].filter(Boolean);
+  return candidates.find(file => {
+    try { return fs.existsSync(file); } catch (e) { return false; }
+  }) || '';
+}
 
 // OCR 子进程管理见 main/ocr-worker.js (含"缺少中文 OCR 语言包时不再每轮重启 PowerShell"的退避)
 // PowerShell 用 System32 绝对路径: 应用以管理员运行, 按 PATH 搜索可被同名程序劫持。
@@ -1594,9 +1613,47 @@ function powershellExePath() {
   return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 const augmentOcr = createOcrWorker({ spawn, exePath: powershellExePath(), scriptPath: augmentOcrWorkerPath, log: logErr });
+const windowsChatOcr = createOcrWorker({ spawn, exePath: powershellExePath(), scriptPath: chatOcrWorkerPath, log: logErr });
+const rapidChatPython = rapidChatPythonPath();
+const rapidChatOcr = rapidChatPython ? createOcrWorker({
+  spawn,
+  exePath: rapidChatPython,
+  scriptPath: rapidChatOcrWorkerPath,
+  args: script => ['-u', script],
+  timeoutMs: 4500,
+  log: message => logErr(String(message).replace(/AUGMENT OCR WORKER/g, 'RAPID CHAT OCR'))
+}) : null;
+let rapidChatOcrDisabledUntil = 0;
 function ensureAugmentOcrWorker() { return augmentOcr.ensure(); }
 function stopAugmentOcrWorker() { augmentOcr.stop(); }
 function requestAugmentOcr(imagePath) { return augmentOcr.request(imagePath); }
+function chatOcrUsesRapid() {
+  return !!(rapidChatOcr && Date.now() >= rapidChatOcrDisabledUntil && rapidChatOcr.isAvailable());
+}
+function chatOcrAvailable() { return chatOcrUsesRapid() || windowsChatOcr.isAvailable(); }
+function ensureChatOcrWorker() {
+  if (chatOcrUsesRapid()) return rapidChatOcr.ensure();
+  return windowsChatOcr.ensure();
+}
+function stopChatOcrWorker() {
+  try { rapidChatOcr && rapidChatOcr.stop(); } catch (e) {}
+  windowsChatOcr.stop();
+  rapidChatOcrDisabledUntil = 0;
+}
+async function requestChatOcr(imagePath) {
+  if (chatOcrUsesRapid()) {
+    try {
+      const text = await rapidChatOcr.request(imagePath);
+      _gtLastChatOcrEngine = 'rapid';
+      return text;
+    } catch (error) {
+      rapidChatOcrDisabledUntil = Date.now() + 5 * 60 * 1000;
+      logErr('[GT OCR] RapidOCR failed, Windows fallback for 5m: ' + String(error?.message || error).substring(0, 240));
+    }
+  }
+  _gtLastChatOcrEngine = 'windows';
+  return windowsChatOcr.request(imagePath);
+}
 
 async function recognizeAugmentNamesByOcr(screenshot, candidates) {
   if (process.platform !== 'win32' || !screenshot || screenshot.isEmpty()) return [];
@@ -2400,8 +2457,13 @@ function handlePhaseChange(phase) {
       overlayVisible = false;
       overlayWindow.hide();
     }
-    if (phase === 'GameStart' || phase === 'InProgress') ensureAugmentOcrWorker();
-    else stopAugmentOcrWorker();
+    if (phase === 'GameStart' || phase === 'InProgress') {
+      ensureAugmentOcrWorker();
+      ensureChatOcrWorker();
+    } else {
+      stopAugmentOcrWorker();
+      stopChatOcrWorker();
+    }
     if (phase === 'InProgress') {
       inProgressHotkeysActive = true;
       const pollStarted = hotkeyPoller.start();
@@ -3018,5 +3080,6 @@ app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch (e) {}
   try { hotkeyPoller.stop(); } catch (e) {}
   try { stopAugmentOcrWorker(); } catch (e) {}
+  try { stopChatOcrWorker(); } catch (e) {}
 });
 app.on('activate', () => { if (mainWindow) mainWindow.show(); });

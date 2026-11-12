@@ -127,34 +127,74 @@ body.dark.theme-b {
 .nav-item.active { padding-left: 11px; background: #263238; color: #7bd1d9; border: 0; box-shadow: inset 2px 0 #55bdc8; }
 .theme-a .nav-item.active, .theme-c .nav-item.active, .dark.theme-b .nav-item.active { background: #263238; color: #7bd1d9; box-shadow: inset 2px 0 #55bdc8; }
 .nav-item.active::before { content: none; }
-.sidebar-footer { margin-top: 8px; padding: 9px 2px 0; border-top-color: #2b3239; color: #91a0ac; }
+/* 导航区可收缩可滚动, 底栏完整保留 —— 否则展开状态面板会把 nav 挤掉或自己溢出视口 */
+.sidebar-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.sidebar-footer { flex: 0 0 auto; margin-top: 8px; padding: 9px 2px 0; border-top-color: #2b3239; color: #91a0ac; }
 .sidebar-status-toggle, .theme-picker-btn { border-color: #303840; background: #1d2328; color: #aeb9c2; }
 .sidebar-status-toggle:hover, .theme-picker-btn:hover { background: #252d34; color: #edf2f5; }
 .sidebar-status-panel {
-  width: 252px;
+  /* 侧栏 196px - padding 16 = 180px, footer 再让 4px → 只有 176px 可用。
+     原来写死 252px 会横向溢出 76px, 被侧栏裁掉 (自动化那行、按钮只露半个字)。 */
+  width: auto;
+  max-width: 100%;
   padding: 12px;
-  border-color: #3b454e;
-  background: #1b2228;
+  border-color: #52606b;
+  background: #182027;
   box-shadow: 0 12px 30px rgba(0,0,0,.38);
+  /* 面板共 11 块内容 (4 行状态 + 标题 + 提示 + 徽标 + 2 组按钮 + 记录 + 2 个动作),
+     不限高的话底部「停止全部自动化 / 重新检测客户端」直接落到窗口外。 */
+  max-height: calc(100vh - 400px);
+  min-height: 120px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
-.sidebar-status-row { padding: 5px 0; color: #aeb9c2; font-size: 12px; }
-.sidebar-status-row span { color: #aeb9c2; }
-.sidebar-status-row b { color: #f0f4f6; font-size: 12px; font-weight: 600; }
-.sidebar-status-title { margin-top: 9px; color: #f2f5f7; font-size: 13px; font-weight: 600; }
-.sidebar-status-next { margin-top: 5px; color: #bec8cf; font-size: 11px; line-height: 1.5; }
-.sidebar-status-log { margin-top: 9px; padding-top: 8px; border-top-color: #38424a; color: #b3bec6; font-size: 11px; line-height: 1.5; }
-.sidebar-status-pill { margin-top: 7px; border-color: #46535d; background: #242d34; color: #d8e0e5; font-size: 11px; }
+.sidebar-status-row { align-items: baseline; flex-wrap: wrap; row-gap: 2px; padding: 5px 0; color: #c6d0d7; font-size: 12px; line-height: 1.4; }
+.sidebar-status-row span { flex: 0 0 auto; color: #9fb0bb; }
+.sidebar-status-row b { min-width: 0; margin-left: auto; color: #ffffff; font-size: 12px; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.sidebar-status-title { margin-top: 10px; color: #ffffff; font-size: 14px; font-weight: 700; line-height: 1.35; }
+.sidebar-status-next { margin-top: 5px; color: #d1d9de; font-size: 12px; line-height: 1.5; }
+.sidebar-status-log { margin-top: 11px; padding-top: 10px; border-top: 1px solid #46525c; color: #c7d0d6; font-size: 12px; line-height: 1.55; }
+.sidebar-status-pill { margin-top: 8px; padding: 3px 8px; border-color: #60717d; background: #25313a; color: #f1f5f7; font-size: 12px; font-weight: 600; }
 .sidebar-status-actions { gap: 6px; margin-top: 9px; }
-.sidebar-status-actions button, .sidebar-status-reconnect {
-  min-height: 31px;
-  border-color: #46525c;
-  background: #242c33;
-  color: #dce3e8;
-  font-size: 11px;
-  font-weight: 500;
+.sidebar-status-panel .sidebar-status-actions button,
+.sidebar-status-panel .sidebar-status-reconnect {
+  min-height: 36px !important;
+  /* nowrap + flex:1 时 min-width 默认取内容宽, 会让并排按钮撑破 141px 内容区 */
+  min-width: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-color: #60707b !important;
+  background: #26323a !important;
+  color: #f3f6f8 !important;
+  -webkit-text-fill-color: #f3f6f8;
+  font-size: 12px !important;
+  font-weight: 600 !important;
 }
-.sidebar-status-actions button:hover, .sidebar-status-reconnect:hover { border-color: #62c5ce; background: #2a353c; color: #ffffff; }
-.sidebar-status-actions button:disabled, .sidebar-status-reconnect:disabled { opacity: .62; color: #b6c0c7; }
+.sidebar-status-panel .sidebar-status-actions button:hover,
+.sidebar-status-panel .sidebar-status-reconnect:hover {
+  border-color: #62c5ce !important;
+  background: #2f3d45 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+}
+.sidebar-status-panel .sidebar-status-pill.is-online {
+  border-color: rgba(110, 231, 183, .52);
+  background: rgba(36, 112, 83, .28);
+  color: #6ee7b7;
+}
+.sidebar-status-panel .sidebar-status-pill.is-live {
+  border-color: rgba(246, 189, 115, .52);
+  background: rgba(138, 83, 30, .28);
+  color: #f6bd73;
+}
+.sidebar-status-panel .sidebar-status-actions button:disabled,
+.sidebar-status-panel .sidebar-status-reconnect:disabled {
+  opacity: 1 !important;
+  border-color: #46545e;
+  background: #202a31;
+  color: #aebbc4 !important;
+  -webkit-text-fill-color: #aebbc4;
+}
 body.nav-collapsed .sidebar-status-panel { width: 252px; }
 
 body.nav-collapsed { grid-template-columns: 58px minmax(0, 1fr); }

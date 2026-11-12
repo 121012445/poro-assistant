@@ -7,6 +7,7 @@
 let gtEnabled = false;
 let gtPollTimer = null;
 let gtBusy = false;
+let gtScanBusy = false;           // LCU discovery may overlap translation, but never overlap itself
 let gtFlushAt = 0;
 let gtMyChatId = '';
 let gtMyName = '';               // chat id 取不到时用召唤师名字认自己
@@ -32,6 +33,7 @@ let _gtPhaseInAt = 0;            // 本局进局时间 (OCR 通道延迟启动�
 let _gtOcrNextAt = 0;            // 下次聊天框 OCR 的时间
 let _gtOcrTotal = 0;             // OCR 通道累计送进翻译管线的行数 (诊断用)
 let _gtOcrSkipLogAt = 0;         // 上次打"OCR 全被过滤"日志的时间 (限频)
+let _gtOcrBusy = false;           // one capture/OCR request at a time
 // OCR 消息去重: 最近读到的消息 [{ norm, body, sent, at }]。
 // 1.5.50 按文本精确去重 (抖动就变新消息); 1.5.51 按频道+时间戳 (时间戳读不准);
 // 1.5.52 改为**归一化后模糊比对** —— 见 gtOcrSame。
@@ -179,7 +181,7 @@ function gameTranslateOnPhase(phase) {
     _gtHistRead = 0;
     _gtFreshTotal = 0;
     _gtPhaseInAt = Date.now();
-    _gtOcrNextAt = Date.now() + 10000;   // LCU 10s 内仍无新消息就提前启用 OCR 兜底
+    _gtOcrNextAt = Date.now() + 1500;    // chat may bypass LCU entirely; start OCR almost immediately
     gtOcrRecent = [];
     _gtOcrTotal = 0;
     _gtOcrSkipLogAt = 0;
@@ -276,7 +278,8 @@ async function gtResolveCids(force) {
 
 async function gtScan() {
   if (!gtEnabled || !lcuConnected || !gtInGame()) { gtSyncPolling(); return; }
-  if (gtBusy) return;
+  if (gtScanBusy) return;
+  gtScanBusy = true;
   try {
     if (!gtMyChatId || !gtMyName) {
       if (!gtMyChatId) {
@@ -400,18 +403,17 @@ async function gtScan() {
       } catch (e) {}
     }
     if (fresh) gtFlush();
-    // 国服部分对局聊天不进 LCU。进局 10s 后仍无新消息就启用 OCR，避免白等半分钟。
-    // LCU 仍零新消息 → OCR 轮询游戏左下聊天框。LCU 恢复有数据则自动停。
-    // 1.5.80: 4s → 2.4s。这是"发出去到浮窗出现译文"里最大的一段固定延迟:
-    // 消息发出后要等下一轮扫描才被读到, 4s 的间隔意味着平均白等 2 秒。
-    // 扫描由 gtScan 的 900ms 轮询驱动, 所以这里填 2400 实际落在 2.7s (3 拍);
-    // 填 4000 会落到 4.5s (5 拍), 比标称值更慢 —— 之前一直是这样。
-    // 裁剪区只有 640x252, 单帧 OCR 一百多毫秒, 加密到 2.7s 一轮不会明显吃 CPU。
-    if (gtInGame() && !_gtFreshTotal && Date.now() - _gtPhaseInAt > 10000 && Date.now() >= _gtOcrNextAt) {
-      _gtOcrNextAt = Date.now() + 1800;
+    // 1.5.114: OCR cannot be disabled just because LCU returned a "fresh" row. On CN
+    // servers the only LCU conversation is often a persistent/self room; reading one
+    // old row used to set _gtFreshTotal and permanently stop OCR for the whole game.
+    // Keep OCR alive alongside LCU. Translation has its own busy flag, so a slow remote
+    // request no longer pauses capture of subsequent chat messages.
+    if (gtInGame() && Date.now() - _gtPhaseInAt > 1500 && Date.now() >= _gtOcrNextAt) {
+      _gtOcrNextAt = Date.now() + 900;
       gtOcrScan();
     }
   } catch (e) { try { lolAPI.debugLog('[GT] scan error: ' + (e?.message || e)); } catch (e2) {} }
+  finally { gtScanBusy = false; }
 }
 
 // OCR 输出解析 (可单测)。
@@ -697,8 +699,15 @@ function gtOcrWeirdDistance(a, b) {
 // ("bang is world's best ad" → "bang is would best ad"), 把一句好话改坏。
 // 阈值: ≥6 字母允许差 2 个字符, 更短的只允许差 1; 短于 4 个字母不猜。
 function gtOcrRepairWeirdWords(s) {
-  const toks = String(s || '').split(/\s+/).filter(Boolean);
-  if (!toks.some(t => /[^\x20-\x7e]/.test(t) || /[A-Za-z][,;:"|][A-Za-z]/.test(t))) return s;
+  // 游戏聊天里的全角标点是正常文本，不是 OCR 乱码。旧逻辑把 `well，im` 当成一个
+  // 损坏 token 做编辑距离纠正，最后会误改成 `good`，并把 `im` 整段吃掉。
+  // 先把夹在拉丁词之间的全角分隔符规范成 ASCII 标点 + 空格，再处理真正的乱码词。
+  const source = String(s || '')
+    .replace(/([A-Za-z])，(?=[A-Za-z])/g, '$1, ')
+    .replace(/([A-Za-z])；(?=[A-Za-z])/g, '$1; ')
+    .replace(/([A-Za-z])[、。](?=[A-Za-z])/g, '$1. ');
+  const toks = source.split(/\s+/).filter(Boolean);
+  if (!toks.some(t => /[^\x20-\x7e]/.test(t) || /[A-Za-z][,;:"|][A-Za-z]/.test(t))) return source;
   const out = [];
   for (const t of toks) {
     const weird = /[^\x20-\x7e]/.test(t);
@@ -717,6 +726,12 @@ function gtOcrRepairWeirdWords(s) {
     // 修不出来就不推这个词 —— 留着它只会让机翻再吐一句"你好everyone"
   }
   return out.join(' ');
+}
+
+function gtOcrNeedsStableFrame(s) {
+  // 这类标点在缩放/抗锯齿下很容易与字母粘成一个框。首帧先保留候选，下一帧
+  // 读到同一时间戳后再发布，避免单帧纠错把正常单词改坏；通常只增加一个扫描周期。
+  return /[A-Za-z][，；、。][A-Za-z]/.test(String(s || ''));
 }
 
 function gtOcrStripBody(seg) {
@@ -923,6 +938,8 @@ function gtOcrSame(a, b) {
 
 async function gtOcrScan() {
   if (!lolAPI.gameTranslateOcrChat) return;
+  if (_gtOcrBusy) return;
+  _gtOcrBusy = true;
   try {
     const raw = await lolAPI.gameTranslateOcrChat();
     if (!raw) return;
@@ -979,12 +996,11 @@ async function gtOcrScan() {
       if (key) rec = gtOcrRecent.find(r => r.key === key && (!r.ch || !ch || r.ch === ch)) || null;
       if (!rec) {
         for (const r of gtOcrRecent) {
-          // 1.5.80: 正文**一字不差**但时间戳不同的, 是队友真的发了两遍同一句话
-          // (用户截图: 00:04 和 00:24 各一条 "hello everyone")。这种情况下时间戳
-          // 是"这是两条消息"的确凿证据, 模糊兜底不能把第二条吞掉 —— 聊天框里明明
-          // 有两行, 浮窗只显示一行就是漏消息。时间戳读不出来 (无 key) 或正文有差异
-          // (读烂了) 时才走模糊兜底。
-          if (key && r.key && r.key !== key && r.norm === norm) continue;
+          // 1.5.115: 两边都有时间戳且时间不同，就一定是两条真实聊天，正文多相似都
+          // 不能合并。旧逻辑只保护完全相同正文，导致 19:27 "top gop" 与 19:39
+          // "top gap" 被模糊去重吞掉；同理 "good jib" 会吞掉后发的 "good job"。
+          // 时间戳读不出来的一边仍可走正文模糊兜底，保留 OCR 抖动修复能力。
+          if (key && r.key && r.key !== key) continue;
           // 1.5.55: 已发出的记录只认严格相似 (否则 "hello" 会被 "hello everyone" 吞掉);
           // 还没发出的"待确认"记录放宽到包含判定 —— 它就是靠"读到更完整的版本"来升级的。
           if (gtOcrSame(r.norm, norm)
@@ -992,7 +1008,11 @@ async function gtOcrScan() {
         }
       }
       if (!rec) {
-        if (gtOcrNeedsConfirm(body)) { gtOcrRecent.push({ key, ch, ord, norm, body, dirty, sent: false, at: Date.now() }); held++; continue; }
+        if (gtOcrNeedsConfirm(body) || gtOcrNeedsStableFrame(rawBody)) {
+          gtOcrRecent.push({ key, ch, ord, norm, body, dirty, sent: false, at: Date.now() });
+          held++;
+          continue;
+        }
         gtOcrRecent.push({ key, ch, ord, norm, body, dirty, sent: true, at: Date.now() });
         gtQueue.push({ name: '聊天', body, k: key || undefined, ord });
         _gtOcrTotal++; fresh++; lastFresh = body + '@' + (key || '无键');
@@ -1070,6 +1090,7 @@ async function gtOcrScan() {
       } catch (e) {}
     }
   } catch (e) { try { lolAPI.debugLog('[GT] ocr error: ' + (e?.message || e)); } catch (e2) {} }
+  finally { _gtOcrBusy = false; }
 }
 
 async function gtTranslateBatch(texts, target) {

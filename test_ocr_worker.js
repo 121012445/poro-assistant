@@ -178,16 +178,60 @@ const ocr = createOcrWorker({
   assert.strictEqual(describeStartupError('\r\n  其他错误\r\n第二行'), '其他错误');
   assert.strictEqual(describeStartupError(''), '');
 
-  // ---------- 7) 脚本与接线 ----------
+  // ---------- 7) Python worker 自定义启动参数 ----------
+  // Python/ONNX 聊天 worker 复用同一管理器，但启动参数不能带 PowerShell 开关。
+  const custom = createOcrWorker({
+    spawn: fakeSpawn,
+    exePath: 'D:\\PoroRuntime\\rapidocr\\Scripts\\python.exe',
+    scriptPath: () => 'C:\\x\\PoroRapidOcrWorker.py',
+    args: script => ['-u', script]
+  });
+  const customRequest = settle(custom.request('chat.png'));
+  const customChild = spawned[spawned.length - 1];
+  assert.strictEqual(customChild.cmd, 'D:\\PoroRuntime\\rapidocr\\Scripts\\python.exe');
+  assert.deepStrictEqual(customChild.args, ['-u', 'C:\\x\\PoroRapidOcrWorker.py'],
+    '自定义 worker 参数应原样交给 Python，不能混入 PowerShell 参数');
+  reply(customChild, 'OK', '00:01 [Team] Rain: good job');
+  assert.strictEqual((await customRequest).v, '00:01 [Team] Rain: good job');
+  custom.stop();
+
+  // ---------- 8) 脚本与接线 ----------
   const ps = fs.readFileSync('main/native/PoroOcrWorker.ps1', 'utf8');
   assert.ok(ps.includes("throw \"OCR_LANG_MISSING installed=$installed\""), '脚本应抛出可识别的 ASCII 标记');
   assert.ok(/AvailableRecognizerLanguages[\s\S]*-match '\^zh-\(Hans\|CN\|SG\)'/.test(ps), '应匹配已安装的其他简体中文标签');
   const codeLines = ps.split(/\r?\n/).filter(l => !l.trim().startsWith('#'));
   assert.ok(codeLines.every(l => /^[\x00-\x7f]*$/.test(l)), '无 BOM 的 .ps1 会按 ANSI 代码页读取: 代码行必须是 ASCII');
+  const chatPs = fs.readFileSync('main/native/PoroChatOcrWorker.ps1', 'utf8');
+  assert.ok(/AvailableRecognizerLanguages[\s\S]*-match '\^en\(\?:-\|\$\)'[\s\S]*-match '\^zh-\(Hans\|CN\|SG\)'/.test(chatPs),
+    '聊天 OCR 应优先英文语言包，并在未安装英文时回退简体中文');
+  assert.ok(chatPs.includes('CHAT_OCR_LANG_MISSING'), '聊天 OCR 缺少可用语言时应输出可诊断标记');
+  const chatCodeLines = chatPs.split(/\r?\n/).filter(l => !l.trim().startsWith('#'));
+  assert.ok(chatCodeLines.every(l => /^[\x00-\x7f]*$/.test(l)), '聊天 OCR 脚本代码行也必须保持 ASCII');
+  const rapidPy = fs.readFileSync('main/native/PoroRapidOcrWorker.py', 'utf8');
+  assert.ok(rapidPy.includes('from rapidocr import RapidOCR'), 'RapidOCR worker 应使用本地 PP-OCR/ONNX 引擎');
+  assert.ok(rapidPy.includes('base64.b64decode') && rapidPy.includes('reply("OK"'),
+    'RapidOCR worker 应复用现有 base64 行协议');
+  assert.ok(rapidPy.includes('use_cls=False') && rapidPy.includes('text_score=0.55'),
+    '聊天 OCR 应关闭无用方向分类并过滤低置信度文本');
   const main = fs.readFileSync('main/index.js', 'utf8');
   assert.ok(main.includes("require('./ocr-worker')"), 'index.js 应使用 ocr-worker 模块');
   assert.ok(main.includes('if (!augmentOcr.isAvailable()) return [];'), '退避期内不应写裁图');
   assert.ok(main.includes('ocr: augmentOcr.status()'), '诊断应能看到 OCR 状态');
+  assert.ok(main.includes("scriptPath: chatOcrWorkerPath"), 'Windows 聊天识别回退必须使用独立 OCR worker');
+  assert.ok(main.includes("scriptPath: rapidChatOcrWorkerPath"), '聊天识别应优先接入独立 RapidOCR worker');
+  assert.ok(main.includes("'D:\\\\PoroRuntime\\\\rapidocr\\\\Scripts\\\\python.exe'"),
+    'RapidOCR 运行环境应默认放在 D 盘');
+  assert.ok(/chatOcrUsesRapid\(\) \? 1 : scales\[_gtChatOcrScaleIndex\+\+ % scales\.length\]/.test(main),
+    'RapidOCR 应使用原始裁图，Windows 回退才逐帧轮换放大档');
+  assert.ok(/RapidOCR failed, Windows fallback for 5m/.test(main),
+    'RapidOCR 异常时必须自动回退 Windows OCR，不能让翻译通道整体失效');
+  assert.ok(!/for \(let si = 0; si < scales\.length; si\+\+\)/.test(main),
+    '聊天 OCR 不应恢复为单次串行执行所有缩放档');
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  assert.ok(pkg.build.asarUnpack.includes('main/native/PoroChatOcrWorker.ps1'),
+    '聊天 OCR worker 必须从 asar 解包，供 PowerShell 直接执行');
+  assert.ok(pkg.build.asarUnpack.includes('main/native/PoroRapidOcrWorker.py'),
+    'RapidOCR worker 必须从 asar 解包，供 D 盘 Python 直接执行');
   assert.ok(!/let augmentOcrPending/.test(main), '旧的进程管理代码应已移除');
 
   finished = true;

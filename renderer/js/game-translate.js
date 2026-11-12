@@ -42,6 +42,20 @@
   const MAX_LINES = 10;
   const FADE_MS = 800;   // 与 .gt-line 的 transition 时长一致
 
+  function scrollToLatest() {
+    if (!listEl) return;
+    const apply = () => {
+      listEl.scrollTop = Math.max(0, Number(listEl.scrollHeight || 0) - Number(listEl.clientHeight || 0));
+    };
+    // 等 DOM 插入、文字换行和字体布局都完成后再置底；只在收到新数据时调用，
+    // 每秒的淡出刷新不会持续抢用户滚轮。
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => requestAnimationFrame(apply));
+    } else {
+      apply();
+    }
+  }
+
   function lineInner(l) {
     // 1.5.79: 三态可辨 —— 静默丢弃是用户反馈里最难受的一点 ("我怎么确定是翻译时间
     // 过久还是翻译失败")。
@@ -77,7 +91,7 @@
     if (anchor) listEl.insertBefore(el, anchor); else listEl.appendChild(el);
   }
 
-  function render() {
+  function render(followLatest) {
     if (!listEl) return;
     const now = Date.now();
     // 历史不再按时间删除: 过期只变暗 (gt-old), 除非超出 MAX_LINES 被最老的挤掉。
@@ -114,6 +128,7 @@
       const shouldFade = !inputOn && now - rec.ts > MAX_AGE_MS - FADE_MS;
       if (shouldFade !== rec.faded) { rec.faded = shouldFade; rec.el.classList.toggle('gt-old', shouldFade); }
     }
+    if (followLatest) scrollToLatest();
   }
 
   function setInputUI(on) {
@@ -143,7 +158,7 @@
         inputEl.value = '';
         // 本地先给一条确认 (扫描回读稍后还会补一条中文回显, 两者不重复)
         lines = lines.concat([{ name: '我（已发送）', body: text, translated: r.translated || '', ts: Date.now() }]).slice(-10);
-        render();
+        render(true);
       } else {
         setErr((r && r.error) || '发送失败');
       }
@@ -171,7 +186,7 @@
       if (!d || !Array.isArray(d.lines)) return;
       lines = d.lines.slice();
       if (d.target) target = d.target;
-      render();
+      render(true);
     });
   }
   if (window.lolAPI && window.lolAPI.onGameTranslateInput) {

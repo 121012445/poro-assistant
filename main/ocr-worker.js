@@ -19,6 +19,7 @@ function createOcrWorker(options) {
   const spawn = opts.spawn;
   const exePath = opts.exePath || 'powershell.exe';
   const scriptPath = opts.scriptPath;
+  const args = opts.args;
   const log = typeof opts.log === 'function' ? opts.log : () => {};
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
   const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : DEFAULT_TIMEOUT_MS;
@@ -44,6 +45,13 @@ function createOcrWorker(options) {
 
   function scriptPathValue() { return typeof scriptPath === 'function' ? scriptPath() : scriptPath; }
 
+  function workerArgs() {
+    const script = scriptPathValue();
+    if (typeof args === 'function') return args(script);
+    if (Array.isArray(args)) return args.slice();
+    return ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script];
+  }
+
   function backoffActive() { return unavailableUntil > 0 && now() < unavailableUntil; }
 
   function ensure() {
@@ -51,9 +59,7 @@ function createOcrWorker(options) {
     if (backoffActive()) return null;
     // exePath 默认由调用方注入绝对路径: 应用以管理员运行, 从 PATH 解析
     // powershell.exe 存在被同名程序替换的劫持面。
-    const child = spawn(exePath, [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPathValue()
-    ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(exePath, workerArgs(), { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     worker = child;
     output = '';
     responded = false;

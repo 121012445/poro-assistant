@@ -140,6 +140,8 @@ function syncNavTooltips(collapsed) {
 }
 function switchPage(page) {
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  // 出装浮窗是挂在 body 上的 fixed 层, 不跟着页面隐藏, 切页必须主动关掉
+  if (page !== "live" && typeof closeLiveBuildPop === "function") closeLiveBuildPop();
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
   document.getElementById("page-" + page)?.classList.add("active");
   document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add("active");
@@ -254,6 +256,15 @@ async function init() {
         allSpells = spellRes?.data || {};
         spellMap = {};
         Object.values(allSpells).forEach(s => { spellMap[s.key] = s.image?.full || s.id; });
+        // 初始化出装引擎: 角色/伤害类型由 champion.json 的 tags 与 attack/magic 推导,
+        // 不依赖手写映射, 缺数据时引擎内部有兜底
+        if (typeof poroBuildEngine !== 'undefined') {
+          try {
+            poroBuildEngine.initialize(allItems, allChampions);
+          } catch (e) {
+            console.warn('[BuildEngine] 初始化失败:', e && e.message);
+          }
+        }
         // 英雄映射表重建: 首页提速后可能早于本块渲染, 早期空表需要推翻重算
         champNumMap = null;
         ensureChampMap();

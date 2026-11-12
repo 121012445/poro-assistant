@@ -317,6 +317,8 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   window._poroLiveModeContext = {
     queueId: Number(queueId) || 0,
     gameMode: String(queueMode || ''),
+    // 地图号用于「队列号不认识时」的模式兜底 (12 = 嚎哭深渊, 11 = 召唤师峡谷)
+    mapId: Number(session?.map?.id) || 0,
     label: QUEUE_NAMES?.[queueId] || MODE_NAMES?.[queueMode] || queueMode || '当前模式'
   };
   liveBalanceMode = isBalanceMode(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
@@ -632,6 +634,325 @@ function liveItemAdvice(self, enemyComp, ownComp, enemyTeam) {
   return liveContextAdvice(self, ownComp || { frontline: 0 }, enemyComp, enemyTeam || []).items;
 }
 
+// 用出装引擎按双方阵容生成三套方案; 引擎未就绪时返回 null, 由 liveContextAdvice 兜底
+function liveBuildPlans(self, ownSide, enemySide) {
+  if (!self || typeof poroBuildEngine === 'undefined' || !poroBuildEngine.itemDatabase) return null;
+  const myId = Number(self.championId);
+  if (!Number.isFinite(myId) || myId <= 0) return null;
+  try {
+    const toList = list => (Array.isArray(list) ? list : [])
+      .map(p => ({ championId: Number(p && p.championId) }))
+      .filter(p => p.championId > 0);
+    const result = poroBuildEngine.recommend(myId, toList(ownSide), toList(enemySide));
+    return result && result.builds ? result : null;
+  } catch (e) {
+    console.warn('[Live] 出装推荐生成失败:', e && e.message);
+    return null;
+  }
+}
+
+// 三套出装并排展示: 图标 + 总价 + 装备名, 主推那套加高亮边框
+// 数据来源有两套: OP.GG 真实对局 (plans.real) 和本地按阵容推算 (兜底)。
+// 前者用 labels 覆盖「激进/平衡/保守」, 因为真实数据的排序是选取率, 不是风格。
+const LIVE_OPGG_POS_CN = { top: '上单', jungle: '打野', mid: '中单', adc: '下路', support: '辅助' };
+
+function renderLiveBuildPlans(plans, opts) {
+  const ver = typeof version !== 'undefined' ? version : '';
+  const order = [['aggressive', '激进'], ['balanced', '平衡'], ['defensive', '保守']];
+  const labels = plans.labels || {};
+  const activeKey = plans.activeKey || 'balanced';
+  const cards = order.map(([key, fallback]) => {
+    const build = plans.builds[key];
+    if (!build || !build.items.length) return '';
+    const label = labels[key] || fallback;
+    const icons = build.items.map(it =>
+      `<img src="https://ddragon.leagueoflegends.com/cdn/${ver}/img/item/${it.id}.png" title="${escapeHtml(it.name)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+    ).join('');
+    return `<div class="ld-build${key === activeKey ? ' active' : ''}">
+      <div class="ld-build-title"><b>${escapeHtml(label)}</b><span>${build.totalCost}g</span></div>
+      <div class="ld-build-items">${icons}</div>
+      <p>${escapeHtml(build.items.map(it => it.name).join(' · '))}</p>
+    </div>`;
+  }).join('');
+  if (!cards) return '';
+  // 浮窗标题已经写了「推荐出装 · 英雄 · 定位」, 卡组自己的头再重复一遍就成了两行标题。
+  const head = opts && opts.hideHead ? '' :
+    `<div class="ld-builds-head"><b>推荐出装</b><span>${escapeHtml(plans.champion || '')} · ${escapeHtml(liveRoleCn(plans.role))} · ${plans.real ? 'OP.GG 真实数据' : '按敌方阵容生成'}</span></div>`;
+
+  // 来源与备注: 真实数据要标明出处和分路, 本地推算要标明"这是推的", 不能让用户以为一样可靠
+  const notes = (plans.notes || []).filter(Boolean);
+  const srcText = plans.real
+    ? `数据来源：OP.GG ${plans.version || ''}${LIVE_OPGG_POS_CN[plans.position] ? ' · ' + LIVE_OPGG_POS_CN[plans.position] : ''} · 按真实对局选取率排序`
+    : 'OP.GG 数据未取到，以下按敌方阵容本地推算';
+  const foot = `<p class="ld-builds-src${plans.real ? '' : ' local'}">${escapeHtml(srcText)}</p>`
+    + (notes.length ? `<p class="ld-builds-note">${escapeHtml(notes.join('　｜　'))}</p>` : '');
+
+  return `<div class="ld-builds">
+    ${head}
+    <div class="ld-builds-grid">${cards}</div>
+    ${foot}
+  </div>`;
+}
+
+// ===== 1.5.122: 出装浮窗 =====
+// 三套出装曾经塞在页头那个「本局作战计划」浮层里。那个浮层贴在页头, 展开是绝对定位,
+// 高度只有 225px (见 extras.css), 出装卡永远在滚动区外面 —— 表现为"打开也看不到"。
+// 往页面主体里铺又会从两列战绩里抢高度 (两列 .lp-recent 本来就是靠压缩才挤进一屏的)。
+// 这里改成独立浮窗: fixed 定位 + 遮罩, 完全不参与文档流, 战绩区高度分毫不动。
+//
+// 1.5.121 上线后出现"点按钮没反应"。排查结论: 代码本身能跑, 但这个函数有静默失败分支
+// (拿不到上下文就直接 return), 用户看到的就是"什么都没发生"。所以这里改成:
+//   1) 先把浮窗显示出来, 再填内容 —— 任何一步失败都留下可见反馈;
+//   2) 入口改用事件委托, 不依赖内联 onclick;
+//   3) 上下文支持三级回退, 不再只认 _poroLiveSnapshot。
+const LIVE_ROLE_CN = { tank: '坦克', fighter: '战士', assassin: '刺客', mage: '法师', marksman: '射手', support: '辅助' };
+function liveRoleCn(role) { return LIVE_ROLE_CN[role] || ''; }
+
+let liveBuildPopEl = null, liveBuildBackdropEl = null;
+// 打开浮窗的那一次点击, 会在遮罩插入之后继续派发 (Electron 下同一次按下/抬起可能产生两次
+// click), 第二次就落在刚盖满全屏的遮罩上 -> 立刻被当成"点空白处"关掉。
+// 表现正是"点了按钮毫无反应"(浮窗闪一下就没了)。这里给一个很短的免疫期。
+let _lbpOpenedAt = 0;
+const LBP_OPEN_GUARD = 350;
+
+function ensureLiveBuildPop() {
+  if (liveBuildPopEl && document.body.contains(liveBuildPopEl)) return liveBuildPopEl;
+  const bd = document.createElement('div');
+  bd.className = 'lbp-backdrop';
+  bd.hidden = true;
+  bd.addEventListener('click', () => {
+    if (Date.now() - _lbpOpenedAt < LBP_OPEN_GUARD) return;
+    closeLiveBuildPop();
+  });
+  document.body.appendChild(bd);
+  liveBuildBackdropEl = bd;
+
+  const el = document.createElement('div');
+  el.id = 'liveBuildPop';
+  el.className = 'lmp lbp';
+  el.hidden = true;
+  el.innerHTML = '<div class="lmp-head">'
+    + '<span class="lmp-title">推荐出装</span>'
+    + '<span class="lmp-hint">Esc 或点空白处关闭</span>'
+    + '<button type="button" class="lmp-close" title="关闭">×</button>'
+    + '</div><div class="lmp-body lbp-body"></div>';
+  el.querySelector('.lmp-close').addEventListener('click', closeLiveBuildPop);
+  document.body.appendChild(el);
+  liveBuildPopEl = el;
+  return el;
+}
+
+// 诊断日志: 只有 [RENDERER] 前缀会被转到 crash.log, debugLog 会补这个前缀
+function lbpLog(msg) {
+  try { if (window.lolAPI && lolAPI.debugLog) lolAPI.debugLog('[BUILD POP] ' + msg); } catch (e) {}
+  try { console.log('[BUILD POP]', msg); } catch (e) {}
+}
+
+// 本局上下文: 三级回退。_poroLiveSnapshot 在数据不全时整个为 null,
+// _poroLiveCtx 在 renderLiveTeams 里无条件落地, 最后兜到玩家缓存。
+function liveBuildContext() {
+  const c = window._poroLiveCtx;
+  if (c && Array.isArray(c.data) && c.data.length) return c;
+  const s = window._poroLiveSnapshot;
+  if (s && Array.isArray(s.data) && s.data.length) return s;
+  try {
+    if (typeof livePlayersCache !== 'undefined' && livePlayersCache
+      && Array.isArray(livePlayersCache.data) && livePlayersCache.data.length) {
+      return { data: livePlayersCache.data, selfPuuid: window._myPuuid || null };
+    }
+  } catch (e) {}
+  return null;
+}
+
+// ===== 真实出装数据 (OP.GG) =====
+// 为什么必须走这里: 本地引擎按「角色 + 伤害类型」组装备池, 分不清剑魔和剑姬 ——
+// 两者 Data Dragon tags 都是 Fighter, 但真实对局里剑魔是星蚀/朔极之矛/死亡之舞,
+// 剑姬才是破败/三相。这类差别只能来自统计数据, 规则写得再细也是猜。
+// OP.GG 已在选人阶段用于写符文和装备方案 (见 opgg-loadout.js), 这里复用同一个 IPC。
+const LBP_OPGG_TIMEOUT = 6000;
+
+function lbpWithTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('请求超时')), ms);
+    Promise.resolve(promise).then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+// 分路解析: 实战数据里 position 经常是 'NONE' —— 训练模式 (PRACTICETOOL)、自定义、
+// 以及部分加载阶段的 allPlayers 都不带分路。排位接口必须带分路, 之前遇到这种情况
+// 直接放弃真实数据退回本地推算, 等于剑魔又被按战士池算一遍。
+// 这里补一层: 用 OP.GG 该英雄各分路的选取率 (role_rate) 挑最高的一条。
+// 数据来自已有的 lolAPI.getOpgg() (主进程缓存 10 分钟), 不是猜。
+let _lbpPositionCache = null;      // championId -> position key
+let _lbpPositionFetching = null;   // 并发去重: 连点两次只发一次请求
+
+async function lbpPositionFromRanking(champId) {
+  if (_lbpPositionCache) return _lbpPositionCache[champId] || null;
+  if (!_lbpPositionFetching) {
+    _lbpPositionFetching = (async () => {
+      const map = {};
+      try {
+        if (!window.lolAPI || typeof lolAPI.getOpgg !== 'function') return map;
+        const r = await lbpWithTimeout(lolAPI.getOpgg(), LBP_OPGG_TIMEOUT * 2);
+        for (const c of ((r && r.data) || [])) {
+          let best = null;
+          for (const p of (c.positions || [])) {
+            const key = OPGG_POSITION_ALIASES[String((p && p.name) || '').toUpperCase()];
+            const rate = Number(p && p.stats && p.stats.role_rate) || 0;
+            if (key && (!best || rate > best.rate)) best = { key, rate };
+          }
+          if (best) map[c.id] = best.key;
+        }
+        lbpLog('pos ranking loaded=' + Object.keys(map).length);
+      } catch (e) {
+        lbpLog('pos ranking fail ' + (e && e.message));
+      } finally {
+        _lbpPositionFetching = null;
+      }
+      _lbpPositionCache = map;
+      return map;
+    })();
+  }
+  const map = await _lbpPositionFetching;
+  return map[champId] || null;
+}
+
+// 拿不到就返回 null, 由本地推算兜底。失败原因写进 lbpLog, 便于从 crash.log 定位。
+async function liveRealBuildPlans(self) {
+  try {
+    // 合规模式关闭一切 OP.GG 相关能力, 出装也要跟着停, 不能绕过
+    if (typeof complianceOn !== 'undefined' && complianceOn) { lbpLog('opgg skip=compliance'); return null; }
+    if (!window.lolAPI || typeof lolAPI.getOpggBuild !== 'function') { lbpLog('opgg skip=noIpc'); return null; }
+    const champId = Number(self && self.championId);
+    if (!champId) return null;
+    if (typeof poroBuildEngine === 'undefined' || !poroBuildEngine.recommendFromReal) return null;
+
+    const mc = window._poroLiveModeContext || {};
+    let mode = typeof opggModeForQueue === 'function' ? opggModeForQueue(mc.queueId, mc.gameMode) : null;
+    if (!mode) {
+      // 国服有些队列号 (例如 3140) 既不在映射表里, gameMode 也认不出来。
+      // 之前这里直接返回 null, 结果就是这些队列永远只能看到本地推算。
+      // 按地图兜底: 12 = 嚎哭深渊(乱斗系), 11 = 召唤师峡谷(用 ranked 数据, 覆盖匹配/自定义)。
+      const mapId = Number(mc.mapId) || 0;
+      if (mapId === 12) mode = 'aram';
+      else if (mapId === 11) mode = 'ranked';
+    }
+    if (!mode) { lbpLog('opgg skip=mode queue=' + (mc.queueId || 0) + ' gm=' + (mc.gameMode || '') + ' map=' + (mc.mapId || 0)); return null; }
+
+    // 非排位系 (大乱斗/无限火力) 主进程一律按 position='none' 取, 不需要分路
+    let position = mode === 'ranked'
+      ? (typeof opggPositionFor === 'function' ? opggPositionFor(self.position, champId) : null)
+      : 'none';
+    if (!position && mode === 'ranked') {
+      // 训练模式/自定义的 position 是 'NONE', 拿不到分路。按 OP.GG 榜单里
+      // 该英雄选取率最高的分路取, 而不是直接退回本地推算。
+      position = await lbpPositionFromRanking(champId);
+      if (position) lbpLog('pos fallback=' + position + ' raw=' + (self.position || '空'));
+    }
+    if (!position) { lbpLog('opgg skip=position pos=' + (self.position || '空') + ' mode=' + mode); return null; }
+
+    const raw = await lbpWithTimeout(lolAPI.getOpggBuild(mode, champId, position), LBP_OPGG_TIMEOUT);
+    if (!raw || raw.__error || !Array.isArray(raw.itemBlocks) || !raw.itemBlocks.length) {
+      lbpLog('opgg empty mode=' + mode + ' pos=' + position + ' err=' + ((raw && raw.__error) || 'none'));
+      return null;
+    }
+    // 主进程的 getBuild 会带上 mode/position, 但缓存命中或字段缺失时可能没有, 这里补齐
+    raw.mode = raw.mode || mode;
+    raw.position = raw.position || position;
+    const plans = poroBuildEngine.recommendFromReal(raw, {
+      champion: poroBuildEngine._championName(champId),
+      role: poroBuildEngine._getRole(champId),
+      damageType: poroBuildEngine._getDamageType(champId),
+    });
+    if (!plans) { lbpLog('opgg parse=null blocks=' + raw.itemBlocks.length); return null; }
+    lbpLog('opgg ok mode=' + mode + ' pos=' + position + ' blocks=' + raw.itemBlocks.length);
+    return plans;
+  } catch (e) {
+    lbpLog('opgg FAIL ' + (e && e.message));
+    return null;
+  }
+}
+
+async function openLiveBuildPop() {
+  const el = ensureLiveBuildPop();
+  const body = el.querySelector('.lbp-body');
+  const title = el.querySelector('.lmp-title');
+  // 先显示再填内容: 后续任何异常都不会变成"点了没反应"
+  el.hidden = false;
+  if (liveBuildBackdropEl) liveBuildBackdropEl.hidden = false;
+  el.classList.add('lmp-open');
+  _lbpOpenedAt = Date.now();
+  try {
+    const ctx = liveBuildContext();
+    const self = ctx && ctx.selfPuuid ? ctx.data.find(p => p.puuid === ctx.selfPuuid) : null;
+    lbpLog('open ctx=' + (ctx ? 'ok/' + ctx.data.length : 'NULL')
+      + ' self=' + (self ? (self.championId || 'noChamp') : 'none')
+      + ' engine=' + (typeof poroBuildEngine !== 'undefined' && poroBuildEngine && poroBuildEngine.itemDatabase ? 'ready' : 'notReady'));
+    if (!self || !Number(self.championId)) {
+      title.textContent = '推荐出装';
+      body.innerHTML = '<p class="lbp-empty">还没识别到你本局的英雄。等阵容数据到位后再点一次。</p>';
+      return;
+    }
+    title.textContent = '推荐出装 · ' + (typeof poroBuildEngine !== 'undefined'
+      ? (poroBuildEngine._championName(Number(self.championId)) || '') : '');
+
+    // 先给"正在读取", 再等真实数据。不先渲染本地版, 是因为本地版可能就是错的
+    // (上一版把破败塞给剑魔), 让用户看到一版错的再替换, 比等两秒更糟。
+    body.innerHTML = '<p class="lbp-empty lbp-loading">正在读取本局真实出装（OP.GG）…</p>';
+
+    const own = ctx.data.filter(p => p && Number(p.team) === Number(self.team));
+    const enemy = ctx.data.filter(p => p && Number(p.team) !== Number(self.team));
+
+    let plans = await liveRealBuildPlans(self);
+    if (el.hidden) return;   // 等待期间用户已经关掉了
+    if (!plans) plans = liveBuildPlans(self, own, enemy);   // 兜底: 本地推算
+
+    if (!plans) {
+      title.textContent = '推荐出装';
+      body.innerHTML = '<p class="lbp-empty">装备库还没加载完（Data Dragon 首次拉取需要几秒），稍后再点一次。</p>';
+      lbpLog('plans=null own=' + own.length + ' enemy=' + enemy.length);
+      return;
+    }
+    const roleCn = liveRoleCn(plans.role);
+    title.textContent = '推荐出装 · ' + (plans.champion || '') + (roleCn ? ' · ' + roleCn : '');
+    body.innerHTML = renderLiveBuildPlans(plans, { hideHead: true });
+    lbpLog('ok champ=' + (plans.champion || '') + ' role=' + (plans.role || '') + ' src=' + (plans.real ? 'opgg' : 'local'));
+  } catch (e) {
+    lbpLog('ERROR ' + (e && e.message));
+    title.textContent = '推荐出装';
+    body.innerHTML = '<p class="lbp-empty">生成失败：' + escapeHtml((e && e.message) || '未知错误') + '</p>';
+  }
+}
+
+function closeLiveBuildPop() {
+  if (!liveBuildPopEl || liveBuildPopEl.hidden) return;
+  liveBuildPopEl.hidden = true;
+  liveBuildPopEl.classList.remove('lmp-open');
+  if (liveBuildBackdropEl) liveBuildBackdropEl.hidden = true;
+}
+
+// 入口用事件委托, 不用内联 onclick: 页面主体每轮轮询都会整体重建 innerHTML,
+// 内联属性只要被任一环节拦掉 (CSP / 属性清理 / 提前 return), 表现就是"点了完全没反应"。
+// 委托挂在 document 上并在脚本加载时立即绑定, 不依赖浮窗是否已创建。
+// 用 typeof 判断而不是直接调用: 有几个单元测试用 vm + 假 document 跑 live.js,
+// 假对象没有 addEventListener, 直接调用会在加载期抛错把整个测试带崩。
+if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+  document.addEventListener('click', e => {
+    const btn = e.target && e.target.closest ? e.target.closest('#liveBuildBtn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // openLiveBuildPop 是 async (要等 OP.GG), 兜住 promise 免得失败时没有痕迹
+    openLiveBuildPop().catch(err => lbpLog('open fail ' + (err && err.message)));
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && liveBuildPopEl && !liveBuildPopEl.hidden) closeLiveBuildPop();
+  });
+}
+
 function buildLiveDecisionPanel(data, selfPuuid) {
   const blue = data.filter(p => p.team === 100 || p.team === '100');
   const red = data.filter(p => p.team === 200 || p.team === '200');
@@ -653,6 +974,8 @@ function buildLiveDecisionPanel(data, selfPuuid) {
   }) : null;
   const contextAdvice = liveContextAdvice(self, ownComp, enemyComp, enemyTeam);
   const itemAdvice = contextAdvice.items;
+  // 出装卡不再放在这个浮层里: 浮层高度有限, 塞进去要么被裁掉、要么顶开页面压缩战绩。
+  // 现在由队伍标题栏的「推荐出装」按钮唤起独立浮窗 (openLiveBuildPop), 见下方实现。
   const phase = window._gameflowPhase || 'ChampSelect';
   const plan = phase === 'ChampSelect'
     ? (draft?.winCondition || '先确认阵容缺口，再围绕资源安排英雄选择。')
@@ -917,10 +1240,86 @@ function liveMetricPills(recent, reservedSlots = 0) {
   const hiddenHtml = hidden.map(([cls, label, val, unit, tip]) =>
     `<span class="lp-metric lp-metric-${cls} lp-extra-metric" title="近 ${rs.length} 场平均${tip}">${label}<b>${val}${unit}</b></span>`
   ).join('');
+  // 1.5.125: 「+N」不再把标签行撑开折行, 改成弹一个小浮层。
+  // 原来展开态把 .lp-profile-line 写死 48px (比收起时的 17px 高 31px), 卡片总高不变,
+  // 于是这 31px 全是从战绩里抢来的 —— 少看两场记录。而且卡片窄到 148px 时
+  // 「收起」按钮自己被裁在 48px 之外, 点了收不回去。
   const moreHtml = hidden.length
-    ? `<button class="lp-tags-more" type="button" title="展开其余队内指标" aria-label="展开其余队内指标" onclick="this.closest('.lp-row').classList.toggle('lp-tags-open'); this.textContent=this.closest('.lp-row').classList.contains('lp-tags-open')?'收起':'+' + this.dataset.count; scheduleLiveRowAlignment()" data-count="${hidden.length}">+${hidden.length}</button>`
+    ? `<button class="lp-tags-more" type="button" title="查看其余队内指标" aria-label="查看其余队内指标" aria-expanded="false" onclick="toggleLiveMetricsPop(event, this)" data-count="${hidden.length}">+${hidden.length}</button>`
     : '';
   return streakHtml + visibleHtml + moreHtml + `<span class="lp-extra-metrics">${hiddenHtml}</span>`;
+}
+
+// ===== 队内指标浮层 =====
+// 只显示, 不占文档流: 打开后卡片高度、战绩行数都不变。
+let liveMetricsPopEl = null, liveMetricsPopBtn = null, _lmpBound = false;
+
+function ensureLiveMetricsPop() {
+  if (liveMetricsPopEl && document.body.contains(liveMetricsPopEl)) return liveMetricsPopEl;
+  const el = document.createElement('div');
+  el.id = 'liveMetricsPop';
+  el.className = 'lp-metric-pop';
+  el.hidden = true;
+  el.addEventListener('click', e => e.stopPropagation());
+  document.body.appendChild(el);
+  liveMetricsPopEl = el;
+  if (!_lmpBound) {
+    _lmpBound = true;
+    document.addEventListener('click', e => {
+      if (!liveMetricsPopEl || liveMetricsPopEl.hidden) return;
+      if (liveMetricsPopBtn && liveMetricsPopBtn.contains(e.target)) return;
+      if (liveMetricsPopEl.contains(e.target)) return;
+      closeLiveMetricsPop();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeLiveMetricsPop();
+    });
+    // 浮层是 fixed 定位, 页面或卡片一滚动就必须跟着收起, 否则会脱离锚点
+    document.addEventListener('scroll', () => closeLiveMetricsPop(), true);
+    window.addEventListener('resize', () => closeLiveMetricsPop());
+  }
+  return el;
+}
+
+function closeLiveMetricsPop() {
+  if (!liveMetricsPopEl || liveMetricsPopEl.hidden) return;
+  liveMetricsPopEl.hidden = true;
+  if (liveMetricsPopBtn) {
+    liveMetricsPopBtn.setAttribute('aria-expanded', 'false');
+    liveMetricsPopBtn = null;
+  }
+}
+
+function toggleLiveMetricsPop(ev, btn) {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  if (!btn) return;
+  const el = ensureLiveMetricsPop();
+  // 再点一次同一个按钮 = 收起
+  if (!el.hidden && liveMetricsPopBtn === btn) { closeLiveMetricsPop(); return; }
+  const row = btn.closest('.lp-row') || btn.closest('.lp-card');
+  if (!row) return;
+  // 只取被收进 .lp-extra-metrics 的那几枚。连胜/连败如果还留在行内可见,
+  // 就不再重复列一遍 (fitLiveMetricRows 会把它一起搬进来, 那种情况下才会出现在浮层)。
+  const pills = [...row.querySelectorAll('.lp-extra-metrics .lp-metric')];
+  if (!pills.length) return;
+  el.innerHTML = '<div class="lp-metric-pop-head">近 10 场队内指标</div>'
+    + '<div class="lp-metric-pop-grid">'
+    + pills.map(p => `<span class="lp-metric ${[...p.classList].filter(c => c.startsWith('lp-metric-') && c !== 'lp-extra-metric').join(' ')}">${escapeHtml(p.textContent.trim())}</span>`).join('')
+    + '</div>';
+  // 先显示再定位, 否则 hidden 状态下量不到尺寸
+  el.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+  liveMetricsPopBtn = btn;
+  const r = btn.getBoundingClientRect();
+  const pw = el.offsetWidth, ph = el.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = Math.min(r.left, vw - pw - 8);
+  if (left < 8) left = 8;
+  // 默认贴按钮下方; 下面放不开就翻到上方
+  let top = r.bottom + 6;
+  if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 6);
+  el.style.left = Math.round(left) + 'px';
+  el.style.top = Math.round(top) + 'px';
 }
 
 // 概览行的 KDA 用「大数字 + 小标签」，与胜率形成一对主指标。
@@ -960,9 +1359,48 @@ function updateLivePlayerRow(p, idx) {
 // 卡片可用高度经常不是战绩行高的整数倍。把滚动区收敛到完整行，
 // 避免底部露出半条记录；10 场数据、滚动与展开模式都保持不变。
 function scheduleLiveRowAlignment() {
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(alignLiveRecentRows);
-  else alignLiveRecentRows();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fitLiveMetricRows(); alignLiveRecentRows(); });
+  else { fitLiveMetricRows(); alignLiveRecentRows(); }
 }
+
+// 指标行是固定 17px 单行 (overflow:hidden)。窗口窄、卡片只有 148px 时,
+// 4 枚标签 + 按钮共 199px, 尾部会被硬裁 —— 裁掉的是半个胶囊和「+N」入口本身。
+// 这里按实际可用宽度把放不下的标签搬进隐藏的 .lp-extra-metrics, 并更新 +N 计数;
+// 放得下时再搬回来。好处是视觉上永远没有半截文字, 信息也没丢 (点 +N 看全部)。
+function fitLiveMetricRows() {
+  document.querySelectorAll('#page-live .lp-profile-line').forEach(line => {
+    const more = line.querySelector('.lp-tags-more');
+    const extras = line.querySelector('.lp-extra-metrics');
+    if (!more || !extras) return;
+    const limit = line.getBoundingClientRect().right - (more.offsetWidth + 6);
+    const visible = () => [...line.children].filter(el => el !== more && el !== extras);
+    let guard = 16;
+    // 溢出: 从最右开始收
+    while (guard-- > 0) {
+      const vis = visible();
+      if (!vis.length) break;
+      const last = vis[vis.length - 1];
+      if (last.getBoundingClientRect().right <= limit + 0.5) break;
+      extras.insertBefore(last, extras.firstChild);
+    }
+    // 有余量: 还回来 (窗口变宽时恢复)
+    guard = 16;
+    while (guard-- > 0 && extras.children.length) {
+      const next = extras.firstElementChild;
+      extras.removeChild(next);
+      line.insertBefore(next, more);
+      if (next.getBoundingClientRect().right > limit + 0.5) {
+        line.removeChild(next);
+        extras.insertBefore(next, extras.firstChild);
+        break;
+      }
+    }
+    const n = extras.children.length;
+    more.hidden = n === 0;
+    if (n > 0) { more.textContent = '+' + n; more.dataset.count = String(n); }
+  });
+}
+
 function alignLiveRecentRows() {
   const page = document.getElementById('page-live');
   document.querySelectorAll('#page-live .lp-recent').forEach(list => {
@@ -1073,7 +1511,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   const blue = data.filter(isBlue), red = data.filter(isRed), unknown = data.filter(p => !isBlue(p) && !isRed(p));
   // 空位占位: 数据没到 / 人数不足时也保持 5 列形状，避免半屏空白看起来像页面坏了
   const emptySlot = () => '<div class="lp-row lp-empty"><span>等待数据</span></div>';
-  const teamPanel = (list, label, cls, withExpand) => {
+  const teamPanel = (list, label, cls, withExpand, withBuild) => {
     const matches = list.reduce((sum, p) => sum + p.recent.length, 0);
     const wins = list.reduce((sum, p) => sum + p.recent.filter(r => r.win === true || r.win === 'Win').length, 0);
     const kills = list.reduce((sum, p) => sum + p.recent.reduce((n, r) => n + r.k, 0), 0);
@@ -1091,17 +1529,33 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       ? '<button type="button" class="lp-expand-btn" id="liveExpandBtn" onclick="toggleLiveRecentExpanded()"' +
         ' title="默认让两队挤在一屏内，每人只露出几场；展开后每人完整显示最近 10 场，页面可滚动">展开全部战绩</button>'
       : '';
+    // 「推荐出装」和「展开全部战绩」共用队伍标题栏这一行: 页头那行已经去掉了,
+    // 而这一行本来就只放了名字+人数, 右边是空的, 塞两个按钮不额外占任何高度。
+    const buildBtn = withBuild
+      ? '<button type="button" class="lp-build-btn" id="liveBuildBtn"' +
+        ' title="按本局双方阵容推荐三套出装: 激进 / 平衡 / 保守">推荐出装</button>'
+      : '';
     return `<section class="lp-team ${cls}">
-      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}<span class="lp-team-count">${list.length} 名玩家</span>${expandBtn}</div>
+      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}<span class="lp-team-count">${list.length} 名玩家</span>${buildBtn}${expandBtn}</div>
       <div class="lp-team-grid">${list.map(playerRow).join('')}${Array.from({ length: slots }, emptySlot).join('')}</div>
     </section>`;
   };
   // 数据不完整时 buildLiveDecisionPanel 返回空串，避免“对局准备”占用顶部整行。
   // 双方阵容齐全时仍保留作战计划入口。
   setLiveHeadPanel(buildLiveDecisionPanel(data, selfPuuid));
+  // 「推荐出装」只挂在自己那一队的标题栏: 挂对面没有意义, 而且两边都挂会让两个面板宽度不一致。
+  const selfPlayer = selfPuuid ? data.find(p => p.puuid === selfPuuid) : null;
+  const selfTeamNum = selfPlayer ? Number(selfPlayer.team) : 0;
+  // 装备库没就绪时不出按钮, 避免点开是个空壳 (Data Dragon 首次加载有延迟)
+  const canBuild = !!(selfPlayer && Number(selfPlayer.championId) > 0
+    && typeof poroBuildEngine !== 'undefined' && poroBuildEngine && poroBuildEngine.itemDatabase);
+  // 出装浮窗的上下文在这里无条件落地: 这里的 data/selfPuuid 就是刚渲染出按钮的那一份,
+  // 不依赖 buildLiveDecisionPanel —— 那个函数在数据不全时会提前 return, 快照就是空的,
+  // 而空快照正是"点按钮毫无反应"的来源。
+  window._poroLiveCtx = { data, selfPuuid };
   const pageHtml = `
     ${enemyIntelHtml(data, selfPuuid)}
-    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true)}${teamPanel(red, '红方', 'lp-red')}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与当前页面一致时直接跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
   // 渲染是纯确定性的 (无时间戳/随机值), 字符串比对可靠; 数据真变了自然不相等。
@@ -1222,6 +1676,7 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
     setLiveHeadPanel('');
     window._poroLiveSnapshot = null;
     window._poroCurrentDecision = '';
+    closeLiveBuildPop();
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
     syncLiveExpandButton(false);
     return;

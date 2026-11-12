@@ -418,3 +418,49 @@
 /* 注: .lp-balance (大乱斗平衡性提示) 已随未实现的 balanceTipFor 一并摘除, 见 live.js */
 .sel-reward-mission { padding: 4px 6px; border-bottom: 1px solid var(--border); }
 .sel-reward-item { display: inline-flex; align-items: center; gap: 4px; margin: 2px 10px 2px 0; cursor: pointer; }
+
+/* 推荐出装: 三套策略并排, 平衡套高亮 (数据来自 build-engine.js) */
+.ld-builds { margin-top:9px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); background:var(--bg-hover); }
+.ld-builds-head { display:flex; align-items:baseline; gap:8px; margin-bottom:7px; }
+.ld-builds-head b { color:var(--text-primary); font-size:11px; }
+.ld-builds-head span { color:var(--text-muted); font-size:9px; }
+.ld-builds-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.ld-build { padding:6px 7px; border-radius:8px; border:1px solid color-mix(in srgb,var(--border) 70%,transparent); background:var(--bg-card); }
+.ld-build.active { border-color:color-mix(in srgb,var(--accent) 45%,transparent); }
+.ld-build-title { display:flex; align-items:baseline; gap:6px; }
+.ld-build-title b { color:var(--text-primary); font-size:10px; }
+.ld-build-title span { margin-left:auto; color:var(--text-muted); font-size:9px; }
+.ld-build-items { display:flex; gap:3px; flex-wrap:wrap; margin:5px 0; }
+.ld-build-items img { width:24px; height:24px; border-radius:5px; border:1px solid var(--border); background:var(--bg-hover); }
+.ld-build p { margin:0; color:var(--text-secondary); font-size:9px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+@media(max-width:1050px){.ld-builds-grid{grid-template-columns:1fr}}
+
+/* 出装浮窗: fixed 定位 + 遮罩, 完全不参与文档流。
+   存在意义就是「不压缩战绩」—— 实时页两列队伍卡本来就是靠压缩才挤进一屏的,
+   任何往主体里塞的整块内容都会直接吃掉 .lp-recent 的可见行数。 */
+.lbp-backdrop { position: fixed; inset: 0; z-index: 12990; background: rgba(10, 14, 24, .52); }
+.lbp-backdrop[hidden] { display: none; }
+.lmp.lbp {
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  /* 高于实时玩家详情抽屉 (z 12000), 否则抽屉开着时浮窗会压在下面, 看起来像没反应 */
+  width: min(940px, 94vw); max-height: 86vh; z-index: 13000;
+}
+.lbp-body { padding: 14px 16px 16px; }
+/* 浮窗里空间够, 卡组自己那层边框/底色去掉, 变成"一整块内容", 不用框中框 */
+.lbp .ld-builds { margin: 0; padding: 0; border: 0; background: transparent; }
+.lbp .ld-builds-grid { gap: 12px; }
+.lbp .ld-build { padding: 11px 12px; border-radius: 10px; }
+.lbp .ld-build-title b { font-size: 12px; }
+.lbp .ld-build-title span { font-size: 10.5px; }
+.lbp .ld-build-items { gap: 5px; margin: 9px 0; }
+.lbp .ld-build-items img { width: 46px; height: 46px; border-radius: 8px; }
+.lbp .ld-build p { font-size: 10.5px; line-height: 1.4; -webkit-line-clamp: 3; }
+
+/* 数据来源与备注: 真实数据要标出处, 本地推算要标"这是推的", 两者可信度不同 */
+.ld-builds-src { margin: 9px 0 0; color: var(--text-muted); font-size: 9.5px; line-height: 1.4; }
+.ld-builds-src.local { color: var(--warn, #c98a2e); }
+.ld-builds-note { margin: 4px 0 0; color: var(--text-secondary); font-size: 9.5px; line-height: 1.45; }
+.lbp .ld-builds-src { font-size: 10.5px; }
+.lbp .ld-builds-note { font-size: 10.5px; }
+.lbp-loading { color: var(--text-muted); }
+.lbp-empty { margin: 0; padding: 24px 6px; text-align: center; font-size: 12px; color: var(--text-muted); }
