@@ -613,14 +613,14 @@ function buildHomeTrendChart(games, summoner) {
     const v = maxK * s / steps;
     const y = yAt(v).toFixed(1);
     grid += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '" stroke="var(--border)" stroke-width="1"' + (s === 0 ? '' : ' stroke-dasharray="3,4"') + '/>';
-    grid += '<text x="' + (padL - 6) + '" y="' + (+y + 3) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + (Math.round(v * 10) / 10) + '</text>';
+    grid += '<text x="' + (padL - 6) + '" y="' + (+y + 3) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + (Math.round(v * 10) / 10) + '</text>';
   }
   // X 轴日期 (首/中/末)
   const xTicks = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
   let xLabels = '';
   for (const i of xTicks) {
     const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
-    xLabels += '<text x="' + xAt(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '" font-size="9" fill="var(--text-muted)">' + fmtD(rows[i].time) + '</text>';
+    xLabels += '<text x="' + xAt(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + anchor + '" font-size="10" fill="var(--text-muted)">' + fmtD(rows[i].time) + '</text>';
   }
   // 折线 + 渐变面积
   const linePts = rows.map((r, i) => xAt(i).toFixed(1) + ',' + yAt(kdaOf(r)).toFixed(1));

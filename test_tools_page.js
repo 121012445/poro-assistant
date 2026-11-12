@@ -26,7 +26,7 @@ assert.match(styleCss, /\.tools-grid\s*\{[^}]*display:\s*grid;/s, '卡片应铺�
 assert.match(styleCss, /\.tools-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill, minmax\(250px, 1fr\)\)/s, '网格要 auto-fill 自适应列数');
 assert.match(styleCss, /\.tool-card\s*\{[^}]*background:\s*var\(--bg-card\)/s, '卡片要有底色 (不是透明)');
 assert.match(styleCss, /\.tool-card\s*\{[^}]*border:\s*1px solid var\(--border\)/s, '卡片要有边框');
-assert.match(styleCss, /\.tool-card\s*\{[^}]*border-radius:\s*12px/s, '卡片要圆角');
+assert.match(styleCss, /\.tool-card\s*\{[^}]*border-radius:\s*var\(--radius\)/s, '卡片要圆角 (走 --radius token)');
 assert.match(styleCss, /\.tool-card\s*\{[^}]*padding:\s*12px 14px/s, '卡片要有内边距 (文字不能贴着边)');
 assert.match(styleCss, /\.tools-section\s*\{[^}]*grid-column:\s*1 \/ -1/s, '分区标题要横跨整行');
 assert.match(styleCss, /\.tools-section::after\s*\{[^}]*flex:\s*1/s, '分区标题右侧拖一条细线');

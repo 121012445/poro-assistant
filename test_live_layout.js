@@ -20,7 +20,8 @@ assert.match(css, /\.ri-card img\s*\{[^}]*width:\s*18px;[^}]*height:\s*18px;/s, 
 assert.ok(live.includes('class="ri-body"') && live.includes('class="ri-sub"'), '逐场战绩应为两行结构');
 assert.ok(live.includes('class="ri-date"') && live.includes('function formatMatchTime'), '逐场战绩应显示对局日期');
 assert.ok(/ts:\s*gj\.gameCreation/.test(live) && /ts:\s*game\.time/.test(live), '两条战绩来源都必须带上对局时间戳');
-assert.match(css, /\.ri-sub\s*\{[^}]*font-size:\s*9px;/s, '日期行字号不得低于 9px');
+// 1.5.126 起字号统一走令牌，下限由 9px 提到 10px（--fs-2xs）
+assert.match(css, /\.ri-sub\s*\{[^}]*font-size:\s*var\(--fs-2xs\);/s, '日期行字号必须取 --fs-2xs（10px），不得低于 10px');
 // 队内占比标签: 伤害/承伤/经济/参团。没有它, 70% 胜率分不出"被带飞"还是"carry 赢"。
 assert.ok(live.includes('function liveMetricPills') && live.includes('function teamShareOf'), '玩家卡应显示近 10 场队内占比');
 assert.ok(live.includes("'dmg'") && live.includes("'tank'") && live.includes("'gold'") && live.includes("'kp'"), '占比应覆盖伤害/承伤/经济/参团四项');

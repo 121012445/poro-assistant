@@ -146,15 +146,15 @@ function checkFontFloor(css, out, file) {
   const src = stripComments(css);
   const tooSmall = [];
   for (const m of src.matchAll(/font-size\s*:\s*(\d+(?:\.\d+)?)px/g)) {
-    if (parseFloat(m[1]) < 9) tooSmall.push(m[0]);
+    if (parseFloat(m[1]) < 10) tooSmall.push(m[0]);
   }
-  if (tooSmall.length) out.push(['FAIL', `${file} 出现 ${tooSmall.length} 处 < 9px 字号（${tooSmall.slice(0, 3).join(', ')}）—— 小于 9px 在 Windows 高 DPI 下无法辨认`]);
+  if (tooSmall.length) out.push(['FAIL', `${file} 出现 ${tooSmall.length} 处 < 10px 字号（${tooSmall.slice(0, 3).join(', ')}）—— 10px 是 Windows 150% 缩放下的可读下限，低于它文字会发虚`]);
 }
 
 // ============ 门禁 4：排版档位令牌齐全 ============
 function checkTypeScale(css, out) {
   const root = extractVars(extractBlock(stripComments(css), /:root\s*\{([\s\S]*?)\}/) || '');
-  const need = ['--fs-xs', '--fs-sm', '--fs-md', '--fs-base', '--fs-lg', '--fs-xl', '--fs-2xl', '--fs-3xl'];
+  const need = ['--fs-2xs', '--fs-xs', '--fs-sm', '--fs-md', '--fs-base', '--fs-lg', '--fs-xl', '--fs-2xl', '--fs-3xl'];
   const missing = need.filter(k => !root[k]);
   if (missing.length) out.push(['FAIL', ':root 缺少排版档位令牌 ' + missing.join(' / ') + ' —— 字号必须收敛到固定几档']);
   else out.push(['PASS', '排版档位令牌齐全（' + need.length + ' 档）']);
@@ -176,6 +176,37 @@ function checkStatusCenterContrast(css, out) {
   else out.push(['PASS', '状态中心按钮已与浅色主题通用按钮规则隔离']);
 }
 
+// ============ 圆角与层级 ============
+// 2026-11-13：圆角曾有 15 种取值（2…24px）、z-index 曾有 13 个互不相关的数。
+// 两者都只允许走 token，否则一版版加需求又会漂回去。
+const TOKEN_ONLY_FILES = ['style.css', 'premium.css', 'extras.css', 'dark.css', 'ui-polish.css', 'ui-system-v3.css'];
+
+function checkRadiusAndLayers(cssMap, out) {
+  const badRadius = [];
+  const badZ = [];
+  for (const f of TOKEN_ONLY_FILES) {
+    const css = Object.prototype.hasOwnProperty.call(cssMap, f) ? cssMap[f] : read(f);
+    if (!css) continue;
+    for (const m of css.matchAll(/border-radius:\s*([0-9.]+)px/g)) {
+      if (m[1] === '999' || Number(m[1]) === 0) continue; // 胶囊 / 直角
+      badRadius.push(`${f} ${m[0]}`);
+    }
+    for (const m of css.matchAll(/z-index:\s*(-?\d+)/g)) {
+      badZ.push(`${f} ${m[0]}`);
+    }
+  }
+  if (badRadius.length) {
+    out.push(['FAIL', `圆角出现 ${badRadius.length} 处硬编码 px（只允许 var(--radius*) / 999px / 0）：${badRadius.slice(0, 3).join('; ')}`]);
+  } else {
+    out.push(['PASS', '圆角全部走 var(--radius*) token']);
+  }
+  if (badZ.length) {
+    out.push(['FAIL', `z-index 出现 ${badZ.length} 处裸数字（只允许 var(--z-*)）：${badZ.slice(0, 3).join('; ')}`]);
+  } else {
+    out.push(['PASS', 'z-index 全部走 var(--z-*) 语义层级']);
+  }
+}
+
 // ============ 运行 ============
 function runAll(cssMap) {
   const out = [];
@@ -189,6 +220,7 @@ function runAll(cssMap) {
   for (const f of FILES) checkFontFloor(cssMap[f], out, f);
   checkTypeScale(premium, out);
   checkFocusRing(premium, out);
+  checkRadiusAndLayers(cssMap, out);
   return out;
 }
 
@@ -206,7 +238,7 @@ const SELFTEST = [
   {
     name: '按位置轮换文字色',
     expect: 'FAIL',
-    css: ':root{--bg-card:#fff;--bg-primary:#fff;--text-primary:#111;--text-secondary:#222;--text-muted:#333;--fs-xs:1px;--fs-sm:1px;--fs-md:1px;--fs-base:1px;--fs-lg:1px;--fs-xl:1px;--fs-2xl:1px;--fs-3xl:1px;--focus-ring:0;}' +
+    css: ':root{--bg-card:#fff;--bg-primary:#fff;--text-primary:#111;--text-secondary:#222;--text-muted:#333;--fs-2xs:1px;--fs-xs:1px;--fs-sm:1px;--fs-md:1px;--fs-base:1px;--fs-lg:1px;--fs-xl:1px;--fs-2xl:1px;--fs-3xl:1px;--focus-ring:0;}' +
       '.a:nth-child(6n+1){color:#111;}.a:nth-child(6n+2){color:#222;}.a:nth-child(6n+3){color:#333;}',
     dark: 'body.dark{--bg-card:#000;--bg-primary:#000;--text-muted:#fff;}',
   },
