@@ -1642,3 +1642,22 @@ body.dark .hex-journal { border-color: var(--line-subtle); box-shadow: none; }
 .theme-popover .theme-swatch { color: var(--ink-2); font-weight: 600; }
 .theme-popover .theme-swatch .theme-dot { width: 13px; height: 13px; }
 .theme-popover .theme-swatch.on { color: var(--ink-1); }
+
+/* ============================================================================
+   19. 实时页 · 单场战绩行
+   ----------------------------------------------------------------------------
+   行高写死 22/23/25px 是 --fs-2xs 还是 10px 时代定的：两行文字
+   2 × 10px × 1.1 = 22px 恰好装下。1.5.129 把最小档提到 11px 后，
+   两行要 24.2px，overflow:hidden 把日期行的下半截裁掉 —— 用户看到的
+   「战绩字体被吞掉一部分」。行高跟着字号走；列表本身 overflow-y:auto，
+   多出的高度由滚动消化，不会撑破玩家卡。
+   ========================================================================== */
+
+#page-live .ri-card {
+  height: auto;
+  min-height: 28px;
+  flex-basis: 28px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+#page-live .ri-card img { width: 20px; height: 20px; }
+#page-live .ri-body { line-height: 1.25; }
