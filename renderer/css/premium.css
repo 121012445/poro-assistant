@@ -376,6 +376,12 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 /* ---- 统计卡 ---- */
 .home-stats { gap: 10px; }
 .stat-card {
+  /* 列布局 + 两端对齐: 数值的换行行数不一致时 (「1259 / 1045 / 2093」必然两行,
+     其他卡一行), 标题仍然全部贴底对齐, 不会出现一排标题高低错落 */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
   min-height: 104px;
   padding: 18px 10px;
   border-radius: var(--radius);
@@ -996,14 +1002,7 @@ body.dark .ei-champ { background: rgba(255, 255, 255, .05); }
   box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
   transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
 }
-#page-live .lp-profile-line {
-  flex: 0 0 auto;
-  min-height: 17px;
-  max-height: 40px;
-  align-content: flex-start;
-  overflow: visible;
-  margin-bottom: 4px;
-}
+
 #page-live .lp-profile-line > * { flex-shrink: 0; }
 #page-live .lp-recent { min-height: 0; }
 #page-live .lp-row {
@@ -1041,7 +1040,7 @@ body.dark #page-live .lp-self { background: linear-gradient(145deg, rgba(212,154
 #page-live .lp-overview { margin: 8px 0 4px; }
 #page-live .lp-winrate { font-size: 20px; }
 #page-live .lp-kda b { font-size: 17px; }
-#page-live .lp-profile-line { min-height: 19px; margin-bottom: 4px; }
+
 #page-live .ri-card { height: 25px; flex-basis: 25px; border-radius: var(--radius-sm); }
 #page-live .ri-card:hover { background: color-mix(in srgb, var(--accent) 13%, var(--bg-card)); }
 #page-live .ri-win { border-left-width: 3px; }
@@ -1117,27 +1116,10 @@ body.dark #page-live .lp-self { background: linear-gradient(180deg, rgba(212,154
 #page-live .lp-winrate { font-size: 21px; }
 #page-live .lp-record { font-size: var(--fs-2xs); }
 #page-live .lp-kda b { font-size: 17px; }
-#page-live .lp-profile-line {
-  min-height: 16px;
-  max-height: 40px;
-  gap: 4px;
-  margin: 0 1px 6px;
-}
+
 #page-live .lp-profile-line:empty { display: none; }
-#page-live .lp-profile-line > span {
-  min-height: 16px;
-  padding: 0 4px;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: var(--radius-xs);
-  background: color-mix(in srgb, currentColor 5%, transparent);
-  line-height: 14px;
-  opacity: .92;
-}
-#page-live .lp-profile-line .lp-metric {
-  border-color: color-mix(in srgb, currentColor 16%, transparent);
-  background: transparent;
-  font-size: var(--fs-2xs);
-}
+
+
 #page-live .lp-profile-line .lp-metric-winstreak,
 #page-live .lp-profile-line .lp-metric-lossstreak {
   padding: 0 4px;
@@ -1200,36 +1182,11 @@ body.dark #page-live .lp-overview { background: rgba(255,255,255,.035); }
 #page-live .lp-winrate { font-size: 19px; }
 #page-live .lp-record { font-size: var(--fs-2xs); }
 #page-live .lp-kda b { font-size: 16px; }
-#page-live .lp-profile-line {
-  min-height: 15px;
-  max-height: 32px;
-  gap: 2px;
-  margin: 4px 0 4px;
-}
-#page-live .lp-profile-line > span {
-  min-height: 14px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: var(--radius-xs);
-  font-size: var(--fs-2xs);
-  line-height: 13px;
-}
-#page-live .lp-profile-line .lp-metric {
-  font-size: var(--fs-2xs);
-  line-height: 13px;
-}
-#page-live .lp-profile-line {
-  height: 30px;
-  max-height: 30px;
-  min-height: 30px;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  align-content: flex-start;
-  overflow: hidden;
-  flex-shrink: 0;
-  margin-bottom: 4px;
-}
-#page-live .lp-profile-line > span { flex: 0 0 auto; }
+
+
+
+
+
 #page-live .lp-inline-stats {
   display: inline-flex;
   flex-direction: column;
@@ -1296,7 +1253,7 @@ body.dark #page-live .lp-row { box-shadow: 0 3px 10px rgba(0,0,0,.16), inset 0 1
 #page-live .lp-rank { color: color-mix(in srgb, var(--text-muted) 86%, var(--text-secondary)); }
 #page-live .lp-overview { border-bottom-color: color-mix(in srgb, var(--border) 52%, transparent); }
 #page-live .lp-winrate { letter-spacing: 0; }
-#page-live .lp-profile-line > span { opacity: .82; }
+
 #page-live .ri-card { background: color-mix(in srgb, var(--bg-secondary) 42%, transparent); }
 #page-live .ri-win { background: color-mix(in srgb, var(--data-blue) 7%, var(--bg-secondary)); }
 #page-live .ri-loss { background: color-mix(in srgb, var(--negative) 6%, var(--bg-secondary)); }
@@ -1332,21 +1289,24 @@ body.dark #page-live .lp-row { background: rgba(255,255,255,.035); box-shadow: 0
 #page-live .lp-inline-stats .lp-winrate { font-size: var(--fs-xs); }
 #page-live .lp-inline-stats .lp-kda { font-size: var(--fs-2xs); }
 #page-live .lp-inline-stats .lp-kda b { font-size: var(--fs-2xs); }
-#page-live .lp-profile-line {
-  height: 26px;
-  max-height: 26px;
-  min-height: 26px;
-  gap: 2px;
-  margin-bottom: 4px;
-}
+
 #page-live .lp-profile-line > span {
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  border: 0;
+  flex: 0 0 auto;
+  opacity: .82;
   min-height: 12px;
   padding: 0 4px;
   border-radius: var(--radius-xs);
   font-size: var(--fs-2xs);
   line-height: 11px;
 }
-#page-live .lp-profile-line .lp-metric { font-size: var(--fs-2xs); line-height: 11px; }
+#page-live .lp-profile-line .lp-metric {
+  border-color: color-mix(in srgb, currentColor 16%, transparent);
+  background: transparent;
+  font-size: var(--fs-2xs);
+  line-height: 11px;
+}
 #page-live .lp-profile-line .lp-metric-winstreak {
   color: #fff;
   background: #2f7d55;
@@ -1357,17 +1317,26 @@ body.dark #page-live .lp-row { background: rgba(255,255,255,.035); box-shadow: 0
   background: #b8453a;
   opacity: 1;
 }
+/* 指标行恒为一行 17px: 多出的指标走「+N」浮层, 不再把行撑到 48px。
+   1.5.124 及以前这里是 8 块同选择器规则交错覆盖 (共 40 条声明), 生效值取决于层叠顺序,
+   改一处要读五处。1.5.126 按「同选择器跨块层叠等价于同块内顺序声明」合并为一块。
+   padding-right: 22px 是给绝对定位的「+N」留位置, 否则窄卡片下入口会被裁掉看不见。 */
 #page-live .lp-profile-line {
   position: relative;
+  flex: 0 0 auto;
+  flex-shrink: 0;
   flex-wrap: nowrap;
+  align-items: center;
+  align-content: center;
+  justify-content: flex-start;
+  gap: 2px;
   height: 17px;
   min-height: 17px;
   max-height: 17px;
+  margin: 4px 0;
+  padding-right: 22px;
   overflow: hidden;
   white-space: nowrap;
-  align-items: center;
-  justify-content: flex-start;
-  align-content: center;
 }
 #page-live .lp-extra-metrics {
   display: none !important;
@@ -1398,12 +1367,7 @@ body.dark #page-live .lp-row { background: rgba(255,255,255,.035); box-shadow: 0
   cursor: pointer;
 }
 #page-live .lp-tags-more:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-/* 1.5.125: 指标行恒为一行 (17px), 多出的指标走浮层, 不再把行撑到 48px。
-   原来 `.lp-tags-open` 展开态写死 height:48px —— 比收起高 31px, 而卡片总高不变,
-   这 31px 全从战绩里抢, 等于少看两场记录; 卡片窄到 148px 时「收起」按钮还会被
-   裁在 overflow:hidden 之外, 点了根本收不回去。
-   另外「+N」原来是普通 flex 子项, 窄卡片下会被裁掉 (用户看不到入口), 现在贴右固定。 */
-#page-live .lp-profile-line { padding-right: 22px; }
+/* 「+N」改成绝对定位贴右固定, 这样窄卡片下也不会被 flex 挤压裁掉 (见上方 padding-right 说明) */
 #page-live .lp-tags-more {
   position: absolute;
   right: 1px;
@@ -1568,21 +1532,27 @@ body.live-drawer-open { overflow: hidden; }
   .lpd-head button { grid-column: 1 / -1; justify-self: start; }
 }
 
-/* 长 ID 保护：允许身份文本自然换行，统计栏保持独立，不再用省略号吞掉名字。 */
+/* 名字单行 + 省略号。完整名字在 title 提示、以及点开的玩家详情抽屉里都能看到,
+   不会丢信息。之前为了「不吞长 ID」放开了换行, 代价是长名玩家的卡片头部参差:
+   同一行里有的卡名字占 2 行、有的占 1 行, 下面的段位行和战绩区起始位置全错开。
+   1.5.126 改回单行省略号, 名字可压缩到 0, 右侧的自己/组队/平衡性/标记徽章不压缩。 */
 #page-live .lp-name-line {
-  align-items: flex-start;
-  overflow: visible;
-  flex-wrap: wrap;
-  row-gap: 1px;
+  align-items: center;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  row-gap: 0;
 }
 #page-live .lp-name {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
   line-height: 15px;
 }
+#page-live .lp-name-line > *:not(.lp-name) { flex: 0 0 auto; }
 #page-live .lp-identity { overflow: visible; }
 #page-live .lp-name-link {
   cursor: pointer;
