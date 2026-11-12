@@ -70,11 +70,13 @@
   --surface-glass: #ffffff;  /* 旧令牌保留兼容；新设计不使用玻璃拟态 */
   --gradient-gold: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
 
-  /* ---- 排版档位：字号只允许取这几档 ---- */
-  --fs-2xs: 10px;   /* 极密集数字：KDA / 时间戳 / 表格微指标。10px 是 Windows
-                       150% 缩放下的可读下限，不允许再往下分档 */
-  --fs-xs: 11px;    /* 角标 / 极次要信息 */
-  --fs-sm: 12px;    /* 卡片标签、列表副文本 */
+  /* ---- 排版档位：字号只允许取这几档 ----
+     下限按 100% 缩放定。原来 10px 的注释假设「Windows 150% 缩放」，但 1080p
+     笔记本 / 外接屏普遍跑 100%，10~11px 汉字在那种屏上就是一团灰。三档最小
+     字号各 +1px（正文基准 14px 不动，避免整站布局跟着涨）。 */
+  --fs-2xs: 11px;   /* 极密集数字：KDA / 时间戳 / 表格微指标 */
+  --fs-xs: 12px;    /* 角标 / 极次要信息 */
+  --fs-sm: 13px;    /* 卡片标签、列表副文本 */
   --fs-md: 13px;    /* 次要正文、按钮 */
   --fs-base: 14px;  /* 正文基准 */
   --fs-lg: 16px;
@@ -506,7 +508,7 @@ input:focus, select:focus, textarea:focus, .search-box:focus-within,
 .tools-overview-main b { color: var(--text-primary); font-size: var(--fs-sm); }
 .tools-overview-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 15%, transparent); }
 .tools-overview-dot.is-active { background: #36b37e; box-shadow: 0 0 0 3px rgba(54,179,126,.16); }
-.tools-overview-dot.is-safe { background: #4d8ef7; box-shadow: 0 0 0 3px rgba(77,142,247,.16); }
+.tools-overview-dot.is-safe { background: var(--brand); box-shadow: 0 0 0 3px var(--brand-line); }
 .tools-overview-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .tools-overview-chip, .tools-overview-empty { padding: 4px 8px; border-radius: 999px; font-size: var(--fs-xs); color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border); }
 .tools-overview-empty { color: var(--text-muted); }
@@ -657,7 +659,7 @@ body.dark #page-tools .tools-nav.is-stuck { border-bottom-color: rgba(255, 255, 
 body.dark .window-bar { background: var(--bg-card); border-bottom-color: var(--border); }
 body.dark .sidebar { background: var(--bg-card); border-right-color: var(--border); }
 body.dark .nav-item:hover { background: var(--bg-hover); }
-body.dark .nav-item.active { color: var(--accent-deep); background: rgba(77, 142, 247, .14); }
+body.dark .nav-item.active { color: var(--brand-deep); background: var(--brand-soft); }
 body.dark .theme-toggle { background: var(--bg-secondary); border-color: var(--border); }
 body.dark .lcu-status { background: var(--bg-secondary); border-color: var(--border); }
 
@@ -696,9 +698,9 @@ body.dark .btn-primary:hover, body.dark .home-search button:hover, body.dark .ba
   color: #fff;
 }
 body.dark .role-btn.active, body.dark .btn-secondary.is-selected {
-  color: var(--accent-deep);
-  background: rgba(77, 142, 247, .14);
-  border-color: var(--accent);
+  color: var(--brand-deep);
+  background: var(--brand-soft);
+  border-color: var(--brand);
 }
 body.dark .bl-item-remove { color: #f87171; border-color: rgba(248, 113, 113, .42); background: var(--bg-secondary); }
 body.dark .bl-item-remove:hover { color: #fca5a5; background: rgba(248, 113, 113, .12); border-color: rgba(248, 113, 113, .6); }
@@ -752,7 +754,7 @@ body.dark .bg-champ-list, body.dark .bg-champ-option { background: var(--bg-seco
 body.dark .bg-champ-option:hover { background: var(--bg-hover); }
 body.dark .placeholder-svg { background: var(--bg-hover); }
 body.dark .champ-icon, body.dark .ako-champ, body.dark .ak-champ, body.dark .lp-champ { background: var(--bg-secondary); }
-body.dark .lp-flash { background: rgba(77, 142, 247, .14); border-color: rgba(77, 142, 247, .34); color: var(--data-blue); }
+body.dark .lp-flash { background: var(--brand-soft); border-color: var(--brand-line); color: var(--data-blue); }
 body.dark .lp-flash.mixed { background: rgba(224, 183, 106, .14); border-color: rgba(224, 183, 106, .34); color: #e0b76a; }
 body.dark .ri-win { background: var(--bg-card); border-color: var(--border); border-left-color: var(--data-blue); }
 body.dark .ri-loss { background: var(--bg-card); border-color: var(--border); border-left-color: var(--negative); }
@@ -1658,8 +1660,8 @@ body.live-drawer-open { overflow: hidden; }
 
 /* 深色下 --accent-soft 仍是浅色（dark.css 只覆盖了 accent 与 accent-deep），
    rank 徽章会变成浅底浅蓝字，几乎看不见 —— 单独给深色一版。 */
-body.dark .gw-t-rank { background: rgba(77, 142, 247, .18); color: #82b1fb; }
-body.dark .gw-t-action { color: #82b1fb; }
+body.dark .gw-t-rank { background: var(--brand-soft); color: var(--brand-deep); }
+body.dark .gw-t-action { color: var(--brand-deep); }
 body.dark .gw-plan-warn { color: #f0c674; background: rgba(240, 198, 116, .10); border-color: rgba(240, 198, 116, .28); }
 
 /* 战报卡导出时留一圈边距：卡片宽度 = 窗口宽度的话，圆角会贴死在图片边缘 */

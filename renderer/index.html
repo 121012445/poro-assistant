@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026111305">
-<link rel="stylesheet" href="css/extras.css?v=2026111305">
-<link rel="stylesheet" href="css/dark.css?v=2026111305">
-<link rel="stylesheet" href="css/premium.css?v=2026111305">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026111305">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111305">
-<link rel="stylesheet" href="css/v4.css?v=2026111305">
+<link rel="stylesheet" href="css/style.css?v=2026111308">
+<link rel="stylesheet" href="css/extras.css?v=2026111308">
+<link rel="stylesheet" href="css/dark.css?v=2026111308">
+<link rel="stylesheet" href="css/premium.css?v=2026111308">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111308">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111308">
+<link rel="stylesheet" href="css/v4.css?v=2026111308">
 </head>
 <body>
 
@@ -750,66 +750,74 @@
 </div>
 
 
-<!-- 主题选择弹出面板 -->
+<!-- 主题弹出面板：明暗 × 强调色 两个正交维度。
+     1.5.128 收敛色板后，「暗色玻璃」与「经典深色」渲染结果相同、「浅蓝」就是默认，
+     四个按钮只剩两个结果。拆成两组后每个按钮都真的会改变画面。 -->
 <div class="theme-popover" id="themePopover" hidden>
-  <button class="theme-opt" data-v="c" onclick="pickTheme('c')"><span class="theme-dot t-c"></span>浅蓝 <i>默认</i></button>
-  <button class="theme-opt" data-v="a" onclick="pickTheme('a')"><span class="theme-dot t-a"></span>雾紫</button>
-  <button class="theme-opt" data-v="b" onclick="pickTheme('b')"><span class="theme-dot t-b"></span>暗色玻璃</button>
-  <button class="theme-opt" data-v="dark" onclick="pickTheme('dark')"><span class="theme-dot t-dark"></span>经典深色</button>
+  <div class="theme-group-label">明暗</div>
+  <div class="theme-row">
+    <button class="theme-opt" data-mode="light" onclick="pickThemeMode('light')">浅色</button>
+    <button class="theme-opt" data-mode="dark" onclick="pickThemeMode('dark')">深色</button>
+  </div>
+  <div class="theme-group-label">强调色</div>
+  <div class="theme-row theme-row-accent">
+    <button class="theme-opt theme-swatch" data-accent="blue" onclick="pickThemeAccent('blue')" title="浅蓝" aria-label="浅蓝"><span class="theme-dot t-c"></span><span>浅蓝</span></button>
+    <button class="theme-opt theme-swatch" data-accent="violet" onclick="pickThemeAccent('violet')" title="雾紫" aria-label="雾紫"><span class="theme-dot t-a"></span><span>雾紫</span></button>
+  </div>
 </div>
 
-<script src="js/utils.js?v=2026111305"></script>
-<script src="js/player-index.js?v=2026111305"></script>
-<script src="js/local-cache.js?v=2026111305"></script>
-<script src="js/icons.js?v=2026111305"></script>
-<script src="js/data-model.js?v=2026111305"></script>
-<script src="js/session-state.js?v=2026111305"></script>
-<script src="js/performance.js?v=2026111305"></script>
-<script src="js/diagnostics.js?v=2026111305"></script>
-<script src="js/balance.js?v=2026111305"></script>
-<script src="js/behavior-tags.js?v=2026111305"></script>
-<script src="js/bench.js?v=2026111305"></script>
-<script src="js/champions.js?v=2026111305"></script>
-<script src="js/progress-report.js?v=2026111305"></script>
-<script src="js/home.js?v=2026111305"></script>
-<script src="js/automation-log.js?v=2026111305"></script>
-<script src="js/automation-matrix.js?v=2026111305"></script>
-<script src="js/home-status.js?v=2026111305"></script>
-<script src="js/ai-markdown.js?v=2026111305"></script>
-<script src="js/review.js?v=2026111305"></script>
-<script src="js/theme.js?v=2026111305"></script>
-<script src="js/hex.js?v=2026111305"></script>
-<script src="js/history.js?v=2026111305"></script>
-<script src="js/enemy-intel.js?v=2026111305"></script>
-<script src="js/draft-coach.js?v=2026111305"></script>
-<script src="js/growth-model.js?v=2026111305"></script>
-<script src="js/growth.js?v=2026111305"></script>
-<script src="js/battle-card.js?v=2026111305"></script>
-<script src="js/build-engine.js?v=2026111305"></script>
-<script src="js/live.js?v=2026111305"></script>
-<script src="js/weekly.js?v=2026111305"></script>
-<script src="js/friends.js?v=2026111305"></script>
-<script src="js/compliance.js?v=2026111305"></script>
-<script src="js/blacklist.js?v=2026111305"></script>
-<script src="js/social.js?v=2026111305"></script>
-<script src="js/chat.js?v=2026111305"></script>
-<script src="js/translate.js?v=2026111305"></script>
-<script src="js/autobp.js?v=2026111305"></script>
-<script src="js/pick-guard.js?v=2026111305"></script>
-<script src="js/lcu-events.js?v=2026111305"></script>
-<script src="js/opgg-loadout.js?v=2026111305"></script>
-<script src="js/update.js?v=2026111305"></script>
-<script src="js/autoflow.js?v=2026111305"></script>
-<script src="js/chat-status.js?v=2026111305"></script>
-<script src="js/settings.js?v=2026111305"></script>
-<script src="js/persist.js?v=2026111305"></script>
-<script src="js/hotkeys.js?v=2026111305"></script>
-<script src="js/live-metrics.js?v=2026111305"></script>
-<script src="js/live-tips.js?v=2026111305"></script>
-<script src="js/autoreturn.js?v=2026111305"></script>
-<script src="js/sona-extra.js?v=2026111305"></script>
-<script src="js/tools-nav.js?v=2026111305"></script>
-<script src="js/tools-overview.js?v=2026111305"></script>
-<script src="js/app.js?v=2026111305"></script>
+<script src="js/utils.js?v=2026111308"></script>
+<script src="js/player-index.js?v=2026111308"></script>
+<script src="js/local-cache.js?v=2026111308"></script>
+<script src="js/icons.js?v=2026111308"></script>
+<script src="js/data-model.js?v=2026111308"></script>
+<script src="js/session-state.js?v=2026111308"></script>
+<script src="js/performance.js?v=2026111308"></script>
+<script src="js/diagnostics.js?v=2026111308"></script>
+<script src="js/balance.js?v=2026111308"></script>
+<script src="js/behavior-tags.js?v=2026111308"></script>
+<script src="js/bench.js?v=2026111308"></script>
+<script src="js/champions.js?v=2026111308"></script>
+<script src="js/progress-report.js?v=2026111308"></script>
+<script src="js/home.js?v=2026111308"></script>
+<script src="js/automation-log.js?v=2026111308"></script>
+<script src="js/automation-matrix.js?v=2026111308"></script>
+<script src="js/home-status.js?v=2026111308"></script>
+<script src="js/ai-markdown.js?v=2026111308"></script>
+<script src="js/review.js?v=2026111308"></script>
+<script src="js/theme.js?v=2026111308"></script>
+<script src="js/hex.js?v=2026111308"></script>
+<script src="js/history.js?v=2026111308"></script>
+<script src="js/enemy-intel.js?v=2026111308"></script>
+<script src="js/draft-coach.js?v=2026111308"></script>
+<script src="js/growth-model.js?v=2026111308"></script>
+<script src="js/growth.js?v=2026111308"></script>
+<script src="js/battle-card.js?v=2026111308"></script>
+<script src="js/build-engine.js?v=2026111308"></script>
+<script src="js/live.js?v=2026111308"></script>
+<script src="js/weekly.js?v=2026111308"></script>
+<script src="js/friends.js?v=2026111308"></script>
+<script src="js/compliance.js?v=2026111308"></script>
+<script src="js/blacklist.js?v=2026111308"></script>
+<script src="js/social.js?v=2026111308"></script>
+<script src="js/chat.js?v=2026111308"></script>
+<script src="js/translate.js?v=2026111308"></script>
+<script src="js/autobp.js?v=2026111308"></script>
+<script src="js/pick-guard.js?v=2026111308"></script>
+<script src="js/lcu-events.js?v=2026111308"></script>
+<script src="js/opgg-loadout.js?v=2026111308"></script>
+<script src="js/update.js?v=2026111308"></script>
+<script src="js/autoflow.js?v=2026111308"></script>
+<script src="js/chat-status.js?v=2026111308"></script>
+<script src="js/settings.js?v=2026111308"></script>
+<script src="js/persist.js?v=2026111308"></script>
+<script src="js/hotkeys.js?v=2026111308"></script>
+<script src="js/live-metrics.js?v=2026111308"></script>
+<script src="js/live-tips.js?v=2026111308"></script>
+<script src="js/autoreturn.js?v=2026111308"></script>
+<script src="js/sona-extra.js?v=2026111308"></script>
+<script src="js/tools-nav.js?v=2026111308"></script>
+<script src="js/tools-overview.js?v=2026111308"></script>
+<script src="js/app.js?v=2026111308"></script>
 </body>
 </html>

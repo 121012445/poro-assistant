@@ -31,10 +31,10 @@
                         这里比结构分隔线再淡一点，让"框"退成"线" */
   --line-strong: #ccd5dc;
 
-  /* ---- 文本三级（对比度均 >= 4.5:1 on --surface-1） ---- */
+  /* ---- 文本三级（对 --surface-2 的对比度 11.9 / 6.9 / 4.6，均过 AA） ---- */
   --ink-1: #16202b;
   --ink-2: #4a5a68;
-  --ink-3: #78868f;
+  --ink-3: #64737e;   /* 1.5.128 的 #78868f 只有 3.55:1，10px 辅助字看不清 */
 
   /* ---- 强调：青，唯一可交互色 ---- */
   /* 强调色只有一份定义（浅蓝）。默认主题就是它，所以不再写 body.theme-c —— 
@@ -95,7 +95,7 @@ body.dark {
 
   --ink-1: #e9eef1;
   --ink-2: #a9b5bd;
-  --ink-3: #77838c;
+  --ink-3: #8b969f;   /* 原 #77838c 在深色卡片上只有 4.07:1 */
 
   --brand: #5aabd4;
   --brand-deep: #7dc0e0;
@@ -120,6 +120,16 @@ body.dark {
 body.theme-a { --brand: #6d55c9; --brand-deep: #5941b0; --brand-soft: #eeebfa; --brand-line: rgba(109, 85, 201, .32); }
 body.dark.theme-a { --brand: #a595ef; --brand-deep: #bcb0f5; --brand-soft: rgba(165, 149, 239, .14); --brand-line: rgba(165, 149, 239, .36); }
 
+/* 深色下 --accent 会被 dark.css 的 body.dark 块改写（选择器比 :root 强），
+   于是同一个界面里 --brand 是 #5aabd4、--accent 是 #4d8ef7 —— 两种蓝。
+   4000 行旧 CSS 大量写 var(--accent)，这里把它按回 --brand。 */
+body.dark {
+  --accent: var(--brand);
+  --accent-deep: var(--brand-deep);
+  --accent-soft: var(--brand-soft);
+  --focus-ring: 0 0 0 3px var(--brand-line);
+}
+
 /* ============================================================================
    1. 骨架
    ========================================================================== */
@@ -127,9 +137,14 @@ body.dark.theme-a { --brand: #a595ef; --brand-deep: #bcb0f5; --brand-soft: rgba(
 body {
   background: var(--surface-canvas);
   color: var(--ink-1);
-  font-size: var(--fs-sm);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  /* 必须是 --fs-base（14px）。1.5.128 的 v4 初版在这里误写成 --fs-sm（12px），
+     把 premium.css 的 14px 盖掉，于是所有没写死 font-size 的元素（td / span /
+     p / div 里的大段文字）整站缩水 14%。屏幕 100% 缩放时 12px 汉字已经到
+     可读边缘，叠上灰度抗锯齿就是"字看不清"。 */
+  font-size: var(--fs-base);
+  /* Windows 上 antialiased 关掉 ClearType 次像素渲染，小字被削细一圈；
+     auto 才会走系统默认渲染。 */
+  -webkit-font-smoothing: auto;
 }
 
 /* 全局 [hidden]。此前没有这条，于是 extras/premium/style 里各自打了十几个
@@ -1275,6 +1290,11 @@ body.dark {
    都被撑成 414px 高、文字顶在格子上沿，下方留 400px 空白 —— 工具页因此多出
    5 个 400px 的空洞，整页 8660px 高。同一行的卡片本来就会自动等高。 */
 .tools-grid { gap: var(--s4); }
+
+/* 卡片等高之后，短文案的卡仍会把开关留在半空、卡底空一大块。
+   让描述吃掉剩余高度，动作行就贴在卡底 —— 一行的开关落在同一条线上。 */
+.tool-card { display: flex; flex-direction: column; }
+.tool-card > p { margin-bottom: auto; }
 .tool-card {
   display: flex;
   flex-direction: column;
@@ -1562,3 +1582,63 @@ body.dark .hex-journal { border-color: var(--line-subtle); box-shadow: none; }
   text-transform: none;
 }
 .tools-section:first-child { margin-top: 0; }
+
+/* ============================================================================
+   18. 主题浮层：明暗 × 强调色
+   ----------------------------------------------------------------------------
+   原来是一列四个「色板」按钮，点哪个都像换了一整套设计语言 —— 但收敛之后
+   其中三个已经没有区别。改成两组开关：上面选明暗（分段控件），下面选强调色
+   （两个色块）。分组标题用微标签，和工具页的分类标题同一套写法。
+   ========================================================================== */
+
+.theme-popover {
+  min-width: 186px;
+  padding: 6px;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--e3);
+}
+.theme-group-label {
+  padding: 5px 8px 4px;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--ink-3);
+}
+.theme-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 0 2px 4px;
+}
+.theme-popover .theme-opt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--ctl-h-sm);
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.theme-popover .theme-opt:hover { background: var(--surface-3); color: var(--ink-1); }
+.theme-popover .theme-opt.on {
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+  color: var(--brand-deep);
+  font-weight: 700;
+}
+.theme-popover .theme-opt.on:hover { background: var(--brand-soft); }
+/* 强调色：色块本身承担说明，文字只是标签 */
+.theme-popover .theme-swatch { color: var(--ink-2); font-weight: 600; }
+.theme-popover .theme-swatch .theme-dot { width: 13px; height: 13px; }
+.theme-popover .theme-swatch.on { color: var(--ink-1); }

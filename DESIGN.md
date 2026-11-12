@@ -38,7 +38,10 @@ style.css → extras.css → dark.css → premium.css → ui-polish.css → ui-s
 **不要再新增第二个 `:root` 色板。**（v1→v3 三代各有一套完整色板 + 4 个主题类，
 结果是同一个按钮在不同页面算出三种蓝；这一段历史在 v4 起终止。）
 
-字号令牌：`--fs-*` 只在 `premium.css` 定义（10/11/12/13/14/16/20/24/30），v4 不碰。
+字号令牌：`--fs-*` 只在 `premium.css` 定义（11/12/13/13/14/16/20/24/30），v4 不碰。
+**`body` 的 `font-size` 必须是 `var(--fs-base)`。** 1.5.128 的 v4 在这里写成
+`var(--fs-sm)`，把 premium 的 14px 盖掉，所有没写死字号的元素整站缩水 14%，
+用户看到的就是「字看不清」。
 
 ---
 
@@ -55,7 +58,15 @@ style.css → extras.css → dark.css → premium.css → ui-polish.css → ui-s
 
 强调色只有一份：`--brand: #1f7ba6`（浅色）/ `#5aabd4`（深色）。主题切换只换
 `--brand*` 四个变量，表面色阶（`--surface-*` / `--line-*` / `--ink-*`）任何主题下不变。
-「雾紫」是唯一的替代主题（`body.theme-a`）。
+
+主题是**两个正交维度**：明暗（`body.dark`）× 强调色（`body.theme-a` = 雾紫）。
+`uiTheme` 存成 `"light:blue"` / `"dark:violet"` 这种形式，旧值 `c/a/b/dark` 由
+`LEGACY_UI_THEME` 映射。**新增主题只能加 accent，不能加第三套色板** —— 1.5.128
+之前有 4 个入口，收敛色板后其中 3 个点下去画面不变，用户直接报了「有些没变化」。
+
+深色下还有一条：`dark.css` 的 `body.dark` 块会改写 `--accent`（选择器强于 `:root`），
+导致 `--brand` 与 `--accent` 是两种蓝。v4 在 `body.dark` 里把 `--accent*` 按回
+`--brand*`，改深色品牌色时改一处即可。
 
 分类色环 `--cat-1..6` 只允许出现在 ≤20px 的细条或圆点上（画像页 20 张卡的图标位），
 不允许给整块底或整行文字上色。
@@ -72,9 +83,9 @@ style.css → extras.css → dark.css → premium.css → ui-polish.css → ui-s
 
 | 令牌 | 值 | 用途 |
 |---|---|---|
-| `--fs-2xs` | 10px | 极密集数字：KDA、时间戳、表格微指标。**这是下限** |
-| `--fs-xs` | 11px | 角标、次要标签 |
-| `--fs-sm` | 12px | 列表副文本、卡片标签 |
+| `--fs-2xs` | 11px | 极密集数字：KDA、时间戳、表格微指标。**这是下限** |
+| `--fs-xs` | 12px | 角标、次要标签 |
+| `--fs-sm` | 13px | 列表副文本、卡片标签 |
 | `--fs-md` | 13px | 次要正文、按钮 |
 | `--fs-base` | 14px | 正文基准（`body` 取值） |
 | `--fs-lg` | 16px | 区块标题 |
@@ -84,8 +95,12 @@ style.css → extras.css → dark.css → premium.css → ui-polish.css → ui-s
 
 规则：
 
-- **低于 10px 一律禁止。** Windows 150% 缩放下 9px 会落在半像素上，文字发虚，
-  这是界面"显得廉价"的首要来源，不是审美问题。
+- **低于 11px 一律禁止。** 旧注释按「Windows 150% 缩放」定的 10px 下限，但 1080p
+  屏普遍跑 100%，10px 汉字在那上面是一团灰。这是界面"看不清"的首要来源。
+- 文本颜色同样有下限：`--ink-3` 对 `--surface-2` 的对比度必须 ≥ 4.5:1
+  （浅色 `#64737e` 4.63，深色 `#8b969f` 5.23）。1.5.128 用的 `#78868f` 只有 3.55。
+- 不开 `-webkit-font-smoothing: antialiased`：Windows 上它关掉 ClearType 次像素
+  渲染，小字被削细一圈。v4 在 `body` 上写 `auto` 把它按回系统默认。
 - `<small>` 已设 `font-size: max(10px, .8333em)` 兜住浏览器默认的 `smaller`。
   想更小就改用 `--fs-2xs`，不要依赖标签默认值。
 - 数字列（KDA、伤害、经济）必须带 `font-variant-numeric: tabular-nums`，
@@ -130,7 +145,7 @@ style.css → extras.css → dark.css → premium.css → ui-polish.css → ui-s
 
 ## 5. 硬性禁令
 
-1. 不写 `<10px` 的字号。
+1. 不写 `<11px` 的字号；不把 `body` 的 `font-size` 调到 `--fs-base` 以外。
 2. 不写奇数 px 的 padding/margin/gap。
 3. 不在 `premium.css` 之外新增 `:root` 覆盖。
 4. 不用 `!important` 解决优先级（全站已有 19 处，只减不增）。
@@ -147,7 +162,7 @@ style.css → extras.css → dark.css → premium.css → ui-polish.css → ui-s
 ## 6. 门禁（改完必跑）
 
 ```bash
-node test_ui_tokens.js      # 字号下限 10px / 9 档令牌齐全 / 主题隔离
+node test_ui_tokens.js      # 字号下限 11px / 9 档令牌齐全 / 主题隔离
 node test_live_compact.js   # 1200x800 必须露出 7 场，1440x900 露出 9 场
 node test_behavior_tags.js  # 玩家标签语义
 node check_build.js
@@ -181,7 +196,36 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS node D:/poro-build/verify/ui_page_au
 
 ## 8. 变更记录
 
-**1.5.128（本次）**
+**1.5.129（本次）**
+
+修 1.5.128 引入的两个用户可见问题：整站字变小、主题有几个点了没反应。
+
+- **字变小（根因）**：新加的 `v4.css` 里 `body { font-size: var(--fs-sm) }`
+  （12px）盖掉了 `premium.css` 的 `var(--fs-base)`（14px）。所有没有显式
+  `font-size` 的元素 —— 表格 `td`、`span`、`p`、大段正文 —— 整站缩水 14%。
+  改回 `--fs-base`，并在 DESIGN.md 里写成硬性约束。附带去掉 v4 加的
+  `text-rendering: optimizeLegibility`，`-webkit-font-smoothing` 显式写 `auto`
+  把 Windows 的 ClearType 按回来（`antialiased` 会把小字削细一圈）。
+- **字号阶梯整体上抬**：`--fs-2xs` 10→11、`--fs-xs` 11→12、`--fs-sm` 12→13。
+  旧注释「10px 是 Windows 150% 缩放下的可读下限」的前提不成立 —— 1080p 屏普遍
+  跑 100%，10px 汉字在那个尺寸下无法辨认。正文基准 14px 不动，避免整页布局
+  跟着涨；改完 8 页横向溢出仍为 0。
+- **弱文本对比度**：`--ink-3` `#78868f`（3.55:1）→ `#64737e`（4.63:1），
+  深色 `#77838c`（4.07:1）→ `#8b969f`（5.23:1）。10~11px 的辅助文字此前
+  没过 AA。
+- **主题切换四选一只有两个结果**：1.5.128 收敛色板后，`theme-c` 就是默认值、
+  `theme-b`（暗色玻璃）与 `dark`（经典深色）渲染完全相同，四个按钮里三个
+  点下去画面不变。改成两个正交维度 —— 明暗（浅/深）× 强调色（浅蓝/雾紫），
+  4 种组合都真的有区别；`uiTheme` 存 `"light:blue"` 形式，旧值仍能迁移。
+- **深色的两种蓝**：`dark.css` 的 `body.dark` 块写死 `--accent: #4d8ef7`，
+  选择器强于 `:root`，于是 `--brand`（#5aabd4）与 `--accent` 并存两个蓝。
+  v4 在 `body.dark` 里把 `--accent*`、`--focus-ring` 按回 `--brand*`；
+  `premium.css` 里 6 处硬编码 `rgba(77,142,247,…)` / `#82b1fb` 一并换成 token。
+- 工具卡等高之后，短文案的卡把开关留在半空。`.tool-card` 改 flex 列 +
+  描述 `margin-bottom: auto`，动作行贴卡底，同一行的开关落在同一条线上。
+- 8 页巡检：横向溢出 0px、`<10px` 元素 0 个（明暗各一轮）。
+
+**1.5.128**
 
 新增第四代设计层 `renderer/css/v4.css`（最后加载），并据此清理前三代互相打架的实现。
 

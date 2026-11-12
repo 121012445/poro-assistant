@@ -64,32 +64,72 @@ function fmtTime(sec) {
   return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
 }
 
-// ========== 主题系统: C 浅蓝(默认) / A 雾紫 / B 暗色玻璃 / 经典深色 ==========
-let _lastLightUiTheme = 'c';   // 月亮按钮在 浅色变体 <-> 暗色 之间切换时记住的浅色主题
-function applyUiTheme(v, persist = true) {
+// ========== 主题系统: 明暗 × 强调色 ==========
+// 1.5.128 把四套完整色板收敛成「一套表面阶梯 + 只换 accent」之后，旧的四选项
+// 里有三个已经点不出变化：'c' 就是默认值、'b'(暗色玻璃) 与 'dark'(经典深色) 渲染
+// 结果相同。现在拆成两个正交维度 —— 明暗 2 种 × 强调色 2 种 = 4 种组合，每个按钮
+// 都真的会改变画面，也不再需要维护第二套深色色板。
+const THEME_MODES = ['light', 'dark'];
+const THEME_ACCENTS = ['blue', 'violet'];
+// 旧 store 值迁移: b(暗色玻璃) 当时是深色 + 蓝, a 是浅色 + 紫
+const LEGACY_UI_THEME = {
+  c: { mode: 'light', accent: 'blue' },
+  a: { mode: 'light', accent: 'violet' },
+  b: { mode: 'dark', accent: 'blue' },
+  dark: { mode: 'dark', accent: 'blue' }
+};
+function currentThemeState() {
   const b = document.body;
-  b.classList.remove('theme-a', 'theme-b', 'theme-c');
-  if (v === 'b') { b.classList.add('theme-b', 'dark'); }
-  else if (v === 'dark') { b.classList.remove('theme-a', 'theme-b', 'theme-c'); b.classList.add('dark'); }
-  else {
-    v = (v === 'a' || v === 'c') ? v : 'c';
-    b.classList.remove('dark');
-    b.classList.add('theme-' + v);
-  }
-  if (v !== 'b' && v !== 'dark') _lastLightUiTheme = v;
-  if (persist) { try { storeSet('uiTheme', v); } catch (e) {} }
-  // 月亮/太阳图标跟随明暗
+  return {
+    mode: b.classList.contains('dark') ? 'dark' : 'light',
+    accent: b.classList.contains('theme-a') ? 'violet' : 'blue'
+  };
+}
+function syncThemeUi() {
+  const st = currentThemeState();
   const btn = document.getElementById('themeToggle');
   if (btn && typeof poroIcon === 'function') {
-    const dark = b.classList.contains('dark');
-    btn.innerHTML = dark ? poroIcon('sun') : poroIcon('moon');
+    btn.innerHTML = st.mode === 'dark' ? poroIcon('sun') : poroIcon('moon');
   }
-  // 主题切换器按钮高亮
-  document.querySelectorAll('#themePopover .theme-opt').forEach(el => {
-    el.classList.toggle('on', el.dataset.v === v);
+  document.querySelectorAll('#themePopover [data-mode]').forEach(el => {
+    const on = el.dataset.mode === st.mode;
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#themePopover [data-accent]').forEach(el => {
+    const on = el.dataset.accent === st.accent;
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
 }
+function applyThemeState(state, persist = true) {
+  const b = document.body;
+  const mode = state && state.mode === 'dark' ? 'dark' : 'light';
+  const accent = state && state.accent === 'violet' ? 'violet' : 'blue';
+  b.classList.toggle('dark', mode === 'dark');
+  b.classList.toggle('theme-a', accent === 'violet');
+  b.classList.remove('theme-b', 'theme-c');   // 旧版本遗留类, 防止 localStorage 里带过来
+  if (persist) {
+    try { storeSet('uiTheme', mode + ':' + accent); } catch (e) {}
+  }
+  syncThemeUi();
+}
+// 旧入口: 仍然接受 'c' / 'a' / 'b' / 'dark', 以及新的 'light:blue' 形式
+function applyUiTheme(v, persist = true) {
+  let st = LEGACY_UI_THEME[v];
+  if (!st && typeof v === 'string' && v.indexOf(':') > 0) {
+    const p = v.split(':');
+    st = { mode: p[0], accent: p[1] };
+  }
+  applyThemeState(st || { mode: 'light', accent: 'blue' }, persist);
+}
 function setUiTheme(v) { applyUiTheme(v); }
+function pickThemeMode(mode) {
+  applyThemeState({ mode, accent: currentThemeState().accent });
+}
+function pickThemeAccent(accent) {
+  applyThemeState({ mode: currentThemeState().mode, accent });
+}
 
 // 主题选择弹窗 (侧边栏底部调色板按钮)
 function toggleThemePicker(e) {

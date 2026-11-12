@@ -6,8 +6,8 @@ if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="p
 // 因此 index.html 中必须排在 app.js 之前加载。
 
 // ========== 主题切换 ==========
-// applyTheme 保留为旧版深浅兼容入口; 正式主题系统 (applyUiTheme) 在 app.js:
-// C 浅蓝(默认) / A 雾紫 / B 暗色玻璃 / dark 经典深色, 见 store 键 uiTheme。
+// 正式主题系统在 app.js: 明暗 (light/dark) × 强调色 (blue/violet), 见 store 键 uiTheme。
+// applyTheme 保留为旧版深浅兼容入口。
 function applyTheme() {
   const t = storeGet('theme');
   document.body.classList.toggle('dark', t === 'dark');
@@ -15,16 +15,13 @@ function applyTheme() {
   if (btn) btn.innerHTML = t === 'dark' ? poroIcon('sun') : poroIcon('moon');
 }
 function toggleTheme() {
-  // 月亮按钮: 浅色变体 (C 浅蓝 / A 雾紫) <-> 暗色 (B 暗色玻璃), 记住上次用的浅色变体
-  if (typeof applyUiTheme === 'function') {
-    if (document.body.classList.contains('dark')) {
-      applyUiTheme(typeof _lastLightUiTheme !== 'undefined' ? _lastLightUiTheme : 'c');
-    } else {
-      applyUiTheme('b');
-    }
+  // 月亮按钮: 明暗互换, 强调色保持不变
+  if (typeof currentThemeState === 'function' && typeof applyThemeState === 'function') {
+    const st = currentThemeState();
+    applyThemeState({ mode: st.mode === 'dark' ? 'light' : 'dark', accent: st.accent });
     return;
   }
-  // 兜底: 无 applyUiTheme 的环境 (个别测试) 保留旧深浅切换
+  // 兜底: 无 applyThemeState 的环境 (个别测试) 保留旧深浅切换
   const dark = !document.body.classList.contains('dark');
   document.body.classList.toggle('dark', dark);
   storeSet('theme', dark ? 'dark' : 'light');
