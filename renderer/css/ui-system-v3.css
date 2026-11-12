@@ -110,9 +110,9 @@ body.dark {
   width: auto;
   max-width: 100%;
   padding: 12px;
-  border-color: #52606b;
-  background: #182027;
-  box-shadow: 0 12px 30px rgba(0,0,0,.38);
+  border-color: var(--line);
+  background: var(--surface-1);
+  box-shadow: var(--e3);
   /* 面板共 11 块内容 (4 行状态 + 标题 + 提示 + 徽标 + 2 组按钮 + 记录 + 2 个动作),
      不限高的话底部「停止全部自动化 / 重新检测客户端」直接落到窗口外。 */
   max-height: calc(100vh - 400px);
@@ -120,12 +120,15 @@ body.dark {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.sidebar-status-row { align-items: baseline; flex-wrap: wrap; row-gap: 2px; padding: 4px 0; color: #c6d0d7; font-size: var(--fs-sm); line-height: 1.4; }
-.sidebar-status-row span { flex: 0 0 auto; color: #9fb0bb; }
-.sidebar-status-row b { min-width: 0; margin-left: auto; color: #ffffff; font-size: var(--fs-sm); font-weight: 700; text-align: right; overflow-wrap: anywhere; }
-.sidebar-status-title { margin-top: 10px; color: #ffffff; font-size: 14px; font-weight: 700; line-height: 1.35; }
-.sidebar-status-next { margin-top: 4px; color: #d1d9de; font-size: var(--fs-sm); line-height: 1.5; }
-.sidebar-status-log { margin-top: 12px; padding-top: 10px; border-top: 1px solid #46525c; color: #c7d0d6; font-size: var(--fs-sm); line-height: 1.55; }
+/* 面板整体曾经是一块「暗色孤岛」: 底色和文字写死深色系, 而内部按钮又引用
+   var(--surface-3) —— 浅色主题下解析成浅灰, 白字配浅灰底直接隐形 (1.5.129
+   用户报「左下角字体看不清」)。现在全部走 token, 明暗主题自动适配。 */
+.sidebar-status-row { align-items: baseline; flex-wrap: wrap; row-gap: 2px; padding: 4px 0; color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.4; }
+.sidebar-status-row span { flex: 0 0 auto; color: var(--ink-3); }
+.sidebar-status-row b { min-width: 0; margin-left: auto; color: var(--ink-1); font-size: var(--fs-sm); font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.sidebar-status-title { margin-top: 10px; color: var(--ink-1); font-size: 14px; font-weight: 700; line-height: 1.35; }
+.sidebar-status-next { margin-top: 4px; color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.5; }
+.sidebar-status-log { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-subtle); color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.55; }
 .sidebar-status-pill { margin-top: 8px; padding: 4px 8px; border-color: var(--line); background: var(--surface-2); color: var(--ink-1); font-size: var(--fs-sm); font-weight: 600; }
 .sidebar-status-actions { gap: 6px; margin-top: 8px; }
 .sidebar-status-panel .sidebar-status-actions button,
@@ -135,35 +138,35 @@ body.dark {
   min-width: 0 !important;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-color: #60707b !important;
-  background: var(--surface-3) !important;
-  color: #f3f6f8 !important;
-  -webkit-text-fill-color: #f3f6f8;
+  border-color: var(--line-strong) !important;
+  background: var(--surface-2) !important;
+  color: var(--ink-1) !important;
+  -webkit-text-fill-color: var(--ink-1);
   font-size: var(--fs-sm) !important;
   font-weight: 600 !important;
 }
 .sidebar-status-panel .sidebar-status-actions button:hover,
 .sidebar-status-panel .sidebar-status-reconnect:hover {
-  border-color: #62c5ce !important;
-  background: #2f3d45 !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff;
+  border-color: var(--brand) !important;
+  background: var(--surface-3) !important;
+  color: var(--ink-1) !important;
+  -webkit-text-fill-color: var(--ink-1);
 }
 .sidebar-status-panel .sidebar-status-pill.is-online {
-  border-color: rgba(110, 231, 183, .52);
-  background: rgba(36, 112, 83, .28);
-  color: #6ee7b7;
+  border-color: rgba(18, 138, 77, .45);
+  background: rgba(18, 138, 77, .10);
+  color: var(--pos);
 }
 .sidebar-status-panel .sidebar-status-pill.is-live {
-  border-color: rgba(246, 189, 115, .52);
-  background: rgba(138, 83, 30, .28);
-  color: #f6bd73;
+  border-color: rgba(168, 102, 18, .45);
+  background: rgba(168, 102, 18, .10);
+  color: var(--warn);
 }
 .sidebar-status-panel .sidebar-status-actions button:disabled,
 .sidebar-status-panel .sidebar-status-reconnect:disabled {
   opacity: 1 !important;
-  border-color: #46545e;
-  background: #202a31;
+  border-color: var(--line);
+  background: var(--surface-2) !important;
   color: var(--ink-3) !important;
   -webkit-text-fill-color: var(--ink-3);
 }
