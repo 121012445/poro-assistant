@@ -65,4 +65,17 @@ const s = ctx.teamShareOf(mates, me, 10, 5);
 assert.strictEqual(s.kde, 1.67, 'kde = (10/20) ÷ (30000/100000) ≈ 1.67');
 assert.strictEqual(s.kp, 75, '既有 kp 口径不受影响');
 
+// 1.5.141: 特色标签 (大腿/本命) + 标签专属配色 (§23) + 组队色轮换
+assert.ok(live.includes('lp-tag-hiwr') && live.includes(">大腿</span>"), '应有高胜率「大腿」特色标签');
+assert.ok(live.includes('lp-tag-main') && live.includes(">本命</span>"), '应有本命英雄特色标签');
+assert.ok(live.includes('specialTags.length'), '特色标签应计入 reservedSlots');
+assert.ok(live.includes(".lp-extra-metrics > *") && live.includes('cloneNode'), '+N 浮层应克隆原始节点 (组队/行为标签收走后不消失)');
+assert.ok(live.includes('lp-pg-'), '组队标签应按组号挂色类');
+const cssAll = fs.readFileSync('renderer/css/v4.css', 'utf8');
+for (const c of ['dmg', 'tank', 'kp', 'gold', 'csm', 'vision']) {
+  assert.ok(cssAll.includes(`#page-live .lp-profile-line .lp-metric-${c}`), `§23 应有 lp-metric-${c} 专属色 (scoped 版本压过旧中性规则)`);
+}
+assert.ok(cssAll.includes('.lp-pg-1') && cssAll.includes('.lp-behavior-warn'), '§23 应有组队六色与行为分档色');
+assert.ok(cssAll.includes('#page-live .page-header { padding-bottom: 0; }'), '§22.5 计划条头应去掉 padding-bottom');
+
 console.log('test_live_metric_tags: 全部断言通过');

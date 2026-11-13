@@ -2045,3 +2045,69 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
 #page-live .lp-team-head { min-height: 0; }
 #page-live .lp-build-btn,
 #page-live .lp-expand-btn { padding: 3px 8px; }
+
+/* ============================================================================
+   23. 标签专属配色 (1.5.141): 每类胶囊一个自己的色相, Akari 式实色 + 白字
+   ----------------------------------------------------------------------------
+   1.5.134 曾把指标全部做成中性灰, 十卡同屏确实安静, 但用户要的是 Akari 那种
+   "扫一眼就能对号入座" 的辨识度。折衷: 实色底 + 白字, 色相错开但不刺眼,
+   深浅主题共用同一组色 (中明度实色对白字的对比度两侧都够)。
+   选择器必须带 #page-live 版本: §1091 的旧中性规则是 scoped 的, 同特异性下
+   靠源顺序覆盖; unscoped 版本给「+N」浮层 (挂在 body 上) 用。
+   ========================================================================== */
+#page-live .lp-profile-line .lp-metric-dmg, .lp-metric-dmg { background: #9e3325; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-tank, .lp-metric-tank { background: #2e7d4f; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-kp, .lp-metric-kp { background: #2f5fa8; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-dmgGold, .lp-metric-dmgGold { background: #7a4fb0; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-gold, .lp-metric-gold { background: #9c7c2d; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-csm, .lp-metric-csm { background: #2e7d8a; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-vision, .lp-metric-vision { background: #565b85; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-solo, .lp-metric-solo { background: #9019a8; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-kdehi, .lp-metric-kdehi { background: #04614b; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-kdelo, .lp-metric-kdelo { background: #8a3030; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-winstreak, .lp-metric-winstreak { background: #18571c; color: #fff; border-color: transparent; }
+#page-live .lp-profile-line .lp-metric-lossstreak, .lp-metric-lossstreak { background: #893b3b; color: #fff; border-color: transparent; }
+/* 特色标签: 大腿 (高胜率) / 本命 (重复英雄) */
+.lp-tag-hiwr { background: #8a2c8e !important; color: #fff !important; font-weight: 700 !important; }
+.lp-tag-main { background: #c2621d !important; color: #fff !important; font-weight: 700 !important; }
+/* 组队: 组号六色轮换 (Akari 小队色), 同组的人跨卡对色 */
+.lp-premade { border-radius: var(--radius-xs); padding: 0 6px; line-height: 15px; color: #fff; }
+.lp-pg-1 { background: #0f6f68; }
+.lp-pg-2 { background: #1f3fa6; }
+.lp-pg-3 { background: #5c6000; }
+.lp-pg-4 { background: #1a7a2a; }
+.lp-pg-5 { background: #8a4400; }
+.lp-pg-6 { background: #8a2a00; }
+/* 行为标签: 负面程度分档, 好坏一眼分层 */
+.lp-behavior { border-radius: var(--radius-xs); padding: 0 6px; line-height: 15px; color: #fff; }
+.lp-behavior-bad { background: #8a3030; }
+.lp-behavior-warn { background: #9c6b1d; }
+.lp-behavior-info { background: #4a6a8a; }
+/* 实色底后胶囊的字重和内边距统一, 视觉密度和 Akari 对齐 */
+#page-live .lp-profile-line .lp-metric {
+  font-weight: 600;
+  padding: 0 6px;
+}
+/* ---- 22.2 作战计划头瘦身: page-header 通用样式带 margin-bottom 24px,
+   实时页的计划条只需贴着队区, 省出 20px (探针实测真实对局头部存在时
+   recent 掉回 203px / 7 行)。空槽位不占位。 ---- */
+#page-live .page-header { margin-bottom: 4px; }
+#page-live .live-head-slot:empty { display: none; }
+#page-live .lp-row { padding: 2px var(--s3); }
+/* 22.3 计划条实高: extras.css 的 summary min-height:38px 会压过 premium 的
+   height:25px (min-height 恒胜 height), 实测计划条实占 47px。压到 24px 高。 */
+#page-live .live-head-slot { padding: 2px 8px; }
+#page-live .live-head-slot .live-decision summary { min-height: 0; height: 24px; }
+#page-live .page-header { margin-bottom: 2px; }
+/* 22.4 最后 6px: 到 8 行的零头, 各处 1-2px 汇总 */
+#page-live .live-head-slot .live-decision summary { padding: 2px 10px; }
+#page-live .lp-build-btn,
+#page-live .lp-expand-btn { padding: 2px 7px; }
+#page-live .lp-profile-line { margin-bottom: 0; }
+#page-live .lp-champ-usage { margin: 0 1px 1px; }
+#page-live .lp-card-head { padding-bottom: 1px; }
+#page-live .lp-champ { width: 28px; height: 28px; }
+/* 22.5 page-header 的 padding-bottom 12px (v4.css:348 通用规则) 是计划条实高的
+   最后一块, 实测 22.3 后 header 仍 42px = slot 29 + pad 12 + margin 2。归零。 */
+#page-live .page-header { padding-bottom: 0; }
+#page-live .lp-recent { gap: 1px; }

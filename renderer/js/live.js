@@ -1349,11 +1349,18 @@ function toggleLiveMetricsPop(ev, btn) {
   if (!row) return;
   // 只取被收进 .lp-extra-metrics 的那几枚。连胜/连败如果还留在行内可见,
   // 就不再重复列一遍 (fitLiveMetricRows 会把它一起搬进来, 那种情况下才会出现在浮层)。
-  const pills = [...row.querySelectorAll('.lp-extra-metrics .lp-metric')];
+  // 1.5.141: 克隆原始节点而不是只重建 .lp-metric —— 组队/行为/特色标签没有
+  // lp-metric 类, 旧写法让它们被收走后在浮层里凭空消失。
+  const pills = [...row.querySelectorAll('.lp-extra-metrics > *')];
   if (!pills.length) return;
   el.innerHTML = '<div class="lp-metric-pop-head">近 20 场队内指标</div>'
     + '<div class="lp-metric-pop-grid">'
-    + pills.map(p => `<span class="lp-metric ${[...p.classList].filter(c => c.startsWith('lp-metric-') && c !== 'lp-extra-metric').join(' ')}">${escapeHtml(p.textContent.trim())}</span>`).join('')
+    + pills.map(p => {
+      const c = p.cloneNode(true);
+      c.classList.add('lp-metric');
+      c.classList.remove('lp-extra-metric');
+      return c.outerHTML;
+    }).join('')
     + '</div>';
   // 先显示再定位, 否则 hidden 状态下量不到尺寸
   el.hidden = false;
@@ -1599,17 +1606,35 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const isSelf = selfPuuid && p.puuid === selfPuuid;
     const tag = isSelf ? '<span class="lp-self-tag">自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
-    const premadeTag = premadeGroupId ? `<span class="lp-premade" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
+    // 1.5.141: 组队标签按组号着色 (Akari 小队 A-G 各一色), 同组的人在两张卡上一眼对上
+    const premadeTag = premadeGroupId ? `<span class="lp-premade lp-pg-${((premadeGroupId - 1) % 6) + 1}" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
     const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}${encounterTagHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
+    // 1.5.141 特色标签: 数据全部来自已加载的 recent, 零请求。
+    //   大腿 = 近 14 场以上胜率 ≥65% (Akari 高胜率标签同思路, 阈值按 20 场样本放宽);
+    //   本命 = 同一个英雄玩了 ≥5 场 (championUsage 聚合同源)。样本不够就不贴, 宁缺毋滥。
+    const games = p.recent.length;
+    const specialTags = [];
+    if (winRate != null && winRate >= 65 && games >= 14) {
+      specialTags.push(`<span class="lp-metric lp-tag-hiwr" title="近 ${games} 场 ${wins} 胜，胜率 ${winRate}% — 高胜率玩家，前期多照顾他一路">大腿</span>`);
+    }
+    const champCounts = {};
+    for (const r of p.recent) champCounts[r.champId] = (champCounts[r.champId] || 0) + 1;
+    let mainChampId = 0, mainChampN = 0;
+    for (const [cid, n] of Object.entries(champCounts)) if (n > mainChampN) { mainChampN = n; mainChampId = Number(cid); }
+    const mainChamp = mainChampN >= 5 ? champOfLive(mainChampId) : null;
+    if (mainChamp) {
+      specialTags.push(`<span class="lp-metric lp-tag-main" title="${escapeHtml(mainChamp.name)} 近 ${games} 场玩了 ${mainChampN} 场 — 本命英雄，熟练度大概率不低">本命</span>`);
+    }
+    const specialHtml = specialTags.join('');
     const risk = deriveRiskProfile(p.recent);
     // 实时卡片不显示“近期稳定 / 需要观察”画像标签，避免和队内指标标签争夺空间。
     const riskHtml = '';
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
     const behaviorHtml = behaviorTagsHtml(p.behaviorSamples);
-    const reservedSlots = (premadeTag ? 1 : 0) + (behaviorHtml ? 1 : 0);
-    const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent, reservedSlots)}${behaviorHtml}`;
+    const reservedSlots = (premadeTag ? 1 : 0) + (behaviorHtml ? 1 : 0) + specialTags.length;
+    const pills = `${premadeTag}${specialHtml}${riskHtml}${liveMetricPills(p.recent, reservedSlots)}${behaviorHtml}`;
     const recordSummary = liveRecordText(p.recent.length, wins, '近期战绩加载中');
     // 1.5.134: 胜率三档 (Akari 口径) —— ≥55 绿 / ≤45 红 / 中间中性, 50% 的红绿抖动不再误导
     const wrCls = winRate == null ? '' : winRate >= 55 ? ' positive' : winRate <= 45 ? ' negative' : ' neutral';
