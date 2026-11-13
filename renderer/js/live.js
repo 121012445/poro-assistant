@@ -13,13 +13,7 @@ const livePlayersCache = { key: "", data: null, premadeGroups: null };
 // pageHtml 由比对守卫统一管理 —— 之前 body.prepend 加在渲染之外, 每次比对重绘
 // (pageHtml 不含 hint) 都会把 hint 抹掉, 下一轮全量路径又 prepend 回来,
 // 表现为顶部提示条偶尔出现偶尔消失。
-let liveCustomHintState = { isCustom: false, onlySelf: false };
-function liveCustomHintHtml() {
-  if (!liveCustomHintState.isCustom && !liveCustomHintState.onlySelf) return '';
-  return `<div class="live-custom-hint">${liveCustomHintState.onlySelf
-    ? '当前为训练模式/自定义局，客户端仅返回你自己 1 名玩家。进入真实匹配对局后才会显示完整 10 人阵容、英雄头像与补刀/金币数据。'
-    : '当前为自定义对局，实时数据可能不完整。'}</div>`;
-}
+// 1.5.148: 顶部自定义对局提示条整体移除 (用户要求不要这一行; 闪烁问题随之消失)
 // 选人阶段缓存的玩家列表 (加载页面/游戏开始时复用)
 let champSelectParticipants = null;
 let liveRenderToken = 0;
@@ -418,12 +412,9 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   console.log(`[livePage] path=${livePlayers ? 'live('+livePlayers.length+')' : 'session('+parts.length+')'} players=${players.length} blue=${blueN} red=${redN} unknown=${unknownN} phase=${phase}`);
 
   // 训练模式/自定义局: LCU 只返回自己 1 人 (isCustomGame:true), 是平台限制而非 bug
-  const isCustom = !!session?.gameData?.isCustomGame;
   const onlySelf = players.length <= 1;
-  // 1.5.146b: 提示条不再 body.prepend (会被比对重绘抹掉又补回, 闪烁), 改为记录
-  // 状态由 renderLiveTeams 的 pageHtml 统一渲染。训练模式只有自己时仍默认放蓝方。
+  // 训练模式只有自己时默认放蓝方 (1.5.148 起顶部提示条已移除)
   if (onlySelf && players.length === 1) players[0].team = 100;
-  liveCustomHintState = { isCustom, onlySelf };
   // premade detection based on challengeId, covering all 10 players
   let premadeGroups = null;
   if (phase === "ChampSelect" || phase === "InProgress" || phase === "GameStart") {
@@ -1637,7 +1628,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   // 而空快照正是"点按钮毫无反应"的来源。
   window._poroLiveCtx = { data, selfPuuid };
   const pageHtml = `
-    ${liveCustomHintHtml()}${enemyIntelHtml(data, selfPuuid)}
+    ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与当前页面一致时直接跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
@@ -1762,7 +1753,6 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
     closeLiveBuildPop();
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
     delete body.dataset.liveKey;   // 1.5.146: 骨架 key 守卫的失效点, 新对局必须重画
-    liveCustomHintState = { isCustom: false, onlySelf: false };   // 1.5.146b: 提示条状态一并复位
     syncLiveExpandButton(false);
     return;
   }

@@ -400,7 +400,7 @@ body {
 .status-dot.off { background: var(--text-muted); }
 .phase-badge { background: var(--bg-hover); border: 1px solid var(--border); color: var(--accent-deep); padding: 4px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 600; }
 .msg-error { color: var(--negative); padding: 20px; text-align: center; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
-.live-custom-hint { margin: 0 0 12px; padding: 10px 14px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); background: var(--bg-hover); border: 1px solid var(--border); border-left: 3px solid var(--accent-deep); border-radius: var(--radius); }
+/* 1.5.148: 自定义对局提示条样式已随该元素整体移除 */
 .region-select { max-width: 130px; flex: 0 0 auto; }
 .match-summary { display: flex; align-items: center; gap: 28px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 16px; flex-wrap: wrap; }
 .match-summary .ms-val { font-size: 18px; font-weight: 800; color: var(--text-primary); }
@@ -1154,7 +1154,6 @@ body {
 #page-live.active { display: flex; flex-direction: column; height: 100%; }
 #page-live .page-header { flex-shrink: 0; }
 #liveGameArea { flex: 1; display: flex; flex-direction: column; width: 100%; min-height: 0; overflow: auto; padding-right: 4px; }
-#liveGameArea > .live-custom-hint,
 #liveGameArea > .meta-loading,
 #liveGameArea > .msg-error { flex-shrink: 0; width: 100%; }
 #liveGameArea > .lp-wrap { flex: 1 1 auto; width: 100%; min-height: 0; }

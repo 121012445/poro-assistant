@@ -98,11 +98,11 @@ assert.ok(live.includes('function buildLivePills('),
 assert.ok(live.includes('const pillsHtml = buildLivePills(p, pgid);'),
   '1.5.146 updateLivePlayerRow 必须局部同步标签行 (此前只更新战绩区, 标签要等全量重绘)');
 
-// 1.5.146b 顶部提示条闪烁: hint 进 pageHtml 由比对守卫统一管理
-assert.ok(live.includes('function liveCustomHintHtml('),
-  '1.5.146b 自定义对局提示条必须由 liveCustomHintHtml 渲染进 pageHtml');
-assert.ok(live.includes('${liveCustomHintHtml()}${enemyIntelHtml(data, selfPuuid)}'),
-  '1.5.146b hint 应在 pageHtml 顶部 (enemyIntel 之前), 不再 body.prepend');
-assert.ok(!live.includes('body.prepend(hint)'),
-  '1.5.146b 不得再 body.prepend hint (比对重绘会把它抹掉又补回, 闪烁)');
+// 1.5.148 顶部提示条整体移除 (用户要求不要这一行)
+assert.ok(!live.includes('liveCustomHint'),
+  '1.5.148 live.js 不得再含 liveCustomHint 任何引用 (提示条整体移除)');
+assert.ok(!live.includes('live-custom-hint'),
+  '1.5.148 live.js 不得再渲染 live-custom-hint');
+assert.ok(live.includes('if (onlySelf && players.length === 1) players[0].team = 100;'),
+  '1.5.148 训练模式只有自己时默认放蓝方的功能逻辑必须保留');
 console.log('实时对局大卡片布局测试通过');
