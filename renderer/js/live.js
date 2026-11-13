@@ -77,7 +77,7 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
           me.spell2Id ?? stats.spell2Id ?? me.summoner2Id ?? stats.summoner2Id
         ]);
         const win = stats.win === true || stats.win === "Win" || me.win === true;
-        if (recent.length < 10) {
+        if (recent.length < 20) {
           const k = stats.kills ?? me.kills ?? 0, d = stats.deaths ?? me.deaths ?? 0, a = stats.assists ?? me.assists ?? 0;
           recent.push({
             // 1.5.76: 带上 gameId, 实时页点这张卡才能按需拉这一局的完整详情
@@ -120,7 +120,7 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
     const teammates = (game.participants || []).filter(p => p.puuid && p.teamId === me.teamId).map(p => p.puuid);
     if (teammates.length > 1) teamGames.push({ id: String(game.gid || game.time || teamGames.length), players: teammates });
     flashSamples.push(me.spells || []);
-    if (recent.length < 10) recent.push({
+    if (recent.length < 20) recent.push({
       // 1.5.76: LCU 兜底路径同样带上 gameId (raw 是原始 game 对象, normalizeGame 只留了 gid)
       gameId: raw.gameId || raw.gameIdString || game.gameId || game.gid || 0,
       champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0,
@@ -1034,9 +1034,10 @@ function answerLiveQuestion(question) {
   }
 }
 
-// 加载最近 10 场；玩家卡高度固定，超出部分在卡片内部滚动，不挤出另一支队伍。
+// 加载最近 20 场 (SGP 单次请求 30 场, 多存 10 场零成本); 卡片高度固定, 超出部分在卡内滚动。
+// Akari 的战绩区也是"加载多少显示多少", 10 场的卡在高度上比不过它 —— 20 场先补齐信息量。
 function recentLimit() {
-  return 10;
+  return 20;
 }
 
 // 战绩摘要文案: "近10场 6胜4负"。原先"近 N 场"单独占一行，并进来后玩家卡少一行，战绩区更高。
@@ -1372,6 +1373,42 @@ function syncLiveRecentHint(row, p) {
     else row.querySelector('.lp-recent')?.insertAdjacentHTML('afterend', hint);
   } else if (prev) prev.remove();
 }
+
+// 最近常用英雄 (Akari 同款模块): 聚合近 20 场的英雄使用, 按场次降序取前 9 枚 20px 图标。
+// ring 颜色跟这个英雄自己的胜率走 —— 同一个人, 玩亚索 60% 胜率和玩亚索 30% 胜率是两种人,
+// 这排图标回答的是"他最近在玩什么、玩得怎么样", 而不是整体胜率。
+// 数据复用已加载的 recent, 不发任何新请求; 总使用 ≤1 个英雄时没有"常用"可言, 整行不出。
+function championUsageHtml(recent) {
+  const rs = (recent || []).filter(r => r && r.champId);
+  if (!rs.length) return '';
+  const byChamp = new Map();
+  for (const r of rs) {
+    const e = byChamp.get(r.champId) || { id: r.champId, n: 0, w: 0 };
+    e.n++;
+    if (r.win === true || r.win === 'Win') e.w++;
+    byChamp.set(r.champId, e);
+  }
+  const list = [...byChamp.values()].sort((a, b) => b.n - a.n).slice(0, 9);
+  if (list.length < 2) return '';
+  const dots = list.map(e => {
+    const c = champOfLive(e.id);
+    const wr = Math.round(e.w / e.n * 100);
+    const cls = e.n >= 2 && wr >= 50 ? ' is-pos' : e.n >= 2 && wr < 50 ? ' is-neg' : '';
+    const tip = `${c ? c.name : ''} ${e.n}场 ${wr}%胜率`;
+    return `<img class="lp-usage-champ${cls}" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`} title="${escapeHtml(tip)}">`;
+  }).join('');
+  return `<div class="lp-champ-usage">${dots}</div>`;
+}
+function syncLiveChampUsage(row, p) {
+  if (!row) return;
+  const prev = row.querySelector(':scope > .lp-champ-usage');
+  const usage = championUsageHtml(p.recent);
+  if (usage) {
+    if (prev) prev.outerHTML = usage;
+    else row.querySelector('.lp-profile-line')?.insertAdjacentHTML('afterend', usage);
+  } else if (prev) prev.remove();
+}
+
 function updateLivePlayerRow(p, idx) {
   const key = livePlayerKey(p);
   window._poroLivePlayerMap?.set(key, p);
@@ -1392,6 +1429,7 @@ function updateLivePlayerRow(p, idx) {
   const kdaEl = row.querySelector('.lp-kda');
   if (recentEl) recentEl.innerHTML = recentHtml;
   syncLiveRecentHint(row, p);
+  syncLiveChampUsage(row, p);
   if (flashEl) flashEl.innerHTML = flashPreferenceHtml(p.flashPreference);
   if (winRateEl) {
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
@@ -1566,6 +1604,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         </div>
       </div>
       <div class="lp-profile-line">${pills}</div>
+      ${championUsageHtml(p.recent)}
       <div class="lp-recent">${recentHtml}</div>
       ${liveRecentHint(p)}
     </div>`;

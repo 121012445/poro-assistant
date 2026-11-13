@@ -1923,3 +1923,26 @@ body.dark #page-live .ri-loss .ri-result { color: #fca5a5; }
 
 /* ---- 21.3 分均CS pill (随 lp-metric 体系, 只补语义色, 不加新底色) ---- */
 #page-live .lp-profile-line .lp-metric-csm { color: var(--ink-2); }
+
+/* ---- 21.4 最近常用英雄行 (1.5.138, Akari 同款模块) ----
+   近 20 场英雄使用聚合, 场次降序前 9 枚 20px 图标; ring 跟"该英雄自己的胜率"走:
+   ≥50% 蓝 / <50% 红 / 样本不足(该英雄只玩 1 场)中性灰。数据复用 recent, 零请求。 */
+#page-live .lp-champ-usage {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  min-height: 20px;
+  margin: 2px 1px 4px;
+}
+#page-live .lp-usage-champ {
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-3);
+  border: 2px solid color-mix(in srgb, var(--line-strong, var(--border)) 42%, transparent);
+}
+#page-live .lp-usage-champ.is-pos { border-color: color-mix(in srgb, var(--live-blue) 78%, transparent); }
+#page-live .lp-usage-champ.is-neg { border-color: color-mix(in srgb, var(--live-red) 78%, transparent); }
+body.dark #page-live .lp-usage-champ { background: rgba(255,255,255,.08); }

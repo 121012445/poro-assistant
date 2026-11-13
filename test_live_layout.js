@@ -47,8 +47,11 @@ assert.ok(live.includes('lp-empty') && live.includes('Array.from({ length: slots
 assert.match(css, /\.lp-row:has\(\.ri-card:nth-child\(9\)\)::after/, '战绩溢出时底部应有渐隐提示, 而不是露出被裁断的半行');
 assert.match(css, /\.ri-win\s*\{[^}]*background:[^}]*\}/s, '胜局行应整行染色');
 assert.match(css, /\.ri-loss\s*\{[^}]*background:[^}]*\}/s, '败局行应整行染色');
-assert.match(live, /function recentLimit\(\)\s*\{\s*return 10;\s*\}/,
-  '每张玩家卡应提供最近 10 场战绩');
+assert.match(live, /function recentLimit\(\)\s*\{\s*return 20;\s*\}/,
+  '每张玩家卡应提供最近 20 场战绩 (1.5.138 对齐 Akari 信息量, SGP 请求 30 场只存 10 是浪费)');
+assert.ok(live.includes('function championUsageHtml') && live.includes('lp-champ-usage'),
+  '玩家卡应有最近常用英雄行 (Akari 同款模块)');
+assert.match(live, /recent\.length < 20/, 'SGP/LCU 两条战绩来源都要存够 20 场');
 assert.match(css, /\.lp-wrap\s*\{[^}]*flex:\s*1;[^}]*overflow:\s*hidden;/s, '两支队伍应共同压缩在实时页可视高度内');
 assert.match(css, /\.lp-team\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;/s, '两支队伍应各占实时页一半高度');
 assert.match(css, /\.lp-recent\s*\{[^}]*overflow-y:\s*auto;/s, '最近 10 场应在玩家卡内部独立滚动');
