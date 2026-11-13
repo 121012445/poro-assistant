@@ -2474,3 +2474,61 @@ table td { font-family: var(--font-data); }
   letter-spacing: -.02em;
 }
 #page-home .home-name { font-weight: 600; letter-spacing: -.01em; }
+
+/* ============================================================================
+   30. 数字等宽补全 + 浅色次要数据归位 (1.5.156)
+   ----------------------------------------------------------------------------
+   用户: 「浅色状态下字体颜色没和 binancegui 对齐啊」。
+   实测 (§29 上线后的全站探针): 数字元素只有 18.2% 走 mono ——
+     首页 96% ✓ / 实时页 ✓ / 英雄库 **0%** (1285 个数字全是比例字体) /
+     工具箱 0% / 强化资料 0%。
+   英雄库是密集数据表, 258 行 × 5 列数字, 比例字体下每列宽度随数字跳动,
+   这正是"和 BinanceGUI 不像"的主因 (BinanceGUI 的表格全走 tabular + mono)。
+   同时浅色下 champ-rank/pr/br 这 771 个数据值落在最淡的 --ink-3 (#7C8CA0,
+   对比度 3.44:1), 而 BinanceGUI 浅色把这些当"数据"而非"提示", 用 text2。
+   T5 还叠了 opacity .7, 把 #7C8CA0 再稀释到约 #9BAAB9 (2.3:1), 几乎看不清。
+   本段: A 补全等宽 / B 浅色数据值提到 text2 / C 取消 opacity 稀释。
+   ========================================================================== */
+
+/* A. 英雄库数据列: 排名/PICK/BAN/胜率/评级 全部等宽 */
+.champ-rank,
+.champ-pr,
+.champ-br,
+.champ-wr,
+.champ-tier,
+.champ-wr b,
+.champ-row [class*="-pct"] {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* B. 浅色: 这三列是可读的数据值, 不是提示文字 —— 对齐 BinanceGUI text2 */
+:root .champ-rank,
+:root .champ-pr,
+:root .champ-br {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+/* 深色保持原层级 (深色下 ink-3 在卡片上对比度足够) */
+body.dark .champ-rank,
+body.dark .champ-pr,
+body.dark .champ-br {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* C. T5 不再用 opacity 稀释: 用色阶表达"最弱", 保持文字对比度 */
+.champ-tier.t-5 {
+  opacity: 1;
+  color: color-mix(in srgb, var(--ink-3) 76%, var(--surface-1));
+}
+body.dark .champ-tier.t-5 {
+  opacity: 1;
+  color: color-mix(in srgb, var(--ink-3) 82%, var(--surface-1));
+}
+
+/* D. 英雄库表头与行内其余数值: 同一套数字字体 */
+.champ-table-header,
+.champ-row {
+  font-variant-numeric: tabular-nums;
+}

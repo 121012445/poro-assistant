@@ -61,9 +61,11 @@ console.log('[D] 数据表格 + 字重封顶');
 console.log('[E] 版本与缓存');
 {
   const pkg = JSON.parse(fs.readFileSync(path.join(R, 'package.json'), 'utf8'));
-  ok(pkg.version === '1.5.155', 'version = 1.5.155');
+  const vv = pkg.version.split('.').map(Number);
+  ok(vv[0] === 1 && vv[1] === 5 && vv[2] >= 155, 'version >= 1.5.155');
   const html = fs.readFileSync(path.join(R, 'renderer/index.html'), 'utf8');
-  ok(html.includes('v4.css?v=2026111335'), 'v4.css 缓存参数 1335');
+  const mm = html.match(/v4\.css\?v=(\d+)/);
+  ok(!!mm && Number(mm[1]) >= 2026111335, 'v4.css 缓存参数 >= 1335');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

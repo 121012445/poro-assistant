@@ -81,7 +81,8 @@ console.log('[D] 版本与缓存');
   ok(maj === 1 && (min > 5 || (min === 5 && pat >= 154)), `package.json 版本 ≥ 1.5.154 (实际 ${pkg.version})`);
   const html = fs.readFileSync(path.join(R, 'renderer/index.html'), 'utf8');
   ok(/v4\.css\?v=2026111\d{3}/.test(html), 'v4.css 带缓存参数');
-  ok(html.includes('js/app.js?v=2026111334'), 'app.js 缓存参数 1334');
+  const appStamp = (html.match(/js\/app\.js\?v=(\d+)/) || [])[1];
+  ok(appStamp && Number(appStamp) >= 2026111334, 'app.js 缓存参数 >= 1334');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
