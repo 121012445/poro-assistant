@@ -85,7 +85,7 @@ const body = makeEl('liveGameArea');
   assert.ok(!/recordEl\.textContent = liveRecordText\(/.test(liveSrc), '局部刷新不应再更新已移除的摘要行');
   // KDA 是「大数字 + 小标签」两段结构, 首次渲染与局部刷新必须共用 liveKdaHtml, 否则刷新会把排版冲掉
   assert.ok(/<span class="lp-kda"><b( class="[^"]*")?>[^<]*<\/b><em>KDA<\/em><\/span>/.test(out), '概览行的 KDA 应为 数字+标签 结构');
-  assert.ok(/kdaEl\.innerHTML = liveKdaHtml\(kda\)/.test(liveSrc), '局部刷新应复用 liveKdaHtml');
+  assert.ok(/const kdaHtml = liveKdaHtml\(kda\); if \(kdaEl\.innerHTML !== kdaHtml\) kdaEl\.innerHTML = kdaHtml/.test(liveSrc), '局部刷新应复用 liveKdaHtml (1.5.144 起带差异守卫)');
   assert.strictEqual((liveSrc.match(/liveKdaHtml\(/g) || []).length, 3, 'liveKdaHtml 应只有 1 处定义 + 2 处调用');
   assert.ok(!/row\.querySelector\('\.lp-stats'\)/.test(liveSrc), '局部刷新不应再查找已删除的 .lp-stats');
 

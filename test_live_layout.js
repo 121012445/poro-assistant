@@ -73,4 +73,12 @@ assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live \.lp-recent-hint \
 assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live \.lp-champ \{\s*width: 30px/, '头像应压到 30px 给战绩区让位');
 assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live\.live-expanded \.lp-recent-hint \{[^}]*position: static/, '展开态提示行应回文档流');
 
+
+// 1.5.144 闪屏修复: 轮询重入不得把已填好的战绩重置成骨架再补回
+assert.ok(live.includes('if (livePlayersCache.key === key && livePlayersCache.data) {'),
+  '1.5.144 阵容缓存命中不得再要求本轮 livePlayers >= 5 (Live Client Data 抖动时跌进全量路径会闪屏)');
+assert.ok(live.includes("recentEl.innerHTML !== recentHtml"),
+  '1.5.144 updateLivePlayerRow 必须带差异守卫, 内容没变不动 DOM (图片重建会闪)');
+assert.ok(live.includes('prev.outerHTML !== usage'),
+  '1.5.144 常用英雄行同步必须带差异守卫');
 console.log('实时对局大卡片布局测试通过');

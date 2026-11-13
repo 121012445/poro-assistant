@@ -448,8 +448,12 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
     } catch (e) {}
   }
 
-  // 缓存命中: 只有从 Live Client Data 拿到完整双方(≥5人)才复用, 避免第一次 session 数据不完整导致后续永远错误
-  if (livePlayersCache.key === key && livePlayersCache.data && livePlayers && livePlayers.length >= 5) {
+  // 缓存命中: 只要阵容 key 匹配就复用。data 的写入侧已保证只缓存 Live Client Data
+  // 完整双方(≥5人)的结果, rosterKey 含 puuid+英雄防串局, 读侧无需再要求本轮
+  // livePlayers 也完整 —— 否则国服 Live Client Data 时好时坏: 偶尔拿不到 ≥5 人的
+  // 那一轮会跌进全量路径, 把已填好的战绩重绘成「加载中」骨架再异步补回,
+  // 表现为整页闪一下、每张卡的战绩数量跳变 (1.5.144 修复的闪屏根因)。
+  if (livePlayersCache.key === key && livePlayersCache.data) {
     // 定时刷新命中阵容缓存时也必须重建共同历史分组。旧实现只带 challengeId
     // 临时结果重绘，导致后台刚显示的“组1/组2”在下一轮刷新时立刻消失。
     const cachedProfiles = livePlayersCache.data.map(player => ({ teamGames: player.premadeTeamGames || [] }));
@@ -1311,7 +1315,7 @@ function syncLiveRecentHint(row, p) {
   const prev = row.querySelector(':scope > .lp-recent-hint');
   const hint = liveRecentHint(p);
   if (hint) {
-    if (prev) prev.outerHTML = hint;
+    if (prev) { if (prev.outerHTML !== hint) prev.outerHTML = hint; }
     else row.querySelector('.lp-recent')?.insertAdjacentHTML('afterend', hint);
   } else if (prev) prev.remove();
 }
@@ -1346,7 +1350,7 @@ function syncLiveChampUsage(row, p) {
   const prev = row.querySelector(':scope > .lp-champ-usage');
   const usage = championUsageHtml(p.recent);
   if (usage) {
-    if (prev) prev.outerHTML = usage;
+    if (prev) { if (prev.outerHTML !== usage) prev.outerHTML = usage; }
     else row.querySelector('.lp-profile-line')?.insertAdjacentHTML('afterend', usage);
   } else if (prev) prev.remove();
 }
@@ -1369,10 +1373,13 @@ function updateLivePlayerRow(p, idx) {
   const flashEl = row.querySelector('.lp-flash-slot');
   const winRateEl = row.querySelector('.lp-winrate');
   const kdaEl = row.querySelector('.lp-kda');
-  if (recentEl) recentEl.innerHTML = recentHtml;
+  // 差异守卫 (1.5.144): 内容没变就不动 DOM。无脑重写 innerHTML 会把战绩图标/英雄
+  // 图标节点全部重建, 图片重新解码 → 行内闪一下。轮询 12s 一次, 数据未变时必须零 DOM 写。
+  if (recentEl && recentEl.innerHTML !== recentHtml) recentEl.innerHTML = recentHtml;
   syncLiveRecentHint(row, p);
   syncLiveChampUsage(row, p);
-  if (flashEl) flashEl.innerHTML = flashPreferenceHtml(p.flashPreference);
+  const flashHtml = flashPreferenceHtml(p.flashPreference);
+  if (flashEl && flashEl.innerHTML !== flashHtml) flashEl.innerHTML = flashHtml;
   if (winRateEl) {
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     winRateEl.textContent = winRate == null ? '--' : `${winRate}%`;
@@ -1381,7 +1388,7 @@ function updateLivePlayerRow(p, idx) {
     winRateEl.classList.toggle('negative', winRate != null && winRate <= 45);
     winRateEl.classList.toggle('neutral', winRate != null && winRate > 45 && winRate < 55);
   }
-  if (kdaEl) kdaEl.innerHTML = liveKdaHtml(kda);
+  if (kdaEl) { const kdaHtml = liveKdaHtml(kda); if (kdaEl.innerHTML !== kdaHtml) kdaEl.innerHTML = kdaHtml; }
   scheduleLiveRowAlignment();
 }
 
