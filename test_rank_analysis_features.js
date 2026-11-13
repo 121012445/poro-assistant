@@ -37,10 +37,11 @@ assert(social.includes('const ENCOUNTERS_VER = 5'));
 // 同一局 p:→g: 换键不能算两局（历史迁移函数同样要在）
 assert(social.includes('function migrateEncounterGameKeys'));
 assert(social.includes("prev.startsWith('p:') && key.startsWith('g:')"));
-// 实时卡片保持紧凑：稳定/观察画像仍可计算，但不再占用卡片标签位。
-assert(live.includes('const risk = deriveRiskProfile(p.recent)'));
-assert(live.includes("const riskHtml = ''"));
-assert(!live.includes('lp-risk-${risk.level}'));
+// 实时卡片保持紧凑：1.5.146 起标签构建抽进 buildLivePills，画像标签彻底不占位
+// (旧代码 risk 算了从未消费, 已随抽取删除)。
+assert(live.includes('function buildLivePills('));
+assert(!live.includes('deriveRiskProfile(p.recent)'), 'live.js 不得再计算无人消费的画像');
+assert(!live.includes('lp-risk-'));
 assert(live.includes('addEncounter(p.puuid, p.name, _currentGameKey)'));
 assert(!live.includes('_encounterTrackedFor !== _currentGameKey'));
 assert(live.includes('players.map(p => p.puuid).filter(Boolean).sort()'));

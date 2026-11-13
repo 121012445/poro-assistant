@@ -87,4 +87,14 @@ assert.ok(live.includes('cachedProfileByPuuid?.get(p.puuid)'),
   '1.5.145 骨架渲染前应从缓存带回同 puuid 的已填数据 (标签派生自 recent, 空骨架会让标签整排消失)');
 assert.ok(live.includes('recent: c?.recent || []'),
   '1.5.145 quickData 的 recent 应优先取缓存值, 不再写死空数组');
+
+// 1.5.146 加载页标签消失治本: 骨架渲染带 key 守卫 + 标签行局部同步
+assert.ok(live.includes('body.dataset.liveKey !== key || !body.querySelector(\'.lp-row\')'),
+  '1.5.146 骨架渲染必须带 liveKey 守卫: DOM 已是本局渲染时不再重画空骨架 (加载页缓存建立不起来, 每 12s 骨架重置是标签消失主因)');
+assert.ok((live.match(/delete body\.dataset\.liveKey/g) || []).length >= 2,
+  '1.5.146 离开对局与 error 分支必须清 liveKey, 换局必须重画');
+assert.ok(live.includes('function buildLivePills('),
+  '1.5.146 标签行构建必须抽成 buildLivePills, 首次渲染与局部刷新共用');
+assert.ok(live.includes('const pillsHtml = buildLivePills(p, pgid);'),
+  '1.5.146 updateLivePlayerRow 必须局部同步标签行 (此前只更新战绩区, 标签要等全量重绘)');
 console.log('实时对局大卡片布局测试通过');

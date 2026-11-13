@@ -382,6 +382,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
     if (renderToken !== liveRenderToken) return;
     setLiveHeadPanel('');
     body.innerHTML = `<div class="msg-error">${err || '未获取到对局玩家数据'}</div>`;
+    delete body.dataset.liveKey;   // 1.5.146: 骨架 key 守卫的失效点, 换局必须重画
     return;
   }
 
@@ -462,6 +463,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       ? cachedInferred
       : (livePlayersCache.premadeGroups || premadeGroups);
     await renderLiveTeams(body, livePlayersCache.data, cachedGroups, renderToken);
+    body.dataset.liveKey = key;   // 1.5.146: 与骨架路径同步维护, 保证守卫语义一致
     return;
   }
 
@@ -507,8 +509,17 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   });
   const fullData = [...quickData];
 
-  // 立即渲染骨架
-  await renderLiveTeams(body, quickData, premadeGroups, renderToken);
+  // 1.5.146: 骨架只在「当前 DOM 还不是本局渲染结果」时画。轮询每 12s 重入一次,
+  // 之前每轮都重画骨架 (标签数据为空) —— GameStart/加载页阶段 livePlayers=null,
+  // 缓存写入侧要求 >=5 人导致缓存永远建立不起来, 1.5.144/145 的读侧修复在这条
+  // 路径上没有数据可合并, 表现为标签每隔十几秒整排消失、等 SGP 全部返回才补回。
+  // key 含 rosterKey: 玩家集合真变了 (加载页 2 人 → 对局 10 人) key 自然变, 会
+  // 正常重绘; 没变就跳过骨架, 增量数据交给 updateLivePlayerRow (1.5.146 起连
+  // 标签行也局部同步)。组队徽标变化由 sgpLoad.then 的全量渲染兜底 (带比对)。
+  if (body.dataset.liveKey !== key || !body.querySelector('.lp-row')) {
+    await renderLiveTeams(body, quickData, premadeGroups, renderToken);
+    body.dataset.liveKey = key;
+  }
   if (staleSession()) return;
 
   // 异步获取 SGP 数据, 逐人更新
@@ -1407,6 +1418,14 @@ function updateLivePlayerRow(p, idx) {
     winRateEl.classList.toggle('neutral', winRate != null && winRate > 45 && winRate < 55);
   }
   if (kdaEl) { const kdaHtml = liveKdaHtml(kda); if (kdaEl.innerHTML !== kdaHtml) kdaEl.innerHTML = kdaHtml; }
+  // 1.5.146: 标签行局部同步 (组队/大腿/本命/指标/行为)。之前只更新战绩区,
+  // 标签要等全量重绘才出现; 全量重绘又被骨架周期性重置打断 → 标签间歇消失。
+  const pillsEl = row.querySelector('.lp-profile-line');
+  if (pillsEl) {
+    const pgid = p.premadeGroupId ?? window._poroLivePlayerMap?.get(key)?.premadeGroupId ?? null;
+    const pillsHtml = buildLivePills(p, pgid);
+    if (pillsEl.innerHTML !== pillsHtml) pillsEl.innerHTML = pillsHtml;
+  }
   scheduleLiveRowAlignment();
 }
 
@@ -1475,6 +1494,33 @@ function enemyIntelHtml(data, selfPuuid) {
   }
 }
 
+// 1.5.146: 卡片标签行 (组队/大腿/本命/指标/行为) 构建抽出来, 首次渲染与局部刷新
+// (updateLivePlayerRow) 共用同一结构, 否则刷新会把排版冲掉或标签迟迟不出。
+// 1.5.141: 组队标签按组号着色 (Akari 小队 A-G 各一色), 同组的人在两张卡上一眼对上;
+// 特色标签: 大腿 = 近 14 场以上胜率 ≥65%; 本命 = 同一个英雄玩了 ≥5 场。样本不够不贴。
+function buildLivePills(p, premadeGroupId) {
+  const premadeTag = premadeGroupId ? `<span class="lp-premade lp-pg-${((premadeGroupId - 1) % 6) + 1}" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
+  const wins = p.recent.filter(r => r.win === true || r.win === "Win").length;
+  const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
+  const games = p.recent.length;
+  const specialTags = [];
+  if (winRate != null && winRate >= 65 && games >= 14) {
+    specialTags.push(`<span class="lp-metric lp-tag-hiwr" title="近 ${games} 场 ${wins} 胜，胜率 ${winRate}% — 高胜率玩家，前期多照顾他一路">大腿</span>`);
+  }
+  const champCounts = {};
+  for (const r of p.recent) champCounts[r.champId] = (champCounts[r.champId] || 0) + 1;
+  let mainChampId = 0, mainChampN = 0;
+  for (const [cid, n] of Object.entries(champCounts)) if (n > mainChampN) { mainChampN = n; mainChampId = Number(cid); }
+  const mainChamp = mainChampN >= 5 ? champOfLive(mainChampId) : null;
+  if (mainChamp) {
+    specialTags.push(`<span class="lp-metric lp-tag-main" title="${escapeHtml(mainChamp.name)} 近 ${games} 场玩了 ${mainChampN} 场 — 本命英雄，熟练度大概率不低">本命</span>`);
+  }
+  const behaviorHtml = behaviorTagsHtml(p.behaviorSamples);
+  const reservedSlots = (premadeTag ? 1 : 0) + (behaviorHtml ? 1 : 0) + specialTags.length;
+  // 实时卡片不显示"近期稳定 / 需要观察"画像标签，避免和队内指标标签争夺空间。
+  return `${premadeTag}${specialTags.join('')}${liveMetricPills(p.recent, reservedSlots)}${behaviorHtml}`;
+}
+
 async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   checkBlacklist(data);
   let selfPuuid = null;
@@ -1503,35 +1549,13 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const isSelf = selfPuuid && p.puuid === selfPuuid;
     const tag = isSelf ? '<span class="lp-self-tag">自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
-    // 1.5.141: 组队标签按组号着色 (Akari 小队 A-G 各一色), 同组的人在两张卡上一眼对上
-    const premadeTag = premadeGroupId ? `<span class="lp-premade lp-pg-${((premadeGroupId - 1) % 6) + 1}" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
     const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}${encounterTagHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
-    // 1.5.141 特色标签: 数据全部来自已加载的 recent, 零请求。
-    //   大腿 = 近 14 场以上胜率 ≥65% (Akari 高胜率标签同思路, 阈值按 20 场样本放宽);
-    //   本命 = 同一个英雄玩了 ≥5 场 (championUsage 聚合同源)。样本不够就不贴, 宁缺毋滥。
-    const games = p.recent.length;
-    const specialTags = [];
-    if (winRate != null && winRate >= 65 && games >= 14) {
-      specialTags.push(`<span class="lp-metric lp-tag-hiwr" title="近 ${games} 场 ${wins} 胜，胜率 ${winRate}% — 高胜率玩家，前期多照顾他一路">大腿</span>`);
-    }
-    const champCounts = {};
-    for (const r of p.recent) champCounts[r.champId] = (champCounts[r.champId] || 0) + 1;
-    let mainChampId = 0, mainChampN = 0;
-    for (const [cid, n] of Object.entries(champCounts)) if (n > mainChampN) { mainChampN = n; mainChampId = Number(cid); }
-    const mainChamp = mainChampN >= 5 ? champOfLive(mainChampId) : null;
-    if (mainChamp) {
-      specialTags.push(`<span class="lp-metric lp-tag-main" title="${escapeHtml(mainChamp.name)} 近 ${games} 场玩了 ${mainChampN} 场 — 本命英雄，熟练度大概率不低">本命</span>`);
-    }
-    const specialHtml = specialTags.join('');
-    const risk = deriveRiskProfile(p.recent);
-    // 实时卡片不显示“近期稳定 / 需要观察”画像标签，避免和队内指标标签争夺空间。
-    const riskHtml = '';
     // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
     const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
-    const behaviorHtml = behaviorTagsHtml(p.behaviorSamples);
-    const reservedSlots = (premadeTag ? 1 : 0) + (behaviorHtml ? 1 : 0) + specialTags.length;
-    const pills = `${premadeTag}${specialHtml}${riskHtml}${liveMetricPills(p.recent, reservedSlots)}${behaviorHtml}`;
+    // 1.5.146: 标签行构建抽成 buildLivePills, 首次渲染与局部刷新 (updateLivePlayerRow)
+    // 共用同一结构 —— 之前局部刷新只更新战绩区不更新标签, 标签要等全量重绘才出现。
+    const pills = buildLivePills(p, premadeGroupId);
     const recordSummary = liveRecordText(p.recent.length, wins, '近期战绩加载中');
     // 1.5.134: 胜率三档 (Akari 口径) —— ≥55 绿 / ≤45 红 / 中间中性, 50% 的红绿抖动不再误导
     const wrCls = winRate == null ? '' : winRate >= 55 ? ' positive' : winRate <= 45 ? ' negative' : ' neutral';
@@ -1731,6 +1755,7 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
     window._poroCurrentDecision = '';
     closeLiveBuildPop();
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
+    delete body.dataset.liveKey;   // 1.5.146: 骨架 key 守卫的失效点, 新对局必须重画
     syncLiveExpandButton(false);
     return;
   }
