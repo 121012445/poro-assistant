@@ -135,7 +135,7 @@ assert.ok(home.includes("note.classList.toggle('is-other'"),
 assert.ok(/\.profile-owner-note\s*\{/.test(extras) && /\.profile-owner-note\.is-other/.test(extras),
   '.profile-owner-note 与 .is-other 必须有样式，且他人态要有区分');
 // 往下刷战绩后, 同一玩家的任何一次重载都不许把已展开条数打回一页 (2026-09-28 用户报告)
-assert.ok(/const prevOwner = homeGamesOwner;[\s\S]{0,1200}?prevOwner === s\.puuid\s*\?\s*Math\.max\(HOME_GAME_PAGE_SIZE, homeGameVisible \|\| 0\)\s*:\s*HOME_GAME_PAGE_SIZE/.test(home),
+assert.ok(/const prevOwner = homeGamesOwner;[\s\S]{0,2000}?prevOwner === s\.puuid\s*\?\s*Math\.max\(HOME_GAME_PAGE_SIZE, homeGameVisible \|\| 0\)\s*:\s*HOME_GAME_PAGE_SIZE/.test(home),
   'loadHomeStats 必须在同一玩家重载时保留 homeGameVisible, 换人才收回一页');
 assert.ok(/\.profile-owner-note\[hidden\]\s*\{\s*display:\s*none/.test(extras),
   'hidden 属性必须真的隐藏元素（span 上 hidden 不加这条在某些样式下会失效）');

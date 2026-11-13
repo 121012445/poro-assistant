@@ -85,6 +85,9 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
             champId: normalizeChampId(me.championId || stats.championId), win, k, d, a,
             mode: gameMode, ts: gj.gameCreation || gj.gameEndTimestamp || 0,
             position: me.teamPosition || me.individualPosition || me.position || me.lane || stats.teamPosition || stats.lane || '',
+            // 1.5.136: 分均CS 数据源 (补刀含野怪)
+            cs: (Number(stats.totalMinionsKilled) || 0) + (Number(stats.neutralMinionsKilled) || 0),
+            dur: Number(gj.gameDuration) || 0,
             ...teamShareOf(gj.participants, me, k, a)
           });
         }
@@ -123,6 +126,8 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
       champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0,
       mode: game.mode, ts: game.time || 0,
       position: me.position || me.teamPosition || me.individualPosition || me.lane || '',
+      // 1.5.136: 分均CS 数据源 (normalizeGame 已把两债合并进 cs)
+      cs: me.cs || 0, dur: game.dur || 0,
       ...teamShareOf(game.participants, me, me.k || 0, me.a || 0, { dmg: 'dmg', tank: 'dmgTaken', gold: 'gold', kills: 'k' })
     });
   }
@@ -1148,7 +1153,7 @@ function renderLivePlayerDrawer(player) {
     <section class="lpd-section"><h3>近期对局</h3><div class="lpd-recent">${recent.length ? recent.map(row => recentIcon(row, player)).join('') : '<p class="lpd-empty">当前筛选没有对局</p>'}</div></section>
     <div class="lpd-two-col">
       <section class="lpd-section"><h3>行为画像</h3>${behavior.length ? behavior.map(tag => `<div class="lpd-evidence"><b>${escapeHtml(tag.label)}</b><span>${escapeHtml(tag.detail)}</span></div>`).join('') : '<p class="lpd-empty">样本不足，暂不下结论</p>'}</section>
-      <section class="lpd-section"><h3>组队证据</h3><p>${escapeHtml(premade)}</p></section>
+      <section class="lpd-section"><h3>组队证据</h3><p>${escapeHtml(premade)}</p>${encounterDetailHtml(player.puuid)}</section>
     </div>
     <section class="lpd-section"><h3>英雄与位置倾向</h3><p>${escapeHtml(jungleText)}</p></section>`;
 }
@@ -1194,6 +1199,19 @@ function flashPreferenceHtml(pref) {
   return `<span class="lp-flash${pref.inconsistent ? ' mixed' : ''}" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
 }
 
+// 1.5.136: 抽屉「组队证据」下的相遇详情 (Akari MET 口径): 次数 + 上次同队/对手 + 胜负 + 日期
+function encounterDetailHtml(puuid) {
+  if (!puuid || typeof getEncounterInfo !== 'function') return '';
+  const enc = getEncounterInfo(puuid);
+  if (!enc.count && !enc.lastResult) return '';
+  const parts = [`遇见 ${enc.count} 次`];
+  if (enc.lastResult) {
+    parts.push(`上次${enc.lastSameTeam === true ? '同队' : enc.lastSameTeam === false ? '对手' : ''}${enc.lastResult === 'win' ? '胜' : '负'}`
+      + (enc.lastGameTs ? `（${new Date(enc.lastGameTs).toLocaleDateString()}）` : ''));
+  }
+  return `<div class="lpd-evidence"><b>历史相遇</b><span>${escapeHtml(parts.join(' · '))}</span></div>`;
+}
+
 // 近 10 场「队内占比」标签: 伤害 / 承伤 / 经济 / 参团。
 // 这排标签是玩家卡里唯一能说明"他是怎么赢的"的信息 —— 70% 胜率可能是被带飞,
 // 也可能是每场打 30% 伤害 carry 出来的, 光看胜率和 KDA 分不开。
@@ -1216,12 +1234,16 @@ function liveMetricPills(recent, reservedSlots = 0) {
     const v = rs.filter(r => r[f] != null);
     return v.length ? Math.round(v.reduce((s, r) => s + Number(r[f]), 0) / v.length) : null;
   };
+  // 1.5.136: 分均CS —— 逐局 cs/时长 再平均, 保留 1 位小数 (整数会抹平 7.2 和 7.8 的差距)
+  const csmVals = rs.filter(r => Number(r.cs) > 0 && Number(r.dur) > 0).map(r => Number(r.cs) / (Number(r.dur) / 60));
+  const csmAvg = csmVals.length ? Math.round(csmVals.reduce((s, v) => s + v, 0) / csmVals.length * 10) / 10 : null;
   const items = [
     ['dmg', '伤害', avg('dmgPct'), '%', '队内伤害占比'],
     ['tank', '承伤', avg('tankPct'), '%', '队内承伤占比'],
     ['kp', '参团', avg('kp'), '%', '击杀参与率'],
     ['dmgGold', '伤转', avg('dmgGold'), '%', '伤害 / 经济, 越高说明钱花得越值'],
     ['gold', '经济', avg('goldPct'), '%', '队内经济占比'],
+    ['csm', '分均CS', csmAvg, '', '分均补刀(含野怪)'],
     ['vision', '视野', avg('vision'), '', '场均视野得分']
   ].filter(it => it[2] != null);
   if (!items.length) return '';
@@ -1508,7 +1530,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const tag = isSelf ? '<span class="lp-self-tag">自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
     const premadeTag = premadeGroupId ? `<span class="lp-premade" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
-    const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}` : '';
+    const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}${encounterTagHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     const risk = deriveRiskProfile(p.recent);
     // 实时卡片不显示“近期稳定 / 需要观察”画像标签，避免和队内指标标签争夺空间。

@@ -101,7 +101,7 @@ const sample = {
     lolAPI: { lcuStatus: async () => ({ summoner: { puuid: 'me' } }), getAramBalance: async () => sample },
     checkBlacklist: () => {}, isKnownPlayerName: () => false, addEncounter: () => {},
     deriveRiskProfile: () => ({ level: 'steady', label: '稳定', confidence: 80, evidence: [] }),
-    getPlayerMarksHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '<i></i>', nameCache: {},
+    getPlayerMarksHtml: () => '', encounterTagHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '<i></i>', nameCache: {},
     champImg: () => '', placeholder: () => '', champIconAttrs: () => '', champNumMap: { 2: { id: 'A', name: 'A' } }, allChampions: {}
   });
   liveCtx.window.lolAPI = liveCtx.lolAPI;

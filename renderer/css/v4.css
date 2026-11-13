@@ -1881,3 +1881,45 @@ body.dark #page-live .ri-loss .ri-result { color: #fca5a5; }
   min-height: 30px;
 }
 #page-live.live-expanded .lp-recent { gap: var(--s2); }
+
+/* ============================================================================
+   21. Akari 功能借鉴批 (1.5.136): 三态伤害条 / 相遇标签 / 分均CS
+   ----------------------------------------------------------------------------'
+   P0 三件套的样式层。数据源与渲染逻辑见 utils.js (damageCompositionBar)、
+   social.js (recordEncounterResults/encounterTagHtml)、live.js (csm pill)。
+   ========================================================================== */
+
+/* ---- 21.1 三态伤害分段条 (首页折叠卡伤害块内, Akari 颜色同源) ---- */
+.dmg-comp-bar {
+  display: flex;
+  width: 100%;
+  max-width: 96px;
+  height: 5px;
+  margin-top: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface-inset);
+}
+.dmg-comp-bar i { display: block; height: 100%; }
+.dmg-comp-bar i + i { margin-left: 1px; }
+
+/* ---- 21.2 相遇标签 (实时卡 name-line 内, 遇过 ≥2 次才出现) ---- */
+.lp-enc {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: var(--fs-2xs);
+  line-height: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  background: var(--surface-3);
+  border: 1px solid var(--line-subtle);
+}
+.lp-enc.is-win  { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, transparent); }
+.lp-enc.is-loss { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, transparent); }
+
+/* ---- 21.3 分均CS pill (随 lp-metric 体系, 只补语义色, 不加新底色) ---- */
+#page-live .lp-profile-line .lp-metric-csm { color: var(--ink-2); }

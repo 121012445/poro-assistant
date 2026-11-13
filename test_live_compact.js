@@ -33,7 +33,7 @@ const context = vm.createContext({
   // renderLiveTeams 的外部依赖 (来自 blacklist/social/utils/home/champions 等模块)
   checkBlacklist: () => {}, isKnownPlayerName: () => false, addEncounter: () => {},
   deriveRiskProfile: () => ({ level: 'steady', label: '稳定', confidence: 80, evidence: ['样本充足'] }),
-  getPlayerMarksHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '<i></i>',
+  getPlayerMarksHtml: () => '', encounterTagHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '<i></i>',
   showMarkModal: () => {}, nameCache: {}, _currentGameKey: 'g:1',
   escapeHtml: s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   champImg: id => `/img/${id}.png`, placeholder: () => 'data:,', champIconAttrs: () => '', ensureChampMap: () => {},

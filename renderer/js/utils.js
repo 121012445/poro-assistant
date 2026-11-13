@@ -291,3 +291,21 @@ function retryImg(el) {
     }, 5000);
   } catch (e) {}
 }
+
+// 1.5.136: 三态伤害分段条 (Akari DamageBar 手法, 颜色同源):
+// 物理 #e07856 / 魔法 #5b9bd7 / 真实 #a8a8a8。flex 分段实现 (hex.js 详情表用的是
+// 绝对定位版, 那份不动), 供首页折叠卡等无 baseline 场景复用。
+// total=0 时输出空底条, 不输出 0% 假分段。
+function damageCompositionBar(total, phys, magic, truth) {
+  const fmt = v => Number(v) >= 10000 ? (Number(v) / 1000).toFixed(1) + 'k' : String(Math.round(Number(v) || 0));
+  const P = Number(phys) || 0, M = Number(magic) || 0, T = Number(truth) || 0;
+  const sum = P + M + T;
+  if (sum <= 0) return '';                 // EOG 兜底局等没有三态数据: 不渲染空条
+  const seg = (v, color, name) => {
+    if (v <= 0) return '';
+    const pct = sum > 0 ? (v / sum * 100) : 0;
+    return `<i style="width:${pct.toFixed(1)}%;background:${color}" title="${name} ${fmt(v)} (${pct.toFixed(0)}%)"></i>`;
+  };
+  const tip = sum > 0 ? `物理 ${fmt(P)} · 魔法 ${fmt(M)} · 真实 ${fmt(T)}` : '无伤害数据';
+  return `<span class="dmg-comp-bar" title="${escapeHtml(tip)}">${seg(P, '#e07856', '物理')}${seg(M, '#5b9bd7', '魔法')}${seg(T, '#a8a8a8', '真实')}</span>`;
+}

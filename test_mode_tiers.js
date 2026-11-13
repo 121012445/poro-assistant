@@ -175,7 +175,7 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
         lcuRequest: async () => null },
       checkBlacklist: () => {}, isKnownPlayerName: () => false, addEncounter: () => {},
       deriveRiskProfile: () => ({ level: 'steady', label: '稳定', confidence: 80, evidence: [] }),
-      getPlayerMarksHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '', nameCache: {},
+      getPlayerMarksHtml: () => '', encounterTagHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '', nameCache: {},
       champImg: () => '', placeholder: () => '', champIconAttrs: () => '', champNumMap: {}, allChampions: {}
     });
     liveCtx.window.lolAPI = liveCtx.lolAPI;

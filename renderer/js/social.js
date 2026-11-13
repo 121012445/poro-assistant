@@ -137,7 +137,10 @@ function normalizePlayerMemory(entry, name) {
 function getPlayerMemory(puuid, name) {
   const encounter = encounterMap[puuid] || {};
   const memory = normalizePlayerMemory(playerMarks[puuid], name || encounter.name);
-  return { ...memory, encounterCount: Number(encounter.count) || 0, lastSeen: Number(encounter.lastTime) || 0 };
+  return { ...memory, encounterCount: Number(encounter.count) || 0, lastSeen: Number(encounter.lastTime) || 0,
+    lastResult: encounter.lastResult === 'win' || encounter.lastResult === 'loss' ? encounter.lastResult : '',
+    lastSameTeam: typeof encounter.lastSameTeam === 'boolean' ? encounter.lastSameTeam : null,
+    lastGameTs: Number(encounter.lastGameTs) || 0 };
 }
 
 function savePlayerMemory() {
@@ -185,7 +188,13 @@ function normalizeEncounterEntry(entry, migrateLegacyCount = false) {
     // 最后一次“算成新的一局”的时刻。lastTime 会被同局内的重复刷新顶掉，
     // 不能拿来判断换键是否发生在同一局。
     keyAt: Math.max(0, Number(value.keyAt) || lastTime),
-    seenGames: Array.isArray(value.seenGames) ? [...new Set(value.seenGames.map(String).filter(Boolean))].slice(-80) : []
+    seenGames: Array.isArray(value.seenGames) ? [...new Set(value.seenGames.map(String).filter(Boolean))].slice(-80) : [],
+    // 1.5.136: 上次相遇结果 (Akari MET 手法)。只在浏览自己战绩首页时由
+    // recordEncounterResults 回写 —— 那些对局已经结束, 胜负是既成事实;
+    // count 仍由实时页 addEncounter 维护, 两套口径不混。
+    lastResult: value.lastResult === 'win' || value.lastResult === 'loss' ? value.lastResult : '',
+    lastSameTeam: typeof value.lastSameTeam === 'boolean' ? value.lastSameTeam : null,
+    lastGameTs: Math.max(0, Number(value.lastGameTs) || 0)
   };
 }
 function setEncounterName(puuid, name) {
@@ -243,6 +252,55 @@ function sampleEncounterCount(puuid, ownerPuuid) {
     if (g.participants.some(p => p.puuid === puuid)) n++;
   }
   return n;
+}
+
+// 1.5.136: 浏览自己的战绩首页时, 把每局的「上次相遇结果」回写到 encounterMap。
+// games 是 normalizeGame 后的列表 (participants 带 puuid/win/teamId, g.time/g.gid)。
+// 只更新 lastResult/lastSameTeam/lastGameTs —— count 仍归实时页 addEncounter 管,
+// 避免同一局被实时页 (g:<id>) 和首页 (h:<gid>) 两条口径重复计数。
+function recordEncounterResults(games, selfPuuid) {
+  if (!Array.isArray(games) || !selfPuuid) return 0;
+  let changed = 0;
+  for (const g of games) {
+    const ts = Number(g.time) || 0;
+    const me = (g.participants || []).find(p => p.puuid === selfPuuid);
+    if (!me) continue;                       // 别人的战绩页不回写
+    for (const p of (g.participants || [])) {
+      if (!p.puuid || p.puuid === selfPuuid) continue;
+      const entry = normalizeEncounterEntry(encounterMap[p.puuid]);
+      // 只接受更新的对局 (乱序/补刷的旧数据不覆盖新结果)
+      if (ts && entry.lastGameTs && ts <= entry.lastGameTs) continue;
+      entry.lastResult = p.win === true ? 'win' : p.win === false ? 'loss' : '';
+      entry.lastSameTeam = p.teamId != null && me.teamId != null ? p.teamId === me.teamId : null;
+      entry.lastGameTs = ts || entry.lastGameTs;
+      encounterMap[p.puuid] = entry;
+      changed++;
+    }
+  }
+  if (changed) saveEncounters();
+  return changed;
+}
+
+// 1.5.136: 抽屉等处用的只读相遇信息 (归一化后, 无副作用)
+function getEncounterInfo(puuid) {
+  return normalizeEncounterEntry(encounterMap[puuid]);
+}
+
+// 1.5.136: 实时页玩家卡上的「相遇」小标签。遇过 ≥2 次才显示 (只碰过一次没有参考价值),
+// 内容 = 遇见次数 + 上次相遇结果, 悬停出完整说明。
+function encounterTagHtml(puuid) {
+  if (!puuid) return '';
+  const entry = normalizeEncounterEntry(encounterMap[puuid]);
+  if (entry.count < 2 && !entry.lastResult) return '';
+  if (entry.count < 2) return '';            // 只有结果没次数: 说明 count 口径尚未建立, 不亮标签
+  const parts = [`遇见 ${entry.count} 次`];
+  if (entry.lastResult) {
+    parts.push(`上次${entry.lastSameTeam === true ? '同队' : entry.lastSameTeam === false ? '对手' : ''}${entry.lastResult === 'win' ? '胜' : '负'}`);
+  }
+  const title = parts.join(' · ')
+    + (entry.lastGameTs ? ` · ${new Date(entry.lastGameTs).toLocaleDateString()}` : '');
+  const cls = entry.lastResult === 'win' ? ' is-win' : entry.lastResult === 'loss' ? ' is-loss' : '';
+  return `<span class="lp-enc${cls}" title="${escapeHtml(title)}">遇${entry.count}</span>`;
 }
 
 
@@ -353,7 +411,7 @@ function showMarkModal(puuid, name) {
   const body = document.getElementById('playerMemoryModalBody');
   if (!modal || !body) return;
   body.innerHTML = `<div class="pm-head"><div><span class="pm-dot" style="background:${memory.color}"></span><h3>${escapeHtml(memory.name)}</h3></div><button class="pm-close" onclick="closePlayerMemoryModal()">×</button></div>
-    <div class="pm-meta">遇见 ${memory.encounterCount} 次${memory.lastSeen ? ` · 最近 ${new Date(memory.lastSeen).toLocaleDateString()}` : ''}</div>
+    <div class="pm-meta">遇见 ${memory.encounterCount} 次${memory.lastSeen ? ` · 最近 ${new Date(memory.lastSeen).toLocaleDateString()}` : ''}${memory.lastResult ? ` · 上次${memory.lastSameTeam === true ? '同队' : memory.lastSameTeam === false ? '对手' : ''}${memory.lastResult === 'win' ? '胜' : '负'}` : ''}</div>
     <label class="pm-label">人工标签</label><div class="pm-tags">${PLAYER_MEMORY_TAGS.map(tag => `<button class="btn-secondary${memory.marks.includes(tag) ? ' is-selected' : ''}" onclick="togglePlayerMark(${inlineArg(puuid)},${inlineArg(name)},${inlineArg(tag)})">${memory.marks.includes(tag) ? '✓ ' : ''}${tag}</button>`).join('')}</div>
     <div class="pm-custom"><input id="customMarkInput" placeholder="自定义标签" class="tool-input"><button class="btn-secondary" onclick="addCustomMark(${inlineArg(puuid)},${inlineArg(name)})">添加</button></div>
     <label class="pm-label" for="playerMemoryNote">私人备注（仅保存在本机）</label><textarea id="playerMemoryNote" class="pm-note" maxlength="300" placeholder="例如：上次配合默契、擅长开团……">${escapeHtml(memory.note)}</textarea>

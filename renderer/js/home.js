@@ -1869,6 +1869,10 @@ function capturePendingEogGame(block) {
   if (!profileOverride && homeGamesOwner === puuid && Array.isArray(homeGamesData)) {
     homeGamesData = [game].concat(homeGamesData.filter(g => String(g.gid) !== String(game.gid)));
     if (typeof growthRecordGames === 'function' && puuid) growthRecordGames([game], puuid);
+    // 1.5.136: 刚打完的这局也是一次相遇, 回写结果 (EOG 落账即知道胜负)
+    if (typeof recordEncounterResults === 'function') {
+      try { recordEncounterResults([game], puuid); } catch (e) {}
+    }
     renderHomeModeFilter();
     renderHomeGameList();
     // 画像页吃的是同一份 homeGamesData, 新对局落账后若它已挂载也要跟着更新。
@@ -2029,6 +2033,7 @@ function buildHomeGameCard(g, s) {
             <div class="ako-stat">
               <div class="ako-big">${dmgShare}%</div>
               <div class="ako-sub">${fmtNumLocal(p.dmg)} 伤害</div>
+              ${typeof damageCompositionBar === 'function' ? damageCompositionBar(p.dmg, p.physDmg, p.magicDmg, p.trueDmg) : ''}
             </div>
             <div class="ako-stat ako-stat-sm">
               <div class="ako-big">${takenShare}%</div>
@@ -2890,6 +2895,11 @@ async function loadHomeStats(force, opts) {
     // 画像页(#page-profile)与首页共用这份数据。若画像页已经挂载过、或用户正停在
     // 画像页等数据, 这里补一次渲染; 否则完全不碰它, 不白算教练分析。
     refreshProfilePageIfMounted();
+    // 1.5.136: 自己的战绩首页顺手回写「上次相遇结果」(Akari MET 手法)。
+    // 必须在 ownerIsSelf 判定之后, 查别人战绩时那些队友不是"你遇见的人"。
+    if (homeGamesOwnerIsSelf && typeof recordEncounterResults === 'function') {
+      try { recordEncounterResults(games, s.puuid); } catch (e) {}
+    }
     // 成长页的长期趋势全靠这里逐局累积 —— SGP 一次只给最近 50 局，
     // 不落本地账本的话，"90 天胜率"永远只能算出这 50 局覆盖的那几天。
     if (homeGamesOwnerIsSelf && typeof growthRecordGames === 'function') {
