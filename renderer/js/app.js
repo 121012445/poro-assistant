@@ -185,6 +185,9 @@ function switchPage(page) {
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
   document.getElementById("page-" + page)?.classList.add("active");
   document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add("active");
+  // 实时页在隐藏期间渲染过的话, 标签/战绩行的对齐测量会被跳过 (display:none 下量不到尺寸);
+  // 切回前台立即补一次对齐, 不用等下一轮 4/12s 轮询 —— 否则进页头几秒标签只剩「+N」。
+  if (page === "live" && typeof scheduleLiveRowAlignment === "function") scheduleLiveRowAlignment();
   if (page === "champions") renderChampionGrid();
   if (page === "counters") updateCounterClientPick();
   // 「我的画像」的两块内容(擅长与提升 / 趣味档案)是懒渲染的: 首屏不再计算它们,

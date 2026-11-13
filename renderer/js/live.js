@@ -1421,6 +1421,12 @@ function fitLiveMetricRows() {
     const more = line.querySelector('.lp-tags-more');
     const extras = line.querySelector('.lp-extra-metrics');
     if (!more || !extras) return;
+    // 页面不在前台 (display:none) 时 getBoundingClientRect 全是 0, 溢出判定会把
+    // 所有标签当成放不下, 整排搬进隐藏容器 —— 用户切回来就只剩一个「+N」
+    // (1.5.137 用户反馈「有的时候标签会全部隐藏」的根因)。不在文档流里的行
+    // 跳过测量, 等切回页面 (switchPage 会补一次对齐) 再按真实宽度算。
+    const box = line.getBoundingClientRect();
+    if (!box.width && !box.height) return;
     const limit = line.getBoundingClientRect().right - (more.offsetWidth + 6);
     const visible = () => [...line.children].filter(el => el !== more && el !== extras);
     let guard = 16;
