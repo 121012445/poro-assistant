@@ -1315,6 +1315,12 @@ body.dark {
   margin: 0 0 var(--s3);
 }
 
+/* flex:1 (.tool-state) 是横向 .tool-row 时代的规则; 卡片改成 flex column 后,
+   卡内直接子级 .tool-state 也吃到 flex:1 1 0%, 主轴 basis 归零 → 纵向被压扁
+   (实测 430px 卡里压成 12px, 两行 clamp 的省略号都不渲染, 文字像被截断)。
+   卡内直接子级一律按内容自然高度参与布局; .tool-row 里的 tool-state 不受影响。 */
+.tool-card > .tool-state { flex: 0 0 auto; }
+
 /* 开关行：统一高度、统一左右布局 */
 .tool-card .switch-row,
 .tool-card .tool-actions,
