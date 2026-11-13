@@ -2192,3 +2192,63 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
 #page-live .lp-row:has(.ri-card:nth-child(9))::after { opacity: 0; }
 #page-live .lp-recent-hint.is-more { pointer-events: auto; cursor: pointer; }
 #page-live .lp-recent-hint.is-more:hover { color: var(--accent); opacity: 1; }
+
+/* ============================================================================
+   26. BinanceGUI 级质感层 (1.5.151)
+   ----------------------------------------------------------------------------
+   对标 BinanceGUI (Go/Wails) 的视觉语言, 提炼出四条可直接移植的质感来源:
+   ① 数字一律 mono + tabular-nums —— 时间戳/KDA/胜率跨行对齐, 终端级精度感;
+   ② 全站 .12s 微过渡 —— hover 靠 transition 变色, 不瞬移不跳动;
+   ③ 语义色用「低饱和底 + 同色字」的胶囊 (其 .ltag/-s 令牌), 不用高饱和大底;
+   ④ 大数字负字距 (-.02em) 收紧。
+   全部走 var()/color-mix, 明暗两主题自动成立; 不引入渐变, 遵守 premium.css 门禁。
+   ========================================================================== */
+
+/* ---- A. 全局质感 (整个应用, 不止实时页) ---- */
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+}
+.nav-item { transition: background-color .12s ease, color .12s ease; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text-muted) 30%, transparent); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text-muted) 52%, transparent); }
+
+/* ---- B. 实时页数字系统: mono + tabular ---- */
+#page-live { --data-mono: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+#page-live .lp-winrate,
+#page-live .lp-kda, #page-live .lp-kda b,
+#page-live .ri-kda, #page-live .ri-date,
+#page-live .lp-team-rate, #page-live .lp-team-kda, #page-live .lp-team-kda b {
+  font-family: var(--data-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* 大数字负字距收紧 (BinanceGUI .dv 的 -.3px 手法) */
+#page-live .lp-winrate { letter-spacing: -.02em; }
+#page-live .lp-team-rate { font-weight: 600; letter-spacing: -.02em; }
+#page-live .lp-team-kda b { letter-spacing: -.01em; }
+#page-live .lp-team-head strong { font-weight: 600; }
+
+/* ---- C. 胜/负 胶囊化: 低饱和同色底 + 同色字 (替代 800 重量彩色裸字) ---- */
+#page-live .ri-result {
+  display: inline-block;
+  min-width: 17px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+}
+#page-live .ri-win .ri-result { color: var(--data-blue); background: color-mix(in srgb, var(--data-blue) 14%, transparent); }
+#page-live .ri-loss .ri-result { color: var(--negative); background: color-mix(in srgb, var(--negative) 13%, transparent); }
+
+/* ---- D. 战绩行减淡: 8%/7% → 4% 大底, 左边条同步降饱和 ---- */
+#page-live .ri-win { background: color-mix(in srgb, var(--data-blue) 4%, transparent); border-left-color: color-mix(in srgb, var(--data-blue) 55%, transparent); }
+#page-live .ri-loss { background: color-mix(in srgb, var(--negative) 4%, transparent); border-left-color: color-mix(in srgb, var(--negative) 50%, transparent); }
+
+/* ---- E. 微过渡 + hover 抬升 ---- */
+#page-live .lp-row { transition: border-color .14s ease, background-color .14s ease; }
+#page-live .lp-row:hover { background: color-mix(in srgb, var(--text-primary) 3%, var(--bg-card)); }
+#page-live .ri-card { transition: background-color .12s ease; }
+#page-live .ri-card:hover { background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
