@@ -482,10 +482,28 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   let selfPuuid = null;
   try { const st = await lolAPI.lcuStatus(); selfPuuid = st.summoner?.puuid; } catch(e) {}
 
+  // 1.5.145 防御: 骨架渲染前把缓存里同 puuid 玩家的已填数据带回去。缓存命中条件是
+  // 阵容 key 全等, 但 rosterKey 会在数据源切换 (Live Client Data ↔ session) 时漂移 ——
+  // 漂移的那一轮走全量路径, 骨架若带空数据, 标签 (指标/组队/常用英雄全部派生自
+  // recent) 会整排消失几秒再补回, 表现就是"卡片闪一下、标签没了又出现"。
+  // 带上缓存数据后骨架渲染结果与当前 DOM 一致, renderLiveTeams 的 innerHTML 比对
+  // 直接跳过重建, 标签永不无故消失。sgpLoad 照常跑, TTL 内命中缓存零请求。
+  const cachedProfileByPuuid = livePlayersCache.data && Array.isArray(livePlayersCache.data)
+    ? new Map(livePlayersCache.data.filter(p => p && p.puuid).map(p => [p.puuid, p]))
+    : null;
   const quickData = players.map(p => {
     const solo = (rankCache[p.puuid] || {}).RANKED_SOLO_5x5;
     const rank = solo && solo.tier ? `${rankTierCN(solo.tier)} ${solo.division || ''} ${solo.leaguePoints || 0}LP` : '';
-    return { ...p, recent: [], rank, flashPreference: null, isBot: !p.puuid };
+    const c = p.puuid ? cachedProfileByPuuid?.get(p.puuid) : null;
+    return {
+      ...p,
+      recent: c?.recent || [],
+      rank,
+      flashPreference: c?.flashPreference ?? null,
+      behaviorSamples: c?.behaviorSamples || [],
+      premadeTeamGames: c?.premadeTeamGames || [],
+      isBot: !p.puuid
+    };
   });
   const fullData = [...quickData];
 

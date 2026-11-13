@@ -81,4 +81,10 @@ assert.ok(live.includes("recentEl.innerHTML !== recentHtml"),
   '1.5.144 updateLivePlayerRow 必须带差异守卫, 内容没变不动 DOM (图片重建会闪)');
 assert.ok(live.includes('prev.outerHTML !== usage'),
   '1.5.144 常用英雄行同步必须带差异守卫');
+
+// 1.5.145 标签消失防御: 全量路径骨架渲染必须合并缓存中同 puuid 的已填数据
+assert.ok(live.includes('cachedProfileByPuuid?.get(p.puuid)'),
+  '1.5.145 骨架渲染前应从缓存带回同 puuid 的已填数据 (标签派生自 recent, 空骨架会让标签整排消失)');
+assert.ok(live.includes('recent: c?.recent || []'),
+  '1.5.145 quickData 的 recent 应优先取缓存值, 不再写死空数组');
 console.log('实时对局大卡片布局测试通过');
