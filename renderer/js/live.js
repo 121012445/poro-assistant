@@ -1406,21 +1406,27 @@ function alignLiveRecentRows() {
   document.querySelectorAll('#page-live .lp-recent').forEach(list => {
     list.style.removeProperty('height');
     list.style.removeProperty('flex');
+    list.style.removeProperty('gap');
     list.style.removeProperty('margin-bottom');
     if (page?.classList.contains('live-expanded')) return;
     const first = list.querySelector('.ri-card');
     if (!first) return;
     const available = list.clientHeight;
     const rowHeight = first.getBoundingClientRect().height;
-    const computed = getComputedStyle(list);
-    const gap = parseFloat(computed.rowGap || computed.gap) || 0;
-    const step = rowHeight + gap;
-    const visible = Math.max(1, Math.floor((available + gap) / step));
-    const exact = visible * step - gap;
-    if (exact > 0 && exact < available - 0.5) {
-      list.style.flex = '0 1 auto';
-      list.style.height = `${exact}px`;
-      list.style.marginBottom = `${Math.max(0, available - exact)}px`;
+    if (available < rowHeight) return;
+    // 旧逻辑按整行数裁列表高度 (height=exact + marginBottom 补零头), 零头最多能剩
+    // 一行高-2px。滚动条又是隐藏的 (scrollbar-width:none), 底部渐隐提示也禁用了 ——
+    // 卡底那块空白看起来就像"最后一场被什么东西挡住了"(用户 1.5.131 反馈「有遮挡」)。
+    // 现在不再裁高度: 列表 flex:1 本来就占满, 行高不动, 把零头分摊进行间距,
+    // 行间最多放宽到 10px, 卡底不再有残余空白; 放不下的场次仍在列表内滚动。
+    const rows = list.querySelectorAll('.ri-card').length;
+    const baseGap = parseFloat(getComputedStyle(list).rowGap) || 2;
+    const step = rowHeight + baseGap;
+    const visible = Math.max(1, Math.floor((available + baseGap) / step));
+    const n = Math.min(visible, rows);
+    if (n >= 2) {
+      const gap = Math.min((available - n * rowHeight) / (n - 1), 10);
+      if (gap > baseGap + 0.25) list.style.gap = `${gap.toFixed(2)}px`;
     }
   });
 }
