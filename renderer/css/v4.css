@@ -2337,3 +2337,69 @@ body {
   --live-red: var(--negative);
   --live-gold: var(--data-gold);
 }
+
+/* ============================================================================
+   28. BinanceGUI 全软件接管 —— 旧 v4 令牌层对齐 (1.5.153)
+   ----------------------------------------------------------------------------
+   §27 接管了 --bg-*/--text-*/--accent/语义色, 但 v4 头部还有一套更早的旧令牌层
+   (--surface-*/--line-*/--ink-*/--brand/--pos/--neg/--warn/--e1-3), 它驱动着
+   实时页之外的整个软件 (首页/画像/英雄库/工具箱等), 且 --brand 是青蓝 #1f7ba6
+   不是 BinanceGUI 蓝。本段把这套层也换成 BinanceGUI 原值, 全软件统一。
+   theme-a(雾紫)是用户可选强调色变体, 保留不动。
+   ========================================================================== */
+
+/* ---- 浅色 (BinanceGUI light) ---- */
+:root {
+  --surface-canvas: #EFF3F8;
+  --surface-1: #FFFFFF;
+  --surface-2: #F4F7FA;
+  --surface-3: #EDF1F6;
+  --surface-inset: #E8EDF3;
+  --line-subtle: rgba(0, 0, 0, .06);
+  --line: rgba(0, 0, 0, .10);
+  --line-strong: rgba(0, 0, 0, .16);
+  --ink-1: #111823;
+  --ink-2: #48566A;
+  --ink-3: #7C8CA0;
+  --brand: #2065D6;
+  --brand-deep: #1A56B8;
+  --brand-soft: rgba(32, 101, 214, .08);
+  --brand-line: rgba(32, 101, 214, .32);
+  --pos: #0E8A4F;
+  --pos-soft: rgba(14, 138, 79, .10);
+  --neg: #D02F27;
+  --neg-soft: rgba(208, 47, 39, .10);
+  --warn: #A9740B;
+  --warn-soft: rgba(169, 116, 11, .12);
+}
+
+/* ---- 暗色 (BinanceGUI 默认深色) ---- */
+body.dark {
+  --surface-canvas: #0A0D12;
+  --surface-1: #12171F;
+  --surface-2: #161C24;
+  --surface-3: #1A202A;
+  --surface-inset: #0F141B;
+  --line-subtle: rgba(255, 255, 255, .06);
+  --line: rgba(255, 255, 255, .09);
+  --line-strong: rgba(255, 255, 255, .15);
+  --ink-1: #E6EDF5;
+  --ink-2: #8B97A8;
+  --ink-3: #5A6675;
+  --brand: #4F8FF7;
+  --brand-deep: #7AA9F9;
+  --brand-soft: rgba(79, 143, 247, .14);
+  --brand-line: rgba(79, 143, 247, .36);
+  --pos: #26C281;
+  --pos-soft: rgba(38, 194, 129, .13);
+  --neg: #EF5350;
+  --neg-soft: rgba(239, 83, 80, .13);
+  --warn: #E5A03C;
+  --warn-soft: rgba(229, 160, 60, .13);
+  --e3: 0 10px 30px rgba(0, 0, 0, .35);
+}
+
+/* ---- 全站交互过渡: 按钮/导航/表单控件 hover 变色不瞬移 ---- */
+button, .nav-item, input, select, textarea {
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
