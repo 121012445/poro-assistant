@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026111320">
-<link rel="stylesheet" href="css/extras.css?v=2026111320">
-<link rel="stylesheet" href="css/dark.css?v=2026111320">
-<link rel="stylesheet" href="css/premium.css?v=2026111320">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026111320">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111320">
-<link rel="stylesheet" href="css/v4.css?v=2026111320">
+<link rel="stylesheet" href="css/style.css?v=2026111321">
+<link rel="stylesheet" href="css/extras.css?v=2026111321">
+<link rel="stylesheet" href="css/dark.css?v=2026111321">
+<link rel="stylesheet" href="css/premium.css?v=2026111321">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111321">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111321">
+<link rel="stylesheet" href="css/v4.css?v=2026111321">
 </head>
 <body>
 
@@ -188,11 +188,9 @@
   </div>
 <!-- 实时对局 -->
   <div class="page" id="page-live">
-    <!-- 页头只留作战计划槽位。标题「实时对局」和左侧导航重复, 白占一行高度;
-         「展开全部战绩」挪进了蓝方队伍栏 (live.js 渲染)。没有作战计划时整行由 CSS 隐藏。 -->
-    <div class="page-header">
-      <div class="live-head-slot" id="liveHeadSlot"></div>
-    </div>
+    <!-- 1.5.142: 作战计划头整体移除 (用户确认没有必要)。标题与左侧导航重复,
+         计划条压扁后仍占一行, 省出的 30px 全部让给战绩。setLiveHeadPanel
+         对 slot 缺失有 null 守卫, 决策面板逻辑保持不动。 -->
     <div id="liveGameArea">
       <div class="meta-loading">对局进行中时显示实时信息</div>
     </div>
@@ -766,58 +764,58 @@
   </div>
 </div>
 
-<script src="js/utils.js?v=2026111320"></script>
-<script src="js/player-index.js?v=2026111320"></script>
-<script src="js/local-cache.js?v=2026111320"></script>
-<script src="js/icons.js?v=2026111320"></script>
-<script src="js/data-model.js?v=2026111320"></script>
-<script src="js/session-state.js?v=2026111320"></script>
-<script src="js/performance.js?v=2026111320"></script>
-<script src="js/diagnostics.js?v=2026111320"></script>
-<script src="js/balance.js?v=2026111320"></script>
-<script src="js/behavior-tags.js?v=2026111320"></script>
-<script src="js/bench.js?v=2026111320"></script>
-<script src="js/champions.js?v=2026111320"></script>
-<script src="js/progress-report.js?v=2026111320"></script>
-<script src="js/home.js?v=2026111320"></script>
-<script src="js/automation-log.js?v=2026111320"></script>
-<script src="js/automation-matrix.js?v=2026111320"></script>
-<script src="js/home-status.js?v=2026111320"></script>
-<script src="js/ai-markdown.js?v=2026111320"></script>
-<script src="js/review.js?v=2026111320"></script>
-<script src="js/theme.js?v=2026111320"></script>
-<script src="js/hex.js?v=2026111320"></script>
-<script src="js/history.js?v=2026111320"></script>
-<script src="js/enemy-intel.js?v=2026111320"></script>
-<script src="js/draft-coach.js?v=2026111320"></script>
-<script src="js/growth-model.js?v=2026111320"></script>
-<script src="js/growth.js?v=2026111320"></script>
-<script src="js/battle-card.js?v=2026111320"></script>
-<script src="js/build-engine.js?v=2026111320"></script>
-<script src="js/live.js?v=2026111320"></script>
-<script src="js/weekly.js?v=2026111320"></script>
-<script src="js/friends.js?v=2026111320"></script>
-<script src="js/compliance.js?v=2026111320"></script>
-<script src="js/blacklist.js?v=2026111320"></script>
-<script src="js/social.js?v=2026111320"></script>
-<script src="js/chat.js?v=2026111320"></script>
-<script src="js/translate.js?v=2026111320"></script>
-<script src="js/autobp.js?v=2026111320"></script>
-<script src="js/pick-guard.js?v=2026111320"></script>
-<script src="js/lcu-events.js?v=2026111320"></script>
-<script src="js/opgg-loadout.js?v=2026111320"></script>
-<script src="js/update.js?v=2026111320"></script>
-<script src="js/autoflow.js?v=2026111320"></script>
-<script src="js/chat-status.js?v=2026111320"></script>
-<script src="js/settings.js?v=2026111320"></script>
-<script src="js/persist.js?v=2026111320"></script>
-<script src="js/hotkeys.js?v=2026111320"></script>
-<script src="js/live-metrics.js?v=2026111320"></script>
-<script src="js/live-tips.js?v=2026111320"></script>
-<script src="js/autoreturn.js?v=2026111320"></script>
-<script src="js/sona-extra.js?v=2026111320"></script>
-<script src="js/tools-nav.js?v=2026111320"></script>
-<script src="js/tools-overview.js?v=2026111320"></script>
-<script src="js/app.js?v=2026111320"></script>
+<script src="js/utils.js?v=2026111321"></script>
+<script src="js/player-index.js?v=2026111321"></script>
+<script src="js/local-cache.js?v=2026111321"></script>
+<script src="js/icons.js?v=2026111321"></script>
+<script src="js/data-model.js?v=2026111321"></script>
+<script src="js/session-state.js?v=2026111321"></script>
+<script src="js/performance.js?v=2026111321"></script>
+<script src="js/diagnostics.js?v=2026111321"></script>
+<script src="js/balance.js?v=2026111321"></script>
+<script src="js/behavior-tags.js?v=2026111321"></script>
+<script src="js/bench.js?v=2026111321"></script>
+<script src="js/champions.js?v=2026111321"></script>
+<script src="js/progress-report.js?v=2026111321"></script>
+<script src="js/home.js?v=2026111321"></script>
+<script src="js/automation-log.js?v=2026111321"></script>
+<script src="js/automation-matrix.js?v=2026111321"></script>
+<script src="js/home-status.js?v=2026111321"></script>
+<script src="js/ai-markdown.js?v=2026111321"></script>
+<script src="js/review.js?v=2026111321"></script>
+<script src="js/theme.js?v=2026111321"></script>
+<script src="js/hex.js?v=2026111321"></script>
+<script src="js/history.js?v=2026111321"></script>
+<script src="js/enemy-intel.js?v=2026111321"></script>
+<script src="js/draft-coach.js?v=2026111321"></script>
+<script src="js/growth-model.js?v=2026111321"></script>
+<script src="js/growth.js?v=2026111321"></script>
+<script src="js/battle-card.js?v=2026111321"></script>
+<script src="js/build-engine.js?v=2026111321"></script>
+<script src="js/live.js?v=2026111321"></script>
+<script src="js/weekly.js?v=2026111321"></script>
+<script src="js/friends.js?v=2026111321"></script>
+<script src="js/compliance.js?v=2026111321"></script>
+<script src="js/blacklist.js?v=2026111321"></script>
+<script src="js/social.js?v=2026111321"></script>
+<script src="js/chat.js?v=2026111321"></script>
+<script src="js/translate.js?v=2026111321"></script>
+<script src="js/autobp.js?v=2026111321"></script>
+<script src="js/pick-guard.js?v=2026111321"></script>
+<script src="js/lcu-events.js?v=2026111321"></script>
+<script src="js/opgg-loadout.js?v=2026111321"></script>
+<script src="js/update.js?v=2026111321"></script>
+<script src="js/autoflow.js?v=2026111321"></script>
+<script src="js/chat-status.js?v=2026111321"></script>
+<script src="js/settings.js?v=2026111321"></script>
+<script src="js/persist.js?v=2026111321"></script>
+<script src="js/hotkeys.js?v=2026111321"></script>
+<script src="js/live-metrics.js?v=2026111321"></script>
+<script src="js/live-tips.js?v=2026111321"></script>
+<script src="js/autoreturn.js?v=2026111321"></script>
+<script src="js/sona-extra.js?v=2026111321"></script>
+<script src="js/tools-nav.js?v=2026111321"></script>
+<script src="js/tools-overview.js?v=2026111321"></script>
+<script src="js/app.js?v=2026111321"></script>
 </body>
 </html>

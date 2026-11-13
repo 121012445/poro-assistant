@@ -2111,3 +2111,21 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
    最后一块, 实测 22.3 后 header 仍 42px = slot 29 + pad 12 + margin 2。归零。 */
 #page-live .page-header { padding-bottom: 0; }
 #page-live .lp-recent { gap: 1px; }
+
+/* ============================================================================
+   24. 指标标签全展示 (1.5.142): 「+N」收纳退役, 标签直接折行 (Akari 式)
+   ----------------------------------------------------------------------------
+   premium.css:1322 把指标行写死单行 (nowrap + height 17px, 配合 +N 收纳),
+   这里恢复折行。封顶 80px = 四行 (实测 12 枚标签自然高 80px, 恰好四行):
+   真实数据最多 12 枚 (7 指标 + 连胜败 + 大腿/本命 + 组队 + 行为) 全部
+   直接展示, 零裁切 (Akari 口径)。探针实测: 12 枚时 recent 171px / 6 行,
+   常规 7-9 枚时 2-3 行 / 7-8 行战绩。overflow hidden 兜底极端窄卡。
+   ========================================================================== */
+#page-live .lp-profile-line {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 17px;
+  max-height: 80px;
+  overflow: hidden;
+  align-content: flex-start;
+}

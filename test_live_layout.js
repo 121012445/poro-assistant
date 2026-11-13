@@ -34,10 +34,10 @@ assert.ok(live.includes("'dmgGold'") && live.includes("'vision'"), '应显示伤
 assert.ok(live.includes('function liveStreak') && /连胜|连败/.test(live), '应显示连胜/连败');
 assert.ok(css.includes('.lp-metric-dmgGold') && css.includes('.lp-metric-vision'), '伤转/视野应有独立色相');
 assert.ok(css.includes('.lp-metric-winstreak') && css.includes('.lp-metric-lossstreak'), '连胜连败应用实心色块与数据标签区分');
-// 作战计划条并进页头, 顶部只占一行 —— 它原来单独占 54px
-assert.ok(html.includes('id="liveHeadSlot"'), '页头应留出作战计划槽位');
-assert.ok(live.includes('function setLiveHeadPanel') && live.includes('setLiveHeadPanel(buildLiveDecisionPanel'), '作战计划应渲染进页头槽位');
-assert.ok(!/body\.innerHTML = `\s*\$\{buildLiveDecisionPanel/.test(live), '作战计划不应再占实时区一整行');
+// 1.5.142: 作战计划头整体移除 (用户确认没有必要), 省出的 30px 全部让给战绩;
+// setLiveHeadPanel 对 slot 缺失有 null 守卫, 决策逻辑保留
+assert.ok(!html.includes('id="liveHeadSlot"'), '作战计划头应整体移除 (1.5.142)');
+assert.ok(live.includes('function setLiveHeadPanel') && /const slot = document\.getElementById\('liveHeadSlot'\);\s*if \(!slot\) return;/.test(live), 'setLiveHeadPanel 应保留 null 守卫 (slot 已不存在)');
 // 行高 24px + 1px 间隙 = 每场 25px, 与 Akari 的 25px 无缝行等价 —— 这是"同尺寸也露 8 场"的唯一来源。
 assert.match(css, /\.ri-card\s*\{[^}]*flex:\s*0 0 24px;/s, '战绩行高必须锁在 24px');
 assert.match(css, /\.lp-recent\s*\{[^}]*gap:\s*1px;/s, '战绩行间隙必须为 1px');

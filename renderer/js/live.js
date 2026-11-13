@@ -1278,104 +1278,13 @@ function liveMetricPills(recent, reservedSlots = 0) {
   const streakHtml = streak
     ? `<span class="lp-metric lp-metric-${streak.win ? 'winstreak' : 'lossstreak'}" title="最近 ${streak.n} 场${streak.win ? '全胜' : '全负'}">${streak.n}${streak.win ? '连胜' : '连败'}</span>`
     : '';
-  // 实时卡片优先给战绩留空间：默认只放 3 个最有辨识度的指标，
-  // 其余指标仍保留在卡片里，通过“+更多”查看，避免标签换行吞掉战绩。
-  const visibleCount = reservedSlots > 0 ? 2 : 3;
-  const visible = items.slice(0, visibleCount);
-  const hidden = items.slice(visibleCount);
-  const visibleHtml = visible.map(([cls, label, val, unit, tip]) =>
+  // 1.5.142: 全部指标直接展示 (Akari 式), 指标行自动折行 (§24 CSS 两行封顶 36px),
+  // 「+N」收纳入口整体退役 —— 收纳判定正是 1.5.137「标签全部隐藏」bug 的根源,
+  // 也不再占 reservedSlots; reservedSlots 参数保留以兼容调用方签名。
+  const allHtml = items.map(([cls, label, val, unit, tip]) =>
     `<span class="lp-metric lp-metric-${cls}" title="近 ${rs.length} 场平均${tip}">${label}<b>${val}${unit}</b></span>`
   ).join('');
-  const hiddenHtml = hidden.map(([cls, label, val, unit, tip]) =>
-    `<span class="lp-metric lp-metric-${cls} lp-extra-metric" title="近 ${rs.length} 场平均${tip}">${label}<b>${val}${unit}</b></span>`
-  ).join('');
-  // 1.5.125: 「+N」不再把标签行撑开折行, 改成弹一个小浮层。
-  // 原来展开态把 .lp-profile-line 写死 48px (比收起时的 17px 高 31px), 卡片总高不变,
-  // 于是这 31px 全是从战绩里抢来的 —— 少看两场记录。而且卡片窄到 148px 时
-  // 「收起」按钮自己被裁在 48px 之外, 点了收不回去。
-  const moreHtml = hidden.length
-    ? `<button class="lp-tags-more" type="button" title="查看其余队内指标" aria-label="查看其余队内指标" aria-expanded="false" onclick="toggleLiveMetricsPop(event, this)" data-count="${hidden.length}">+${hidden.length}</button>`
-    : '';
-  return streakHtml + visibleHtml + moreHtml + `<span class="lp-extra-metrics">${hiddenHtml}</span>`;
-}
-
-// ===== 队内指标浮层 =====
-// 只显示, 不占文档流: 打开后卡片高度、战绩行数都不变。
-let liveMetricsPopEl = null, liveMetricsPopBtn = null, _lmpBound = false;
-
-function ensureLiveMetricsPop() {
-  if (liveMetricsPopEl && document.body.contains(liveMetricsPopEl)) return liveMetricsPopEl;
-  const el = document.createElement('div');
-  el.id = 'liveMetricsPop';
-  el.className = 'lp-metric-pop';
-  el.hidden = true;
-  el.addEventListener('click', e => e.stopPropagation());
-  document.body.appendChild(el);
-  liveMetricsPopEl = el;
-  if (!_lmpBound) {
-    _lmpBound = true;
-    document.addEventListener('click', e => {
-      if (!liveMetricsPopEl || liveMetricsPopEl.hidden) return;
-      if (liveMetricsPopBtn && liveMetricsPopBtn.contains(e.target)) return;
-      if (liveMetricsPopEl.contains(e.target)) return;
-      closeLiveMetricsPop();
-    });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeLiveMetricsPop();
-    });
-    // 浮层是 fixed 定位, 页面或卡片一滚动就必须跟着收起, 否则会脱离锚点
-    document.addEventListener('scroll', () => closeLiveMetricsPop(), true);
-    window.addEventListener('resize', () => closeLiveMetricsPop());
-  }
-  return el;
-}
-
-function closeLiveMetricsPop() {
-  if (!liveMetricsPopEl || liveMetricsPopEl.hidden) return;
-  liveMetricsPopEl.hidden = true;
-  if (liveMetricsPopBtn) {
-    liveMetricsPopBtn.setAttribute('aria-expanded', 'false');
-    liveMetricsPopBtn = null;
-  }
-}
-
-function toggleLiveMetricsPop(ev, btn) {
-  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
-  if (!btn) return;
-  const el = ensureLiveMetricsPop();
-  // 再点一次同一个按钮 = 收起
-  if (!el.hidden && liveMetricsPopBtn === btn) { closeLiveMetricsPop(); return; }
-  const row = btn.closest('.lp-row') || btn.closest('.lp-card');
-  if (!row) return;
-  // 只取被收进 .lp-extra-metrics 的那几枚。连胜/连败如果还留在行内可见,
-  // 就不再重复列一遍 (fitLiveMetricRows 会把它一起搬进来, 那种情况下才会出现在浮层)。
-  // 1.5.141: 克隆原始节点而不是只重建 .lp-metric —— 组队/行为/特色标签没有
-  // lp-metric 类, 旧写法让它们被收走后在浮层里凭空消失。
-  const pills = [...row.querySelectorAll('.lp-extra-metrics > *')];
-  if (!pills.length) return;
-  el.innerHTML = '<div class="lp-metric-pop-head">近 20 场队内指标</div>'
-    + '<div class="lp-metric-pop-grid">'
-    + pills.map(p => {
-      const c = p.cloneNode(true);
-      c.classList.add('lp-metric');
-      c.classList.remove('lp-extra-metric');
-      return c.outerHTML;
-    }).join('')
-    + '</div>';
-  // 先显示再定位, 否则 hidden 状态下量不到尺寸
-  el.hidden = false;
-  btn.setAttribute('aria-expanded', 'true');
-  liveMetricsPopBtn = btn;
-  const r = btn.getBoundingClientRect();
-  const pw = el.offsetWidth, ph = el.offsetHeight;
-  const vw = window.innerWidth, vh = window.innerHeight;
-  let left = Math.min(r.left, vw - pw - 8);
-  if (left < 8) left = 8;
-  // 默认贴按钮下方; 下面放不开就翻到上方
-  let top = r.bottom + 6;
-  if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 6);
-  el.style.left = Math.round(left) + 'px';
-  el.style.top = Math.round(top) + 'px';
+  return streakHtml + allHtml;
 }
 
 // 概览行的 KDA 用「大数字 + 小标签」，与胜率形成一对主指标。
@@ -1483,48 +1392,11 @@ function scheduleLiveRowAlignment() {
   else { fitLiveMetricRows(); alignLiveRecentRows(); }
 }
 
-// 指标行是固定 17px 单行 (overflow:hidden)。窗口窄、卡片只有 148px 时,
-// 4 枚标签 + 按钮共 199px, 尾部会被硬裁 —— 裁掉的是半个胶囊和「+N」入口本身。
-// 这里按实际可用宽度把放不下的标签搬进隐藏的 .lp-extra-metrics, 并更新 +N 计数;
-// 放得下时再搬回来。好处是视觉上永远没有半截文字, 信息也没丢 (点 +N 看全部)。
+// 指标行标签收纳已退役 (1.5.142): 全部直接展示, 折行由 §24 CSS 控制。
 function fitLiveMetricRows() {
-  document.querySelectorAll('#page-live .lp-profile-line').forEach(line => {
-    const more = line.querySelector('.lp-tags-more');
-    const extras = line.querySelector('.lp-extra-metrics');
-    if (!more || !extras) return;
-    // 页面不在前台 (display:none) 时 getBoundingClientRect 全是 0, 溢出判定会把
-    // 所有标签当成放不下, 整排搬进隐藏容器 —— 用户切回来就只剩一个「+N」
-    // (1.5.137 用户反馈「有的时候标签会全部隐藏」的根因)。不在文档流里的行
-    // 跳过测量, 等切回页面 (switchPage 会补一次对齐) 再按真实宽度算。
-    const box = line.getBoundingClientRect();
-    if (!box.width && !box.height) return;
-    const limit = line.getBoundingClientRect().right - (more.offsetWidth + 6);
-    const visible = () => [...line.children].filter(el => el !== more && el !== extras);
-    let guard = 16;
-    // 溢出: 从最右开始收
-    while (guard-- > 0) {
-      const vis = visible();
-      if (!vis.length) break;
-      const last = vis[vis.length - 1];
-      if (last.getBoundingClientRect().right <= limit + 0.5) break;
-      extras.insertBefore(last, extras.firstChild);
-    }
-    // 有余量: 还回来 (窗口变宽时恢复)
-    guard = 16;
-    while (guard-- > 0 && extras.children.length) {
-      const next = extras.firstElementChild;
-      extras.removeChild(next);
-      line.insertBefore(next, more);
-      if (next.getBoundingClientRect().right > limit + 0.5) {
-        line.removeChild(next);
-        extras.insertBefore(next, extras.firstChild);
-        break;
-      }
-    }
-    const n = extras.children.length;
-    more.hidden = n === 0;
-    if (n > 0) { more.textContent = '+' + n; more.dataset.count = String(n); }
-  });
+  // 1.5.142: 标签收纳逻辑整体退役 —— 指标全部直接展示 (§24 指标行自动折行,
+  // 两行封顶), 「+N」入口不再渲染。保留空函数: 轮询与 switchPage 的调用点不动,
+  // 1.5.137 修的「隐藏页 rect 全 0 误判溢出」随收纳一起消失。
 }
 
 function alignLiveRecentRows() {

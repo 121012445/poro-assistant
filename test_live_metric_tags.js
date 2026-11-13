@@ -16,7 +16,7 @@ assert.ok(live.includes("['solo', '单杀'"), 'liveMetricPills 应包含单杀�
 assert.ok(live.includes('kdehi') && live.includes('kdelo'), '击杀伤害效率高/低两态标签应存在');
 assert.ok(css.includes('.lp-metric-kdehi') && css.includes('.lp-metric-kdelo'), 'v4.css 应有伤效语义色');
 assert.ok(css.includes('.lp-metric-winstreak {\n  color: var(--pos);\n  background: var(--pos-soft);\n  font-weight: 650;\n}\n.lp-metric-lossstreak'), '浮层内连胜/连败应有 unscoped 语义色');
-assert.ok(live.includes('近 20 场队内指标'), '指标浮层标题应反映 20 场存量 (1.5.138 漏改)');
+assert.ok(!live.includes('lp-tags-more') && !live.includes('lp-extra-metric'), '收纳/浮层应整体退役 (1.5.142 全部直接展示)');
 
 // 动态断言: vm 隔离执行 live.js
 const ctx = vm.createContext({
@@ -69,7 +69,7 @@ assert.strictEqual(s.kp, 75, '既有 kp 口径不受影响');
 assert.ok(live.includes('lp-tag-hiwr') && live.includes(">大腿</span>"), '应有高胜率「大腿」特色标签');
 assert.ok(live.includes('lp-tag-main') && live.includes(">本命</span>"), '应有本命英雄特色标签');
 assert.ok(live.includes('specialTags.length'), '特色标签应计入 reservedSlots');
-assert.ok(live.includes(".lp-extra-metrics > *") && live.includes('cloneNode'), '+N 浮层应克隆原始节点 (组队/行为标签收走后不消失)');
+assert.ok(!live.includes('toggleLiveMetricsPop'), '指标浮层死代码应随收纳一起删除 (1.5.142)');
 assert.ok(live.includes('lp-pg-'), '组队标签应按组号挂色类');
 const cssAll = fs.readFileSync('renderer/css/v4.css', 'utf8');
 for (const c of ['dmg', 'tank', 'kp', 'gold', 'csm', 'vision']) {

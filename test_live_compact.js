@@ -70,7 +70,7 @@ const body = makeEl('liveGameArea');
   // 1.5.61 起作战计划条并进页头: 它不再出现在实时区 (否则白占 54px), 但必须仍然渲染
   assert.ok(!out.includes('class="live-decision"'), '作战计划不应再占实时区一整行');
   assert.ok(liveSrc.includes('setLiveHeadPanel(buildLiveDecisionPanel'), '作战计划应渲染进页头槽位');
-  assert.ok(html.includes('id="liveHeadSlot"'), '页头应有作战计划槽位');
+  assert.ok(!html.includes('id="liveHeadSlot"'), '作战计划头应整体移除 (1.5.142)');
 
   // 玩家 ID 右侧显示胜率 / KDA, 战绩摘要不再单独占行
   const firstCard = out.slice(out.indexOf('class="lp-row'), out.indexOf('class="lp-row', out.indexOf('class="lp-row') + 5));
