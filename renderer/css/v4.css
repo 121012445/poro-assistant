@@ -2532,3 +2532,75 @@ body.dark .champ-tier.t-5 {
 .champ-row {
   font-variant-numeric: tabular-nums;
 }
+
+/* ============================================================================
+   31. 洞察标签收敛四色 + 剩余数字等宽 (1.5.157)
+   ----------------------------------------------------------------------------
+   用户确认「要」: 英雄画像的洞察标签从 8 种随手取的硬编码彩色, 收敛到
+   BinanceGUI 的语义四色 (blue / green / red / yellow) + 软底。
+   原来浅色是 #167a45/#176ba0/#a25a10/#667485/#a43d50/#5f4ba8/#16766f/#0f766e
+   八套自配色, 深色又是另外八套 (#4ade80/#7ab8f5/#fbbf5c/#9aa8b8/#f38ba0/
+   #b4a7f2/#4fd1c5/#e0b76a) —— 两套主题各写一遍, 改一处要改两处, 且都不在
+   BinanceGUI 调色板内。现在统一走 --pos/--warn/--neg/--brand + 对应 soft 底。
+   区分度交给标签文案本身 (「过山车」「Carry」「伤转高」), 不再靠色相。
+   ========================================================================== */
+
+/* A. 正向类 (绿): 正向 / 高效 / 治疗 */
+.ako-insight-positive,
+.ako-insight-efficiency,
+.ako-insight-healing,
+body.dark .ako-insight-positive,
+body.dark .ako-insight-efficiency,
+body.dark .ako-insight-healing {
+  color: var(--pos);
+  background: var(--pos-soft);
+  border-color: color-mix(in srgb, var(--pos) 28%, transparent);
+}
+
+/* B. 提示类 (黄): 警告 / 偏低 */
+.ako-insight-warning,
+.ako-insight-low,
+body.dark .ako-insight-warning,
+body.dark .ako-insight-low {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+/* C. 负向类 (红): 伤害 / 承伤 */
+.ako-insight-damage,
+body.dark .ako-insight-damage {
+  color: var(--neg);
+  background: var(--neg-soft);
+  border-color: color-mix(in srgb, var(--neg) 26%, transparent);
+}
+
+/* D. 中性强调类 (蓝): 强调 / 视野 / 团队 */
+.ako-insight-accent,
+.ako-insight-vision,
+.ako-insight-team,
+body.dark .ako-insight-accent,
+body.dark .ako-insight-vision,
+body.dark .ako-insight-team {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+}
+
+/* E. 弱化类: 不抢视线, 走文字色阶而不是自造灰 */
+.ako-insight-muted,
+body.dark .ako-insight-muted {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+/* F. 剩余数字等宽: 强化资料统计条 / 双排计数 / 快捷键标注 */
+.hex-stats-bar,
+.duo-chip,
+.duo-chip i,
+#page-tools .btn-secondary,
+#page-hex .hex-stats-bar b {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
