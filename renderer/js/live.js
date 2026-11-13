@@ -1078,11 +1078,13 @@ function answerLiveQuestion(question) {
   }
 }
 
-// 加载最近 20 场 (SGP 单次请求 30 场, 多存 10 场零成本); 卡片高度固定, 超出部分在卡内滚动。
-// Akari 的战绩区也是"加载多少显示多少", 10 场的卡在高度上比不过它 —— 20 场先补齐信息量。
+// 加载最近 20 场 (SGP 单次请求 30 场, 多存 10 场零成本); 折叠态每卡先展示 6 场 (1.5.150),
+// 其余收进「展开全部战绩」; 展开态完整显示 20 场。
 function recentLimit() {
   return 20;
 }
+// 1.5.150: 折叠态每页固定先展示 6 场 —— 省下的高度让玩家 ID 两行全宽显示。
+const LIVE_RECENT_PAGE = 6;
 
 // 战绩摘要文案: "近10场 6胜4负"。原先"近 N 场"单独占一行，并进来后玩家卡少一行，战绩区更高。
 function liveRecordText(total, wins, emptyText) {
@@ -1102,8 +1104,14 @@ function syncLiveExpandButton(show) {
 }
 function toggleLiveRecentExpanded(force) {
   liveRecentExpanded = typeof force === 'boolean' ? force : !liveRecentExpanded;
-  document.getElementById('page-live')?.classList.toggle('live-expanded', liveRecentExpanded);
+  const page = document.getElementById('page-live');
+  page?.classList.toggle('live-expanded', liveRecentExpanded);
   syncLiveExpandButton();
+  // 1.5.150: 提示行文案随展开态切换 (先展示 6 场 ⇄ 全部), 战绩行重新收口/解除隐藏
+  if (page && typeof page.querySelectorAll === 'function') page.querySelectorAll('.lp-row').forEach(row => {
+    const p = window._poroLivePlayerMap?.get(row.dataset.playerKey);
+    if (p) syncLiveRecentHint(row, p);
+  });
   scheduleLiveRowAlignment();
 }
 
@@ -1326,14 +1334,16 @@ function liveKdaHtml(kda) {
   return `<b class="${cls.trim()}">${escapeHtml(String(kda))}</b><em>KDA</em>`;
 }
 
-// 1.5.134: 战绩尾部提示 —— 加载到的场次多于展示行数时, 卡底留一行小字:
-// 消除"行数少的卡底部一大块空白"的观感, 同时交代数据量 (Akari/OP.GG 均有同款交代)。
-// 放在 .lp-recent 兄弟节点 (不进列表内部), 不干扰 alignLiveRecentRows 的行距分摊。
+// 1.5.150: 战绩尾部提示 —— 折叠态每页只展示 6 场, 场次更多时交代总量并可点展开;
+// 展开态只交代总量。放在 .lp-recent 兄弟节点 (不进列表内部), 不干扰行距分摊。
+// 1.5.150: 提示行随展开态切换; 折叠态场次多于每页 6 场时可点展开。
+// 样本不超过 6 场 / 展开态只交代总量, 不可点 (pointer-events 保持 none, 不挡战绩卡点击)。
 function liveRecentHint(p) {
   const total = (p && (p.games || p.recent?.length)) || 0;
-  const shown = Math.min((p?.recent?.length || 0), recentLimit());
-  if (!total || total <= shown) return '';
-  return `<div class="lp-recent-hint">共 ${total} 场 · 展示最近 ${shown} 场</div>`;
+  if (!total || total <= LIVE_RECENT_PAGE) return '';
+  const expanded = document.getElementById('page-live')?.classList.contains('live-expanded');
+  if (expanded) return `<div class="lp-recent-hint">共 ${total} 场</div>`;
+  return `<div class="lp-recent-hint is-more" onclick="event.stopPropagation();toggleLiveRecentExpanded(true)" title="展开显示全部 ${total} 场">共 ${total} 场 · 先展示 ${LIVE_RECENT_PAGE} 场 · 点击展开</div>`;
 }
 
 function syncLiveRecentHint(row, p) {
@@ -1440,6 +1450,10 @@ function fitLiveMetricRows() {
   // 1.5.137 修的「隐藏页 rect 全 0 误判溢出」随收纳一起消失。
 }
 
+// 1.5.150: 折叠态每卡固定先展示 6 场 (LIVE_RECENT_PAGE), 其余场次隐藏,
+// 靠提示行/「展开全部战绩」进入全量。旧版"能塞几场塞几场 + 列表内滚动"会露出
+// 8~9 行战绩, 把头部空间吃光 —— 卡头里长 ID 被徽章和胜率挤压到 0 宽 (整行不可见)。
+// 展开态解除隐藏全部显示; 可见行间距仍把剩余高度分摊掉, 不留卡底空白。
 function alignLiveRecentRows() {
   const page = document.getElementById('page-live');
   document.querySelectorAll('#page-live .lp-recent').forEach(list => {
@@ -1447,24 +1461,22 @@ function alignLiveRecentRows() {
     list.style.removeProperty('flex');
     list.style.removeProperty('gap');
     list.style.removeProperty('margin-bottom');
+    const cards = Array.from(list.querySelectorAll('.ri-card'));
+    // 每次重算先复位隐藏 (展开/收起/窗口变化都要从干净状态起算)
+    cards.forEach(el => { el.hidden = false; });
     if (page?.classList.contains('live-expanded')) return;
     const first = list.querySelector('.ri-card');
     if (!first) return;
     const available = list.clientHeight;
     const rowHeight = first.getBoundingClientRect().height;
     if (available < rowHeight) return;
-    // 旧逻辑按整行数裁列表高度 (height=exact + marginBottom 补零头), 零头最多能剩
-    // 一行高-2px。滚动条又是隐藏的 (scrollbar-width:none), 底部渐隐提示也禁用了 ——
-    // 卡底那块空白看起来就像"最后一场被什么东西挡住了"(用户 1.5.131 反馈「有遮挡」)。
-    // 现在不再裁高度: 列表 flex:1 本来就占满, 行高不动, 把零头分摊进行间距,
-    // 行间最多放宽到 10px, 卡底不再有残余空白; 放不下的场次仍在列表内滚动。
-    const rows = list.querySelectorAll('.ri-card').length;
     const baseGap = parseFloat(getComputedStyle(list).rowGap) || 2;
-    const step = rowHeight + baseGap;
-    const visible = Math.max(1, Math.floor((available + baseGap) / step));
-    const n = Math.min(visible, rows);
-    if (n >= 2) {
-      const gap = Math.min((available - n * rowHeight) / (n - 1), 10);
+    // 高度装不下 6 场时按实际容量收缩, 保证不出现裁半行
+    const fitRows = Math.max(1, Math.floor((available + baseGap) / (rowHeight + baseGap)));
+    const visible = Math.min(LIVE_RECENT_PAGE, fitRows, cards.length);
+    cards.forEach((el, i) => { if (i >= visible) el.hidden = true; });
+    if (visible >= 2) {
+      const gap = Math.min((available - visible * rowHeight) / (visible - 1), 14);
       if (gap > baseGap + 0.25) list.style.gap = `${gap.toFixed(2)}px`;
     }
   });
@@ -1561,15 +1573,17 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       ? ` onclick="event.stopPropagation();searchPlayerByPuuid(${inlineArg(p.puuid)},${inlineArg(name)},null,{platformId:${inlineArg(p.platformId || '')}})" role="button" tabindex="0"`
       : '';
     const drawerKey = livePlayerKey(p);
+    // 1.5.150: 头部重排 —— 名字独占一行 (可折两行、全宽), 胜率/KDA 与平衡性/T级/
+    // 标记/自己徽章下沉到段位行换行排布。旧排版里这些徽章 (flex:0 0 auto 不压缩) 加
+    // 胜率块远超 identity 列宽, 名字是行内唯一可收缩项被压到 0 宽, ID 整个不可见。
     return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(drawerKey)}" onclick="openLivePlayerDrawer(event,${inlineArg(drawerKey)})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLivePlayerDrawer(event,${inlineArg(drawerKey)})}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
           <div class="lp-identity">
-            <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
-            <div class="lp-rank">${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
+            <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span></div>
+            <div class="lp-rank">${inlineStats}${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span>${tag}${balanceHtml}${marksHtml}</div>
           </div>
-          ${inlineStats}
         </div>
       </div>
       <div class="lp-profile-line">${pills}</div>

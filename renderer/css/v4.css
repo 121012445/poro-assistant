@@ -2139,3 +2139,56 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
   padding: 0 1px;
   gap: 1px;
 }
+
+/* ============================================================================
+   25. 玩家卡头部重排 + 战绩每页 6 场 (1.5.150)
+   ----------------------------------------------------------------------------
+   用户实测: 卡头只看得见徽章和胜率, ID 整个不见了。根因: premium.css:1200 把
+   lp-info 排成 [identity | inline-stats] 横排, identity 列只剩 ~55px; 而 ARAM
+   平衡性/T级/标记/相遇徽章 (flex:0 0 auto 永不压缩) 就有 60px+。名字是行内唯一
+   可收缩项, flex-shrink 直接把它压到 0 宽 —— 探针实测所有卡 lp-name width=0。
+   重排: 名字独占一行、可折两行、全宽 (-webkit-line-clamp:2), 胜率/KDA 下沉段位行,
+   徽章在段位行尾部换行。空间从战绩区出: 折叠态每卡固定先展示 6 场
+   (live.js LIVE_RECENT_PAGE), 其余收进「展开全部战绩」。
+   ========================================================================== */
+#page-live .lp-info { display: flex; flex-direction: column; gap: 0; }
+#page-live .lp-name-line { overflow: visible; }
+#page-live .lp-name {
+  flex: 1 1 auto;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-height: 30px;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 15px;
+}
+#page-live .lp-rank {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 6px;
+  margin-top: 3px;
+  white-space: normal;
+  overflow: visible;
+}
+#page-live .lp-rank .lp-inline-stats {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+  height: auto;
+  margin-left: 0;
+  padding: 0;
+}
+#page-live .lp-rank .lp-inline-stats .lp-winrate { font-size: var(--fs-sm); }
+#page-live .lp-rank .lp-inline-stats .lp-kda { margin-left: 0; }
+#page-live .lp-rank .lp-flash-slot { display: inline-flex; align-items: center; }
+/* 战绩每页 6 场: 超出页容量的场次用 [hidden] 收起 —— .ri-card 的作者样式
+   display:grid 会压过 UA 的 [hidden] 规则, 必须显式恢复 display:none。
+   "下面还有"由可点提示行交代, 卡底渐隐 (:has 第9场) 在分页模式下不再有意义 */
+#page-live .ri-card[hidden] { display: none; }
+#page-live .lp-row:has(.ri-card:nth-child(9))::after { opacity: 0; }
+#page-live .lp-recent-hint.is-more { pointer-events: auto; cursor: pointer; }
+#page-live .lp-recent-hint.is-more:hover { color: var(--accent); opacity: 1; }
