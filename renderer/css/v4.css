@@ -1969,3 +1969,79 @@ body.dark #page-live .ri-loss .ri-result { color: #fca5a5; }
 #page-live .lp-usage-champ.is-pos { border-color: color-mix(in srgb, var(--live-blue) 78%, transparent); }
 #page-live .lp-usage-champ.is-neg { border-color: color-mix(in srgb, var(--live-red) 78%, transparent); }
 body.dark #page-live .lp-usage-champ { background: rgba(255,255,255,.08); }
+
+/* ============================================================================
+   22. 玩家卡密度对齐 (1.5.140): 默认 1200×800 窗战绩可见行数 5 → 8
+   ----------------------------------------------------------------------------
+   对比 Akari: 它的卡头部一段只占 ~64px, 我们的 head(45)+profile(17)+usage(26)+hint(25)
+   合计 113px, 每张卡白扔 ~50px —— 正好是两行战绩。手段 (全部 #page-live scope):
+   1) 提示行改 hover 浮层: 数据量说明保留, 但不占文档流 (展开态除外);
+   2) 头像 40→32: 段位/胜率/KDA 的信息量都在文字上, 头像不需要徽章级尺寸;
+   3) head 分隔线 padding 8→3, profile-line 下边距 4→2, 常用英雄行边距减半;
+   4) 行高 28→26 (图标 20→18): 文字仍是两行 10px, 不裁字。
+   展开态 (live-expanded) 行距还原 --s2, 提示行回文档流, 保持完整浏览体验。
+   ========================================================================== */
+#page-live .lp-card-head {
+  min-height: 0;
+  padding-bottom: 3px;
+  gap: 6px;
+}
+#page-live .lp-champ {
+  width: 32px;
+  height: 32px;
+  box-shadow: 0 0 0 2px var(--surface-1), 0 1px 2px rgba(16, 26, 35, .16);
+}
+#page-live .lp-red .lp-champ {
+  border-color: color-mix(in srgb, var(--live-red) 45%, transparent);
+}
+#page-live .lp-profile-line { margin-bottom: 2px; }
+#page-live .lp-champ-usage { margin: 1px 1px 2px; min-height: 20px; }
+#page-live .lp-row { padding: var(--s2) var(--s3); }
+#page-live .lp-team-grid { padding-top: 2px; }
+#page-live .ri-card {
+  flex-basis: 26px;
+  min-height: 26px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 0 4px;
+}
+#page-live .ri-card img { width: 18px; height: 18px; }
+#page-live .ri-body { line-height: 1.2; }
+/* 提示行 → hover 浮层: 贴卡底, 悬停才显 */
+#page-live .lp-recent-hint {
+  position: absolute;
+  left: calc(var(--s3) + 1px);
+  right: calc(var(--s3) + 1px);
+  bottom: 3px;
+  margin: 0;
+  padding: 3px 4px;
+  border-top: none;
+  background: var(--surface-1);
+  border-radius: var(--radius-xs);
+  box-shadow: 0 -6px 10px -8px rgba(16, 26, 35, .30);
+  opacity: 0;
+  transition: opacity .15s ease;
+  pointer-events: none;
+  z-index: 3;
+}
+#page-live .lp-row:hover .lp-recent-hint { opacity: .97; }
+body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow: 0 -6px 10px -8px rgba(0,0,0,.5); }
+/* 展开态: 行距放宽, 提示行回到文档流 */
+#page-live.live-expanded .ri-card { flex-basis: 28px; min-height: 28px; }
+#page-live.live-expanded .lp-recent-hint {
+  position: static;
+  opacity: 1;
+  margin-top: var(--s2);
+  background: transparent;
+  box-shadow: none;
+  border-top: 1px dashed var(--line-subtle);
+}
+/* ---- 22.1 二档收紧: 实测 7 行 → 8 行的最后 14px ---- */
+#page-live .lp-champ { width: 30px; height: 30px; }
+#page-live .lp-card-head { padding-bottom: 2px; }
+#page-live .lp-profile-line { margin-bottom: 1px; }
+#page-live .lp-champ-usage { margin: 0 1px 1px; }
+#page-live .lp-row { padding: 3px var(--s3); }
+#page-live .lp-team-head { min-height: 0; }
+#page-live .lp-build-btn,
+#page-live .lp-expand-btn { padding: 3px 8px; }

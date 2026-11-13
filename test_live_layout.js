@@ -66,4 +66,11 @@ assert.ok(live.includes('player.premadeTeamGames || []'), '阵容缓存刷新必
 assert.ok(live.includes('livePlayersCache.premadeGroups = finalGroups'), '后台推断完成后必须缓存组队分组');
 assert.ok(live.includes('const cachedInferred = inferPremadeGroups'), '命中阵容缓存时必须重新推断组队关系');
 
+// 1.5.140 §22 密度块: 默认 1200×800 窗战绩可见行 5 → 8 (Akari 同几何对齐)
+const v4 = fs.readFileSync('renderer/css/v4.css', 'utf8');
+assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live \.ri-card \{[^}]*flex-basis: 26px/, 'v4.css §22 应把实时页战绩行压到 26px (style.css 基础 24px 之外的 #page-live 覆盖)');
+assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live \.lp-recent-hint \{[^}]*position: absolute/, '提示行应改为 hover 浮层, 不占文档流');
+assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live \.lp-champ \{\s*width: 30px/, '头像应压到 30px 给战绩区让位');
+assert.match(v4, /22\. 玩家卡密度对齐[\s\S]*#page-live\.live-expanded \.lp-recent-hint \{[^}]*position: static/, '展开态提示行应回文档流');
+
 console.log('实时对局大卡片布局测试通过');
