@@ -2252,3 +2252,88 @@ body {
 #page-live .lp-row:hover { background: color-mix(in srgb, var(--text-primary) 3%, var(--bg-card)); }
 #page-live .ri-card { transition: background-color .12s ease; }
 #page-live .ri-card:hover { background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* ============================================================================
+   27. BinanceGUI 令牌接管 (1.5.152)
+   ----------------------------------------------------------------------------
+   用户明确要求: 颜色/字体/主题都按 BinanceGUI 来。采用 BinanceGUI 自己的
+   「只重新赋值变量, 绝不重命名」手法 —— 令牌名全部保留, 值整体换成它的原版:
+   - 暗色: 四层深蓝黑底 #0A0D12/#0D1117/#12171F/#1A202A + 半透明白边框
+     rgba(255,255,255,.09/.11/.17) + 文字 #E6EDF5/#8B97A8/#5A6675
+     + 语义色 blue #4F8FF7 / green #26C281 / red #EF5350 / yellow #E5A03C
+   - 浅色: #EFF3F8/#FFFFFF/#EDF1F6 + rgba(0,0,0,.10/.15/.24) 边框
+     + 文字 #111823/#48566A/#7C8CA0 + blue #2065D6 / green #0E8A4F / red #D02F27
+   - 字体: Segoe UI (西文数字) + Microsoft YaHei (中文), mono = Cascadia/Consolas
+   注意: 暗色 --text-muted #5A6675 在卡底上约 3.4:1, 低于 AA —— 这是 BinanceGUI
+   原版 ship 出来的组合 (text3 on bg2), 用户点名要它的观感, 接受。
+   ========================================================================== */
+
+/* ---- 浅色主题 (对齐 BinanceGUI html[data-theme=light]) ---- */
+:root {
+  --bg-primary: #EFF3F8;
+  --bg-secondary: #EDF1F6;
+  --bg-card: #FFFFFF;
+  --bg-hover: #EDF1F6;
+  --border: rgba(0, 0, 0, .10);
+  --border-strong: rgba(0, 0, 0, .15);
+  --border-hover: rgba(0, 0, 0, .24);
+  --text-primary: #111823;
+  --text-secondary: #48566A;
+  --text-muted: #7C8CA0;
+  --accent: #2065D6;
+  --accent-deep: #1A56B8;
+  --accent2: rgba(32, 101, 214, .10);
+  --accent-soft: rgba(32, 101, 214, .08);
+  --accent-bright: #2065D6;
+  --positive: #0E8A4F;
+  --negative: #D02F27;
+  --warning: #A9740B;
+  --data-blue: #2065D6;
+  --data-teal: #0E8A4F;
+  --data-gold: #A9740B;
+  --data-rose: #D02F27;
+  --heading-ink: #111823;
+  --focus-ring: 0 0 0 3px rgba(32, 101, 214, .28);
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* ---- 暗色主题 (对齐 BinanceGUI 默认深色) ---- */
+body.dark {
+  --bg-primary: #0A0D12;
+  --bg-secondary: #0D1117;
+  --bg-card: #12171F;
+  --bg-hover: #1A202A;
+  --border: rgba(255, 255, 255, .09);
+  --border-strong: rgba(255, 255, 255, .11);
+  --border-hover: rgba(255, 255, 255, .17);
+  --text-primary: #E6EDF5;
+  --text-secondary: #8B97A8;
+  --text-muted: #5A6675;
+  --accent: #4F8FF7;
+  --accent-deep: #7AA9F9;
+  --accent2: rgba(79, 143, 247, .14);
+  --accent-bright: #7CB1F9;
+  --positive: #26C281;
+  --negative: #EF5350;
+  --warning: #E5A03C;
+  --data-blue: #4F8FF7;
+  --data-teal: #26C281;
+  --data-gold: #E5A03C;
+  --data-rose: #EF5350;
+  --heading-ink: #E6EDF5;
+  --focus-ring: 0 0 0 3px rgba(79, 143, 247, .34);
+}
+
+/* ---- 字体 (BinanceGUI 原版栈: Segoe UI 西文数字 + 雅黑中文) ---- */
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+/* §26 的实时页 mono 指向全局 --mono */
+#page-live { --data-mono: var(--mono); }
+
+/* ---- 实时页阵营色 (§929 的三个局部令牌对齐语义色) ---- */
+#page-live {
+  --live-blue: var(--data-blue);
+  --live-red: var(--negative);
+  --live-gold: var(--data-gold);
+}
