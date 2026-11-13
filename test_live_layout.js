@@ -97,4 +97,12 @@ assert.ok(live.includes('function buildLivePills('),
   '1.5.146 标签行构建必须抽成 buildLivePills, 首次渲染与局部刷新共用');
 assert.ok(live.includes('const pillsHtml = buildLivePills(p, pgid);'),
   '1.5.146 updateLivePlayerRow 必须局部同步标签行 (此前只更新战绩区, 标签要等全量重绘)');
+
+// 1.5.146b 顶部提示条闪烁: hint 进 pageHtml 由比对守卫统一管理
+assert.ok(live.includes('function liveCustomHintHtml('),
+  '1.5.146b 自定义对局提示条必须由 liveCustomHintHtml 渲染进 pageHtml');
+assert.ok(live.includes('${liveCustomHintHtml()}${enemyIntelHtml(data, selfPuuid)}'),
+  '1.5.146b hint 应在 pageHtml 顶部 (enemyIntel 之前), 不再 body.prepend');
+assert.ok(!live.includes('body.prepend(hint)'),
+  '1.5.146b 不得再 body.prepend hint (比对重绘会把它抹掉又补回, 闪烁)');
 console.log('实时对局大卡片布局测试通过');
