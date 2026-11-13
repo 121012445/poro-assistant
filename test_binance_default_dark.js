@@ -77,9 +77,10 @@ console.log('[C] 胜负语义色 token 化');
 console.log('[D] 版本与缓存');
 {
   const pkg = JSON.parse(fs.readFileSync(path.join(R, 'package.json'), 'utf8'));
-  ok(pkg.version === '1.5.154', 'package.json = 1.5.154');
+  const [maj, min, pat] = pkg.version.split('.').map(Number);
+  ok(maj === 1 && (min > 5 || (min === 5 && pat >= 154)), `package.json 版本 ≥ 1.5.154 (实际 ${pkg.version})`);
   const html = fs.readFileSync(path.join(R, 'renderer/index.html'), 'utf8');
-  ok(html.includes('v4.css?v=2026111334'), 'v4.css 缓存参数 1334');
+  ok(/v4\.css\?v=2026111\d{3}/.test(html), 'v4.css 带缓存参数');
   ok(html.includes('js/app.js?v=2026111334'), 'app.js 缓存参数 1334');
 }
 

@@ -2403,3 +2403,74 @@ body.dark {
 button, .nav-item, input, select, textarea {
   transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
 }
+
+/* ============================================================================
+   29. BinanceGUI 数字字体体系 —— 全软件 (1.5.155)
+   ----------------------------------------------------------------------------
+   用户: 「浅色的不能和 binancegui 的字体样式保持一致吗, 我看实时对局的也可以」。
+   实测: 全软件只有 #page-live (§26) 走 mono, 其余页面的数字 (56% / 24:59 /
+   1250 / 3.17 / 9-8-13 / 55胜54负·50%) 全是比例字体 —— 列宽不稳, 像普通网页;
+   实时页的等宽数字才是 BinanceGUI 的观感。
+   本段把 §26 的数字体系铺到全软件: 数字 mono + tabular-nums, 大数字负字距,
+   字重按 BinanceGUI 上限 600 统一。中文走 YaHei 兜底 (Cascadia/Consolas 无
+   CJK 字形), 所以混排文案不会变形。
+   ========================================================================== */
+
+/* A. 会话级字体栈归一: --font-ui / --font-data 两个令牌, 全站只认这两个 */
+:root {
+  --font-ui: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-data: var(--mono);
+}
+body { font-family: var(--font-ui); }
+
+/* B. 已知数值元素: 一律等宽 + 表格数字 */
+#page-home .stat-card-val,
+#page-home .home-winrate-val,
+#page-home .rank-card-record,
+#page-home .mmr-chip,
+#page-home .friend-row-count,
+#page-home .home-champ-row-rank,
+#page-home .home-champ-row-count,
+#page-home .stat-split,
+#page-home .stat-split b,
+#page-home .stat-split em,
+#page-home .home-name,
+#page-home .friend-row-name,
+#page-home .ako-big,
+#page-home .ako-sub,
+#page-home .ako-stat,
+#page-home .ako-info,
+#page-home .rank-promo > span,
+#page-home .rank-promo b,
+#page-home .rk-summary-bar,
+#page-live .lp-winrate,
+#page-live .lp-kda,
+#page-live .ri-kda,
+#page-live .ri-date,
+.version,
+.sidebar-status-log {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* C. 通用模式: 语义化数值类名 (val/count/kda/rate/score/record/mmr) 自动继承数字字体 */
+[class*="-val"], [class*="-count"], [class*="-kda"], [class*="-rate"],
+[class*="-score"], [class*="-record"], [class*="-mmr"], [class*="-winrate"] {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* D. 数据表格: 单元格数字等宽 (中文自动走 YaHei 兜底) */
+table td, table th { font-variant-numeric: tabular-nums; }
+table td { font-family: var(--font-data); }
+
+/* E. 大数字排版: 字重 600 封顶 + 负字距收紧 (BinanceGUI .dv 手法) */
+#page-home .home-winrate-val,
+#page-home .stat-card-val,
+#page-home .ako-big,
+#page-home .mmr-chip,
+#page-home .rank-card-record {
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+#page-home .home-name { font-weight: 600; letter-spacing: -.01em; }
