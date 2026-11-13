@@ -22,9 +22,15 @@ assert.match(liveSrc, /function fitLiveMetricRows\(\)\s*\{\s*\/\/[\s\S]*?\n\}/,
   'fitLiveMetricRows 应为空函数 (保留签名兼容轮询/切页调用点)');
 assert.ok(liveSrc.includes('fitLiveMetricRows();'), '轮询/切页调用点应保留, 空函数兼容');
 
-// ---------- 3. CSS: 指标行恢复折行, 两行封顶 ----------
+// ---------- 3. CSS: 指标行折行 + 1.5.143 三行压实 (回收 22px 预留 + 胶囊 padding 4px) ----------
 assert.match(cssV4, /24\. 指标标签全展示[\s\S]*?#page-live \.lp-profile-line \{[^}]*flex-wrap: wrap;[^}]*max-height: 80px;/s,
-  'v4.css §24 应恢复指标行折行并四行封顶 (80px)');
+  'v4.css §24 应恢复指标行折行并保留 80px 安全网');
+assert.match(cssV4, /24\. 指标标签全展示[\s\S]*?#page-live \.lp-profile-line \{[^}]*padding: 0 1px;[^}]*gap: 1px;/s,
+  '§24 应回收 premium.css 为「+N」预留的 padding-right: 22px 并收 gap 至 1px (1.5.143)');
+assert.match(cssV4, /#page-live \.lp-profile-line \.lp-metric \{[^}]*padding: 0 4px;/s,
+  '指标胶囊横向 padding 应为 4px (1.5.143 三行压实)');
+assert.match(cssV4, /\.lp-behavior \{[^}]*padding: 0 4px;/s,
+  '行为胶囊横向 padding 应为 4px (1.5.143 三行压实)');
 // premium.css 的单行锁定 (nowrap + height 17px) 必须被 §24 覆盖: v4.css 最后加载, 同特异性按源顺序胜出
 assert.match(cssPremium, /#page-live \.lp-profile-line \{[^}]*flex-wrap: nowrap;/s,
   'premium.css 单行锁定规则应仍在 (由 §24 覆盖, 防误删基准)');

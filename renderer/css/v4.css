@@ -2079,14 +2079,14 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
 .lp-pg-5 { background: #8a4400; }
 .lp-pg-6 { background: #8a2a00; }
 /* 行为标签: 负面程度分档, 好坏一眼分层 */
-.lp-behavior { border-radius: var(--radius-xs); padding: 0 6px; line-height: 15px; color: #fff; }
+.lp-behavior { border-radius: var(--radius-xs); padding: 0 4px; line-height: 15px; color: #fff; }
 .lp-behavior-bad { background: #8a3030; }
 .lp-behavior-warn { background: #9c6b1d; }
 .lp-behavior-info { background: #4a6a8a; }
 /* 实色底后胶囊的字重和内边距统一, 视觉密度和 Akari 对齐 */
 #page-live .lp-profile-line .lp-metric {
   font-weight: 600;
-  padding: 0 6px;
+  padding: 0 4px;
 }
 /* ---- 22.2 作战计划头瘦身: page-header 通用样式带 margin-bottom 24px,
    实时页的计划条只需贴着队区, 省出 20px (探针实测真实对局头部存在时
@@ -2113,13 +2113,17 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
 #page-live .lp-recent { gap: 1px; }
 
 /* ============================================================================
-   24. 指标标签全展示 (1.5.142): 「+N」收纳退役, 标签直接折行 (Akari 式)
+   24. 指标标签全展示 (1.5.142 收纳退役 → 1.5.143 三行压实)
    ----------------------------------------------------------------------------
-   premium.css:1322 把指标行写死单行 (nowrap + height 17px, 配合 +N 收纳),
-   这里恢复折行。封顶 80px = 四行 (实测 12 枚标签自然高 80px, 恰好四行):
-   真实数据最多 12 枚 (7 指标 + 连胜败 + 大腿/本命 + 组队 + 行为) 全部
-   直接展示, 零裁切 (Akari 口径)。探针实测: 12 枚时 recent 171px / 6 行,
-   常规 7-9 枚时 2-3 行 / 7-8 行战绩。overflow hidden 兜底极端窄卡。
+   premium.css:1322 把指标行写死单行 (nowrap + height 17px + padding-right 22px,
+   22px 是给已退役「+N」入口留的位), 这里恢复折行并回收遗留预留:
+   1) padding 回收 21px 探针实测有效content 148→170px;
+   2) 胶囊横向 padding 6→4px (§23 两块);
+   => 探针实测 (真实 8 枚卡 @171px): 4 行 63px → 3 行 47px, 零裁切。
+   gap 2→1px 是关键一刀: [经济|分均|单杀] 169.3px 恰好比 content 宽 169.2 多
+   0.1px (171px 窄卡边界), 收 1px gap 后 167.3px 稳进 3 行。
+   12 枚 worst-case @171px 装箱数学上压不进 3 行 (末行差 47-31px), 保留
+   max-height 80px 作 5 行安全网 (5×14.3+4×1=75.5), 13 枚也不裁。
    ========================================================================== */
 #page-live .lp-profile-line {
   flex-wrap: wrap;
@@ -2128,4 +2132,6 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
   max-height: 80px;
   overflow: hidden;
   align-content: flex-start;
+  padding: 0 1px;
+  gap: 1px;
 }
