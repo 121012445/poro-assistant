@@ -57,7 +57,7 @@ body.theme-a .page-header h2::before { background: var(--brand); }
 
 .theme-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
   border: 1px solid rgba(255, 255, 255, .55); box-shadow: 0 1px 3px rgba(16, 32, 56, .25); }
-.theme-dot.t-c { background: linear-gradient(135deg, #2f92bd, #1f7ba6); }
+.theme-dot.t-c { background: linear-gradient(135deg, #7AA9F9, #2065D6); }
 .theme-dot.t-a { background: linear-gradient(135deg, #8a6cf5, #5b3fd6); }
 .theme-dot.t-b { background: linear-gradient(135deg, #16202e 30%, #5aabd4); }
 .theme-dot.t-dark { background: linear-gradient(135deg, #4a4a52, #17181c); }
@@ -100,7 +100,7 @@ body.dark .sidebar {
 body.dark .sidebar-logo { border-bottom: 1px solid rgba(255, 255, 255, .07); }
 body.dark .logo-text { color: #eaf2ff; }
 body.dark .logo-text span { color: #6d80a0; }
-body.dark .nav-item { color: #8fa1bd; }
+body.dark .nav-item { color: var(--text-secondary); }
 body.dark .nav-item:hover { background: rgba(255, 255, 255, .07); color: #e8eefb; }
 body.dark body.dark body.dark .sidebar-footer { color: #5d6f8d; border-top: 1px solid rgba(255, 255, 255, .07); }
 body.dark .sidebar .lcu-status { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .10); color: #9db0cd; }

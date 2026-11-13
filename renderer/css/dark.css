@@ -42,6 +42,6 @@ body.dark {
   --gradient-gold: linear-gradient(135deg, #3b6fd4 0%, #2a55a8 100%);
   --focus-ring: 0 0 0 3px rgba(77, 142, 247, .34);
 
-  background: #141416;
-  color: #e2e6ee;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }

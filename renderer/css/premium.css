@@ -725,14 +725,14 @@ body.dark .mode-table tr:hover, body.dark .champ-row:hover, body.dark .hex-row:h
 body.dark .champ-table-wrap { background: var(--bg-card); border-color: var(--border); }
 /* 深色下的队头/卡片配色: 用低透明度色块而不是浅色渐变, 避免深底上"发脏" */
 body.dark .lp-blue .lp-team-head { color: var(--data-blue); background: rgba(77, 142, 247, .14); }
-body.dark .lp-red .lp-team-head { color: #f87171; background: rgba(248, 113, 113, .13); }
+body.dark .lp-red .lp-team-head { color: var(--negative); background: color-mix(in srgb, var(--negative) 13%, transparent); }
 body.dark .lp-row { background: var(--bg-card); }
 body.dark .lp-overview { background: var(--bg-secondary); }
 body.dark .lp-self { background: rgba(224, 183, 106, .10); border-color: rgba(224, 183, 106, .38); }
 body.dark .lp-self-tag { color: #f3d489; background: rgba(224, 183, 106, .18); }
 body.dark .ako-expand { background: var(--bg-secondary); }
 body.dark .ako-win .ako-result, body.dark .ak-win .ak-result { color: var(--data-blue); }
-body.dark .ako-loss .ako-result, body.dark .ak-loss .ak-result { color: #f87171; }
+body.dark .ako-loss .ako-result, body.dark .ak-loss .ak-result { color: var(--negative); }
 body.dark .ako-insight-healing { color: #4ecdc4; background: rgba(78, 205, 196, .12); border-color: rgba(78, 205, 196, .3); }
 body.dark .ako-insight-low { color: #e0b76a; background: rgba(224, 183, 106, .12); border-color: rgba(224, 183, 106, .3); }
 body.dark .ako-insight-efficiency { color: #4ade80; background: rgba(74, 222, 128, .12); border-color: rgba(74, 222, 128, .3); }

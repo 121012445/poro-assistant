@@ -446,11 +446,11 @@ body {
 /* ===== 实时对局双栏阵容 (lv-*) ===== */
 .lv-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lv-team { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.lv-blue { border-top: 3px solid #3479d1; }
-.lv-red { border-top: 3px solid #d13a3a; }
+.lv-blue { border-top: 3px solid var(--data-blue); }
+.lv-red { border-top: 3px solid var(--negative); }
 .lv-team-head { padding: 8px 14px; font-size: 13px; font-weight: 700; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
-.lv-blue .lv-team-head { color: #2a5fa8; }
-.lv-red .lv-team-head { color: #a82a2a; }
+.lv-blue .lv-team-head { color: var(--data-blue); }
+.lv-red .lv-team-head { color: var(--negative); }
 .lv-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .lv-row:last-child { border-bottom: none; }
 .lv-champ { width: 38px; height: 38px; border-radius: var(--radius-sm); }
@@ -730,8 +730,8 @@ body {
 .ak-win .ak-thead { background: rgba(52, 121, 209, 0.10); }
 .ak-loss .ak-thead { background: rgba(209, 58, 58, 0.08); }
 .ak-result { font-weight: 700; }
-.ak-win .ak-result { color: #2a5fa8; }
-.ak-loss .ak-result { color: #a82a2a; }
+.ak-win .ak-result { color: var(--data-blue); }
+.ak-loss .ak-result { color: var(--negative); }
 .ak-tkda, .ak-tgold { color: var(--text-secondary); }
 .ak-tobj { display: flex; gap: 8px; color: var(--text-muted); font-size: var(--fs-xs); }
 .ak-row { display: flex; align-items: center; min-height: 48px; padding: 4px 12px; border-top: 1px solid var(--border); font-size: var(--fs-sm); box-sizing: border-box; }
@@ -777,14 +777,14 @@ body {
 .ak-item.ak-trinket { border-radius: 50%; }
 /* ===== 战绩卡片 (复刻 LeagueAkari MatchCardOverview, ako-*) ===== */
 .ako-card { position: relative; display: flex; align-items: stretch; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 6px; cursor: pointer; overflow: hidden; }
-.ako-card.ako-win { border-color: rgba(52, 121, 209, 0.45); }
-.ako-card.ako-loss { border-color: rgba(209, 58, 58, 0.45); }
+.ako-card.ako-win { border-color: color-mix(in srgb, var(--data-blue) 45%, transparent); }
+.ako-card.ako-loss { border-color: color-mix(in srgb, var(--negative) 45%, transparent); }
 .ako-main { flex: 1; min-width: 0; padding: 6px 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; }
 .ako-top { display: flex; align-items: center; gap: 8px; }
 .ako-champwrap { position: relative; width: 44px; flex-shrink: 0; }
 .ako-champ { width: 44px; height: 44px; border-radius: var(--radius); border: 2px solid var(--border); box-sizing: border-box; display: block; }
-.ako-win .ako-champ { border-color: rgba(52, 121, 209, 0.8); }
-.ako-loss .ako-champ { border-color: rgba(209, 58, 58, 0.8); }
+.ako-win .ako-champ { border-color: color-mix(in srgb, var(--data-blue) 80%, transparent); }
+.ako-loss .ako-champ { border-color: color-mix(in srgb, var(--negative) 80%, transparent); }
 .ako-pos { position: absolute; right: -2px; bottom: -2px; background: rgba(0,0,0,0.65); color: #fff; font-size: var(--fs-2xs); padding: 1px 4px; border-radius: var(--radius-xs); }
 .ako-spellcol, .ako-runecol { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 .ako-spell, .ako-rune { width: 20px; height: 20px; border-radius: var(--radius-xs); display: block; }
@@ -798,8 +798,8 @@ body {
 .ako-sub { font-size: var(--fs-xs); color: var(--text-secondary); }
 .ako-mid { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ako-result { min-width: 68px; font-size: 13px; font-weight: 700; flex-shrink: 0; }
-.ako-win .ako-result { color: #2a5fa8; }
-.ako-loss .ako-result { color: #a82a2a; }
+.ako-win .ako-result { color: var(--data-blue); }
+.ako-loss .ako-result { color: var(--negative); }
 .ako-itemrow { display: flex; gap: 2px; }
 .ako-item { width: 20px; height: 20px; border-radius: var(--radius-xs); background: var(--bg-secondary); }
 .ako-item.ako-trinket { border-radius: 50%; }
@@ -984,8 +984,8 @@ body {
 .rk-rankbadge { font-size: var(--fs-2xs); font-weight: 700; padding: 2px 8px; border-radius: var(--radius); background: var(--border); color: var(--text-secondary); margin-left: 4px; }
 .rk-game-teams { font-size: var(--fs-xs); display: flex; gap: 8px; }
 .rk-team-row { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.rk-team-blue { border-left: 2px solid #3479d1; padding-left: 6px; }
-.rk-team-red { border-left: 2px solid #d13a3a; padding-left: 6px; }
+.rk-team-blue { border-left: 2px solid var(--data-blue); padding-left: 6px; }
+.rk-team-red { border-left: 2px solid var(--negative); padding-left: 6px; }
 .rk-player { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); cursor: pointer; white-space: nowrap; font-size: var(--fs-2xs); }
 .rk-player:hover { color: var(--accent); }
 .rk-player img { width: 16px; height: 16px; border-radius: var(--radius-xs); }

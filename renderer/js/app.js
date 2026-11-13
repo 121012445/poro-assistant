@@ -73,7 +73,7 @@ const THEME_MODES = ['light', 'dark'];
 const THEME_ACCENTS = ['blue', 'violet'];
 // 旧 store 值迁移: b(暗色玻璃) 当时是深色 + 蓝, a 是浅色 + 紫
 const LEGACY_UI_THEME = {
-  c: { mode: 'light', accent: 'blue' },
+  c: { mode: 'dark', accent: 'blue' },
   a: { mode: 'light', accent: 'violet' },
   b: { mode: 'dark', accent: 'blue' },
   dark: { mode: 'dark', accent: 'blue' }
@@ -121,7 +121,9 @@ function applyUiTheme(v, persist = true) {
     const p = v.split(':');
     st = { mode: p[0], accent: p[1] };
   }
-  applyThemeState(st || { mode: 'light', accent: 'blue' }, persist);
+  // 1.5.154: BinanceGUI 化 —— 旧 store 存过的浅色偏好一次性迁移为深色 (可设置里切回)
+  if (st && st.mode === 'light') st = { mode: 'dark', accent: st.accent };
+  applyThemeState(st || { mode: 'dark', accent: 'blue' }, persist);
 }
 function setUiTheme(v) { applyUiTheme(v); }
 function pickThemeMode(mode) {
