@@ -1667,3 +1667,213 @@ body.dark .hex-journal { border-color: var(--line-subtle); box-shadow: none; }
 }
 #page-live .ri-card img { width: 20px; height: 20px; }
 #page-live .ri-body { line-height: 1.25; }
+
+/* ============================================================================
+   20. 实时对局页美化 (1.5.134)
+   ----------------------------------------------------------------------------
+   基准: LeagueAkari ongoing-game-panel。手法来源 (只借鉴设计思路, 未复制代码):
+   - Akari: 卡片圆角+细边+微底色的「信息卡质感」; 数据三档阈值色 (≥55 绿 / ≤45 红 / 中性);
+     战绩行整行底色+左侧条; 队头同色底。
+   - LADA / rank-analysis: 卡片「外阴影 + 内高光」双层质感; 数字一律 tabular-nums。
+   - DraftCoach: 语义色克制使用 —— 只给「判断依据」上色, 描述性指标保持中性。
+   Poro 已有 v4 §「实时页」的收敛基线 (指标全中性、只留 3px 竖条), 本章节在其上
+   做质感与层次增强, 不回退去噪决策。
+   ========================================================================== */
+
+/* ---- 20.1 队伍容器: 顶部 2px 队色渐变条 + 卡片底托 ---- */
+#page-live .lp-team {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--line-subtle);
+  box-shadow: var(--e1);
+}
+#page-live .lp-team::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    var(--live-blue) 0%,
+    color-mix(in srgb, var(--live-blue) 45%, transparent) 40%,
+    transparent 78%);
+}
+#page-live .lp-red::before {
+  background: linear-gradient(90deg,
+    var(--live-red) 0%,
+    color-mix(in srgb, var(--live-red) 45%, transparent) 40%,
+    transparent 78%);
+}
+#page-live .lp-unknown::before {
+  background: linear-gradient(90deg,
+    var(--ink-3) 0%,
+    color-mix(in srgb, var(--ink-3) 45%, transparent) 40%,
+    transparent 78%);
+}
+
+/* ---- 20.2 队头: 6% 队色底 + 队名加大 + 胜率三档 ---- */
+#page-live .lp-team-head {
+  min-height: 36px;
+  padding: 0 var(--s4);
+  background: color-mix(in srgb, var(--live-blue) 7%, transparent);
+  border-radius: var(--radius-sm);
+}
+#page-live .lp-red .lp-team-head {
+  background: color-mix(in srgb, var(--live-red) 7%, transparent);
+}
+#page-live .lp-unknown .lp-team-head {
+  background: var(--surface-3);
+}
+#page-live .lp-team-head strong {
+  font-size: var(--fs-md);
+  font-weight: 750;
+  letter-spacing: .3px;
+}
+#page-live .lp-team-rate { font-size: var(--fs-lg); }
+.lp-team-rate.positive { color: var(--pos); }
+.lp-team-rate.negative { color: var(--neg); }
+.lp-team-rate.neutral  { color: var(--ink-1); }
+#page-live .lp-team-kda b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* 队头两个动作按钮 (lp-build-btn / lp-expand-btn 一直没有样式, 裸 button):
+   统一成小号 ghost 按钮, 与页内 btn-secondary 同语言 */
+#page-live .lp-build-btn,
+#page-live .lp-expand-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+#page-live .lp-build-btn:hover,
+#page-live .lp-expand-btn:hover {
+  border-color: var(--brand-line);
+  color: var(--brand-deep);
+  background: var(--brand-soft);
+}
+body.dark #page-live .lp-build-btn,
+body.dark #page-live .lp-expand-btn {
+  background: color-mix(in srgb, #fff 4%, transparent);
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+body.dark #page-live .lp-build-btn:hover,
+body.dark #page-live .lp-expand-btn:hover {
+  color: var(--accent-bright, var(--brand));
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-color: var(--brand-line);
+}
+
+/* ---- 20.3 玩家卡: 双层质感 (外阴影 + 内高光) + 细边 ---- */
+#page-live .lp-row {
+  display: flex;
+  flex-direction: column;
+  border-color: var(--line-subtle);
+  box-shadow: var(--e1), inset 0 1px 0 rgba(255, 255, 255, .55);
+}
+body.dark #page-live .lp-row {
+  border-color: var(--line-subtle);
+  box-shadow: 0 3px 10px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.06);
+}
+#page-live .lp-row:hover {
+  border-color: color-mix(in srgb, var(--live-blue) 30%, var(--line-subtle));
+}
+body.dark #page-live .lp-row:hover {
+  border-color: color-mix(in srgb, var(--live-blue) 36%, var(--line-subtle));
+}
+#page-live .lp-red .lp-row:hover {
+  border-color: color-mix(in srgb, var(--live-red) 30%, var(--line-subtle));
+}
+body.dark #page-live .lp-red .lp-row:hover {
+  border-color: color-mix(in srgb, var(--live-red) 36%, var(--line-subtle));
+}
+#page-live .lp-self {
+  box-shadow: inset 2px 0 0 var(--brand), var(--e1), inset 0 1px 0 rgba(255,255,255,.55);
+}
+
+/* ---- 20.4 英雄头像: 40px + 双 ring (队色内圈 + 底色外圈), hover 微亮 ---- */
+#page-live .lp-champ {
+  width: 40px;
+  height: 40px;
+  border: 2px solid color-mix(in srgb, var(--live-blue) 48%, transparent);
+  box-shadow: 0 0 0 2px var(--surface-1), 0 1px 3px rgba(16, 26, 35, .18);
+  transition: filter var(--t-fast);
+}
+#page-live .lp-red .lp-champ {
+  border-color: color-mix(in srgb, var(--live-red) 45%, transparent);
+}
+#page-live .lp-row:hover .lp-champ { filter: brightness(1.06); }
+body.dark #page-live .lp-champ {
+  box-shadow: 0 0 0 2px var(--surface-1), 0 1px 3px rgba(0, 0, 0, .4);
+}
+
+/* ---- 20.5 段位行: pill 徽章化 ---- */
+#page-live .lp-rank {
+  width: fit-content;
+  margin-top: 3px;
+  padding: 1px 8px 1px 6px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-subtle);
+  border-radius: 999px;
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+body.dark #page-live .lp-rank { border-color: var(--line-subtle); }
+
+/* ---- 20.6 胜率 / KDA 三档 (与 live.js 阈值口径一致) ---- */
+#page-live .lp-winrate.neutral,
+.lp-winrate.neutral { color: var(--ink-1); }
+#page-live .lp-winrate.negative,
+.lp-winrate.negative { color: var(--neg); }
+#page-live .lp-kda b.is-good { color: var(--pos); }
+#page-live .lp-kda b.is-poor { color: var(--neg); }
+#page-live .lp-winrate { font-variant-numeric: tabular-nums; }
+
+/* ---- 20.7 战绩行: 左条染色 + 6% 底色 + 数字对齐 ---- */
+#page-live .ri-win {
+  border-left-color: color-mix(in srgb, var(--live-blue) 62%, transparent);
+  background: color-mix(in srgb, var(--live-blue) 6%, transparent);
+}
+#page-live .ri-loss {
+  border-left-color: color-mix(in srgb, var(--live-red) 62%, transparent);
+  background: color-mix(in srgb, var(--live-red) 5%, transparent);
+}
+#page-live .ri-win:hover {
+  background: color-mix(in srgb, var(--live-blue) 11%, transparent);
+}
+#page-live .ri-loss:hover {
+  background: color-mix(in srgb, var(--live-red) 10%, transparent);
+}
+#page-live .ri-date { color: var(--ink-3); }
+#page-live .ri-kda { letter-spacing: .1px; }
+#page-live .ri-win .ri-result { color: color-mix(in srgb, var(--live-blue) 78%, var(--ink-1)); }
+#page-live .ri-loss .ri-result { color: color-mix(in srgb, var(--live-red) 78%, var(--ink-1)); }
+body.dark #page-live .ri-win .ri-result { color: color-mix(in srgb, var(--live-blue) 85%, #fff); }
+body.dark #page-live .ri-loss .ri-result { color: color-mix(in srgb, var(--live-red) 85%, #fff); }
+
+/* ---- 20.8 战绩尾部提示: 交代数据量, 消除行数少的卡底部空白观感 ---- */
+#page-live .lp-recent-hint {
+  flex: 0 0 auto;
+  margin-top: var(--s2);
+  padding: 3px 4px 0;
+  border-top: 1px dashed var(--line-subtle);
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* ---- 20.9 展开态: 战绩行距放松 (展开全部战绩后可读性优先) ---- */
+#page-live.live-expanded .ri-card {
+  flex-basis: 30px;
+  min-height: 30px;
+}
+#page-live.live-expanded .lp-recent { gap: var(--s2); }

@@ -1325,7 +1325,30 @@ function toggleLiveMetricsPop(ev, btn) {
 // 概览行的 KDA 用「大数字 + 小标签」，与胜率形成一对主指标。
 // 首次渲染与局部刷新 (updateLivePlayerRow) 必须共用这一个结构，否则刷新会把排版冲掉。
 function liveKdaHtml(kda) {
-  return `<b>${escapeHtml(String(kda))}</b><em>KDA</em>`;
+  // 1.5.134: KDA 分档上色 —— ≥4 好 / <2.5 差 / 中间与未知中性 (Akari 同款阈值思路)
+  const v = parseFloat(kda);
+  const cls = isNaN(v) ? '' : v >= 4 ? ' is-good' : v < 2.5 ? ' is-poor' : '';
+  return `<b class="${cls.trim()}">${escapeHtml(String(kda))}</b><em>KDA</em>`;
+}
+
+// 1.5.134: 战绩尾部提示 —— 加载到的场次多于展示行数时, 卡底留一行小字:
+// 消除"行数少的卡底部一大块空白"的观感, 同时交代数据量 (Akari/OP.GG 均有同款交代)。
+// 放在 .lp-recent 兄弟节点 (不进列表内部), 不干扰 alignLiveRecentRows 的行距分摊。
+function liveRecentHint(p) {
+  const total = (p && (p.games || p.recent?.length)) || 0;
+  const shown = Math.min((p?.recent?.length || 0), recentLimit());
+  if (!total || total <= shown) return '';
+  return `<div class="lp-recent-hint">共 ${total} 场 · 展示最近 ${shown} 场</div>`;
+}
+
+function syncLiveRecentHint(row, p) {
+  if (!row) return;
+  const prev = row.querySelector(':scope > .lp-recent-hint');
+  const hint = liveRecentHint(p);
+  if (hint) {
+    if (prev) prev.outerHTML = hint;
+    else row.querySelector('.lp-recent')?.insertAdjacentHTML('afterend', hint);
+  } else if (prev) prev.remove();
 }
 function updateLivePlayerRow(p, idx) {
   const key = livePlayerKey(p);
@@ -1346,11 +1369,15 @@ function updateLivePlayerRow(p, idx) {
   const winRateEl = row.querySelector('.lp-winrate');
   const kdaEl = row.querySelector('.lp-kda');
   if (recentEl) recentEl.innerHTML = recentHtml;
+  syncLiveRecentHint(row, p);
   if (flashEl) flashEl.innerHTML = flashPreferenceHtml(p.flashPreference);
   if (winRateEl) {
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     winRateEl.textContent = winRate == null ? '--' : `${winRate}%`;
-    winRateEl.classList.toggle('positive', winRate != null && winRate >= 50);
+    // 与全量渲染同口径的三档: ≥55 绿 / ≤45 红 / 中间中性
+    winRateEl.classList.toggle('positive', winRate != null && winRate >= 55);
+    winRateEl.classList.toggle('negative', winRate != null && winRate <= 45);
+    winRateEl.classList.toggle('neutral', winRate != null && winRate > 45 && winRate < 55);
   }
   if (kdaEl) kdaEl.innerHTML = liveKdaHtml(kda);
   scheduleLiveRowAlignment();
@@ -1492,7 +1519,9 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const reservedSlots = (premadeTag ? 1 : 0) + (behaviorHtml ? 1 : 0);
     const pills = `${premadeTag}${riskHtml}${liveMetricPills(p.recent, reservedSlots)}${behaviorHtml}`;
     const recordSummary = liveRecordText(p.recent.length, wins, '近期战绩加载中');
-    const inlineStats = `<span class="lp-inline-stats" title="${escapeHtml(recordSummary)}"><span class="lp-winrate${winRate != null && winRate >= 50 ? ' positive' : ''}">${winRate == null ? '--' : winRate + '%'}</span><span class="lp-kda">${liveKdaHtml(kda)}</span></span>`;
+    // 1.5.134: 胜率三档 (Akari 口径) —— ≥55 绿 / ≤45 红 / 中间中性, 50% 的红绿抖动不再误导
+    const wrCls = winRate == null ? '' : winRate >= 55 ? ' positive' : winRate <= 45 ? ' negative' : ' neutral';
+    const inlineStats = `<span class="lp-inline-stats" title="${escapeHtml(recordSummary)}"><span class="lp-winrate${wrCls}">${winRate == null ? '--' : winRate + '%'}</span><span class="lp-kda">${liveKdaHtml(kda)}</span></span>`;
     const profileClick = p.puuid
       ? ` onclick="event.stopPropagation();searchPlayerByPuuid(${inlineArg(p.puuid)},${inlineArg(name)},null,{platformId:${inlineArg(p.platformId || '')}})" role="button" tabindex="0"`
       : '';
@@ -1510,6 +1539,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       </div>
       <div class="lp-profile-line">${pills}</div>
       <div class="lp-recent">${recentHtml}</div>
+      ${liveRecentHint(p)}
     </div>`;
   };
   const isBlue = p => p.team === 100 || p.team === "100";
@@ -1525,8 +1555,10 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const assists = list.reduce((sum, p) => sum + p.recent.reduce((n, r) => n + r.a, 0), 0);
     const rate = matches ? Math.round(wins / matches * 100) : null;
     const kda = matches ? ((kills + assists) / Math.max(1, deaths)).toFixed(2) : null;
+    // 与玩家卡胜率同口径三档 (≥55 绿 / ≤45 红 / 中性), 队伍样本更足, 阈值更稳
+    const rateCls = rate >= 55 ? ' positive' : rate <= 45 ? ' negative' : ' neutral';
     const summary = matches
-      ? `<span class="lp-team-rate${rate >= 50 ? ' positive' : ''}">${rate}%</span><span class="lp-team-kda">KDA <b>${kda}</b></span>`
+      ? `<span class="lp-team-rate${rateCls}">${rate}%</span><span class="lp-team-kda">KDA <b>${kda}</b></span>`
       : '<span class="lp-team-kda">战绩加载中</span>';
     const slots = Math.max(0, 5 - list.length);
     // 「展开全部战绩」放在队伍标题栏最右端: 页头那一行已经去掉 (标题纯占高度),
