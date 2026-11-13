@@ -1127,6 +1127,29 @@ body.dark .lp-metric-dmgGold, body.dark .lp-metric-kp, body.dark .lp-metric-visi
   background: var(--neg-soft);
   font-weight: 650;
 }
+/* 1.5.139: 「+N」浮层里的胶囊也要保语义色 —— 浮层挂在 body 上,
+   上面两条 #page-live scope 规则够不着它 (老 bug: 浮层里的连胜/连败掉了颜色)。 */
+.lp-metric-winstreak {
+  color: var(--pos);
+  background: var(--pos-soft);
+  font-weight: 650;
+}
+.lp-metric-lossstreak {
+  color: var(--neg);
+  background: var(--neg-soft);
+  font-weight: 650;
+}
+/* 击杀伤害效率: 判断性标签, 跟连胜/连败同档语义色 (Akari teal #04614b 的高/低两态) */
+.lp-metric-kdehi {
+  color: var(--pos);
+  background: var(--pos-soft);
+  font-weight: 650;
+}
+.lp-metric-kdelo {
+  color: var(--neg);
+  background: var(--neg-soft);
+  font-weight: 650;
+}
 
 /* ---- 战绩列表：去掉逐行边框，只用 hairline 分隔 + hover 底色 ---- */
 #page-live .lp-recent-row,

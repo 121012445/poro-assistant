@@ -32,9 +32,16 @@ function teamShareOf(participants, me, k, a, keys) {
   const total = key => mates.reduce((n, x) => n + num(x, key), 0);
   const pct = (v, all) => (all > 0 ? Math.round((v / all) * 100) : null);
   const dmg = num(me, K.dmg), gold = num(me, K.gold);
-  const dmgPct = pct(dmg, total(K.dmg));
+  const dmgAll = total(K.dmg);
+  const dmgPct = pct(dmg, dmgAll);
   if (dmgPct == null) return {};
   const teamKills = total(K.kills);
+  // 1.5.139: 击杀伤害效率 (Akari 同款公式) = 击杀占比 ÷ 伤害占比。
+  // 1.0 = 我的击杀份额和伤害份额持平; >1 说明拿头效率高于输出贡献 (收头型),
+  // <1 说明输出打了不少但人头被队友收走 (工具人/补伤位)。纯 summary 可算, 零额外请求。
+  const kde = teamKills > 0 && dmg > 0 && dmgAll > 0
+    ? Math.round(((k / teamKills) / (dmg / dmgAll)) * 100) / 100
+    : null;
   return {
     dmgPct,
     tankPct: pct(num(me, K.tank), total(K.tank)),
@@ -42,7 +49,8 @@ function teamShareOf(participants, me, k, a, keys) {
     kp: teamKills > 0 ? Math.round(((k + a) / teamKills) * 100) : null,
     // 伤转率 = 伤害 / 经济。同样是 20% 经济占比, 打出 180% 伤转和 90% 伤转是两种人。
     dmgGold: gold > 0 ? Math.round((dmg / gold) * 100) : null,
-    vision: num(me, K.vision) || null
+    vision: num(me, K.vision) || null,
+    kde
   };
 }
 // 每局 10 人、每条约十几 KB (近 10 场 + 30 场同队记录); 长时间挂着会一直累积, 只保留最近的
@@ -79,6 +87,9 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
         const win = stats.win === true || stats.win === "Win" || me.win === true;
         if (recent.length < 20) {
           const k = stats.kills ?? me.kills ?? 0, d = stats.deaths ?? me.deaths ?? 0, a = stats.assists ?? me.assists ?? 0;
+          // 1.5.139: 单杀次数 (Akari 同源字段 challenges.soloKills); 字段缺失记 null 而不是 0,
+          // 否则少数没有该字段的模式会把场均单杀拉低成假数据。
+          const soloRaw = stats.challenges?.soloKills ?? me.challenges?.soloKills;
           recent.push({
             // 1.5.76: 带上 gameId, 实时页点这张卡才能按需拉这一局的完整详情
             gameId: gj.gameId || gj.gameID || gj.gameUuid || gj.gameUUID || 0,
@@ -88,6 +99,7 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
             // 1.5.136: 分均CS 数据源 (补刀含野怪)
             cs: (Number(stats.totalMinionsKilled) || 0) + (Number(stats.neutralMinionsKilled) || 0),
             dur: Number(gj.gameDuration) || 0,
+            solo: soloRaw == null ? null : (Number(soloRaw) || 0),
             ...teamShareOf(gj.participants, me, k, a)
           });
         }
@@ -128,6 +140,8 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
       position: me.position || me.teamPosition || me.individualPosition || me.lane || '',
       // 1.5.136: 分均CS 数据源 (normalizeGame 已把两债合并进 cs)
       cs: me.cs || 0, dur: game.dur || 0,
+      // 1.5.139: LCU 战绩接口没有 soloKills 记录 (Akari 同款结论), 只有 challenges 才给
+      solo: me.challenges?.soloKills != null ? (Number(me.challenges.soloKills) || 0) : null,
       ...teamShareOf(game.participants, me, me.k || 0, me.a || 0, { dmg: 'dmg', tank: 'dmgTaken', gold: 'gold', kills: 'k' })
     });
   }
@@ -1238,6 +1252,11 @@ function liveMetricPills(recent, reservedSlots = 0) {
   // 1.5.136: 分均CS —— 逐局 cs/时长 再平均, 保留 1 位小数 (整数会抹平 7.2 和 7.8 的差距)
   const csmVals = rs.filter(r => Number(r.cs) > 0 && Number(r.dur) > 0).map(r => Number(r.cs) / (Number(r.dur) / 60));
   const csmAvg = csmVals.length ? Math.round(csmVals.reduce((s, v) => s + v, 0) / csmVals.length * 10) / 10 : null;
+  // 1.5.139: 单杀 / 击杀伤害效率 (Akari 同款, 字段缺失的局不计入分母, avgIfAllNonNull 口径)
+  const soloVals = rs.filter(r => r.solo != null);
+  const soloAvg = soloVals.length ? Math.round(soloVals.reduce((s, r) => s + (Number(r.solo) || 0), 0) / soloVals.length * 10) / 10 : null;
+  const kdeVals = rs.filter(r => r.kde != null);
+  const kdeAvg = kdeVals.length ? Math.round(kdeVals.reduce((s, r) => s + Number(r.kde), 0) / kdeVals.length * 100) / 100 : null;
   const items = [
     ['dmg', '伤害', avg('dmgPct'), '%', '队内伤害占比'],
     ['tank', '承伤', avg('tankPct'), '%', '队内承伤占比'],
@@ -1245,7 +1264,14 @@ function liveMetricPills(recent, reservedSlots = 0) {
     ['dmgGold', '伤转', avg('dmgGold'), '%', '伤害 / 经济, 越高说明钱花得越值'],
     ['gold', '经济', avg('goldPct'), '%', '队内经济占比'],
     ['csm', '分均CS', csmAvg, '', '分均补刀(含野怪)'],
-    ['vision', '视野', avg('vision'), '', '场均视野得分']
+    ['vision', '视野', avg('vision'), '', '场均视野得分'],
+    // 单杀: 场均 >0 才占位 (0 单杀的人不值得一个标签位, Akari 同口径)
+    ...(soloAvg != null && soloAvg > 0 ? [['solo', '单杀', soloAvg, '', '场均单杀次数']] : []),
+    // 击杀伤害效率: 只在极端值出现 (>1.35 拿头快 / <0.65 输出转化差), 正常区间不占位
+    ...(kdeAvg != null && (kdeAvg > 1.35 || kdeAvg < 0.65)
+      ? [[kdeAvg > 1.35 ? 'kdehi' : 'kdelo', '拿头', kdeAvg.toFixed(2), '',
+          kdeAvg > 1.35 ? '击杀伤害效率高: 击杀占比远超伤害占比, 收头能力强' : '击杀伤害效率低: 输出打了不少但击杀转化差, 常见补伤/工具位']]
+      : []),
   ].filter(it => it[2] != null);
   if (!items.length) return '';
   const streak = liveStreak(recent);
@@ -1325,7 +1351,7 @@ function toggleLiveMetricsPop(ev, btn) {
   // 就不再重复列一遍 (fitLiveMetricRows 会把它一起搬进来, 那种情况下才会出现在浮层)。
   const pills = [...row.querySelectorAll('.lp-extra-metrics .lp-metric')];
   if (!pills.length) return;
-  el.innerHTML = '<div class="lp-metric-pop-head">近 10 场队内指标</div>'
+  el.innerHTML = '<div class="lp-metric-pop-head">近 20 场队内指标</div>'
     + '<div class="lp-metric-pop-grid">'
     + pills.map(p => `<span class="lp-metric ${[...p.classList].filter(c => c.startsWith('lp-metric-') && c !== 'lp-extra-metric').join(' ')}">${escapeHtml(p.textContent.trim())}</span>`).join('')
     + '</div>';
