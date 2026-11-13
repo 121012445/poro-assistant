@@ -79,3 +79,9 @@ assert.ok(cssAll.includes('.lp-pg-1') && cssAll.includes('.lp-behavior-warn'), '
 assert.ok(cssAll.includes('#page-live .page-header { padding-bottom: 0; }'), '§22.5 计划条头应去掉 padding-bottom');
 
 console.log('test_live_metric_tags: 全部断言通过');
+
+// 1.5.149 组队/行为色被 premium.css:1291 压透明 (隐形空白) 的特异性修复
+assert(css.includes('#page-live .lp-profile-line .lp-pg-2, .lp-pg-2 { background: #1f3fa6; }'),
+  '1.5.149 组队六色必须带 #page-live .lp-profile-line 前缀 (否则被 profile-line > span 的 currentColor 5% 压成隐形)');
+assert(css.includes('#page-live .lp-profile-line .lp-behavior-bad, .lp-behavior-bad { background: #8a3030; }'),
+  '1.5.149 行为三色必须同样带前缀');

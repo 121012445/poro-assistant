@@ -2071,18 +2071,22 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
 .lp-tag-hiwr { background: #8a2c8e !important; color: #fff !important; font-weight: 700 !important; }
 .lp-tag-main { background: #c2621d !important; color: #fff !important; font-weight: 700 !important; }
 /* 组队: 组号六色轮换 (Akari 小队色), 同组的人跨卡对色 */
+/* 1.5.149: 组队/行为两族色补 #page-live .lp-profile-line 前缀 —— premium.css:1291
+   `#page-live .lp-profile-line > span` (特异性 1,2,1) 把无前缀单类的 background
+   压成 currentColor 5%: 白字近透明 = 隐形空白 (用户截图连败前的空白正是它)。
+   12 色指标当年补过前缀, 这两族漏了。裸版保留给浮层等非 profile-line 场景。 */
 .lp-premade { border-radius: var(--radius-xs); padding: 0 6px; line-height: 15px; color: #fff; }
-.lp-pg-1 { background: #0f6f68; }
-.lp-pg-2 { background: #1f3fa6; }
-.lp-pg-3 { background: #5c6000; }
-.lp-pg-4 { background: #1a7a2a; }
-.lp-pg-5 { background: #8a4400; }
-.lp-pg-6 { background: #8a2a00; }
+#page-live .lp-profile-line .lp-pg-1, .lp-pg-1 { background: #0f6f68; }
+#page-live .lp-profile-line .lp-pg-2, .lp-pg-2 { background: #1f3fa6; }
+#page-live .lp-profile-line .lp-pg-3, .lp-pg-3 { background: #5c6000; }
+#page-live .lp-profile-line .lp-pg-4, .lp-pg-4 { background: #1a7a2a; }
+#page-live .lp-profile-line .lp-pg-5, .lp-pg-5 { background: #8a4400; }
+#page-live .lp-profile-line .lp-pg-6, .lp-pg-6 { background: #8a2a00; }
 /* 行为标签: 负面程度分档, 好坏一眼分层 */
 .lp-behavior { border-radius: var(--radius-xs); padding: 0 4px; line-height: 15px; color: #fff; }
-.lp-behavior-bad { background: #8a3030; }
-.lp-behavior-warn { background: #9c6b1d; }
-.lp-behavior-info { background: #4a6a8a; }
+#page-live .lp-profile-line .lp-behavior-bad, .lp-behavior-bad { background: #8a3030; }
+#page-live .lp-profile-line .lp-behavior-warn, .lp-behavior-warn { background: #9c6b1d; }
+#page-live .lp-profile-line .lp-behavior-info, .lp-behavior-info { background: #4a6a8a; }
 /* 实色底后胶囊的字重和内边距统一, 视觉密度和 Akari 对齐 */
 #page-live .lp-profile-line .lp-metric {
   font-weight: 600;
