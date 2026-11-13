@@ -1266,15 +1266,16 @@ body.dark .champ-tier.t-1 { color: #0b1113; }
 .champ-table-header > div:nth-child(4),
 .champ-table-header > div:nth-child(5) { text-align: left; }
 
-/* 队伍色：原来的 #3d9be9 / #e26868 是 UI 蓝和 UI 红，饱和度高到和强调色抢。
-   压到与数据面板相称的浓度，只用于队标题那一处 3px 竖条。 */
+/* 队伍色：1.5.135 重新提饱和 —— 1.5.134 压灰后队头渐变条/头像 ring 存在感不足,
+   用户反馈「颜色搭配没 Akari 好看」。对齐 Akari 的 blue-500/red-450 系
+   (#60a5fa / #f34948), 用途仍收敛在队头底色、渐变条、头像 ring、战绩行。 */
 :root, body.dark {
-  --live-blue: #3f7fc4;
-  --live-red: #bb5a52;
+  --live-blue: #3f8ede;
+  --live-red: #e05250;
 }
 body.dark {
-  --live-blue: #5b9bd8;
-  --live-red: #d97a72;
+  --live-blue: #5c9fe8;
+  --live-red: #e57370;
 }
 
 /* ==========================================================================
@@ -1714,11 +1715,11 @@ body.dark .hex-journal { border-color: var(--line-subtle); box-shadow: none; }
 #page-live .lp-team-head {
   min-height: 36px;
   padding: 0 var(--s4);
-  background: color-mix(in srgb, var(--live-blue) 7%, transparent);
+  background: color-mix(in srgb, var(--live-blue) 10%, transparent);
   border-radius: var(--radius-sm);
 }
 #page-live .lp-red .lp-team-head {
-  background: color-mix(in srgb, var(--live-red) 7%, transparent);
+  background: color-mix(in srgb, var(--live-red) 10%, transparent);
 }
 #page-live .lp-unknown .lp-team-head {
   background: var(--surface-3);
@@ -1836,27 +1837,30 @@ body.dark #page-live .lp-rank { border-color: var(--line-subtle); }
 #page-live .lp-kda b.is-poor { color: var(--neg); }
 #page-live .lp-winrate { font-variant-numeric: tabular-nums; }
 
-/* ---- 20.7 战绩行: 左条染色 + 6% 底色 + 数字对齐 ---- */
+/* ---- 20.7 战绩行: 1.5.135 对齐 Akari 口径 —— 胜=蓝 / 负=红 (LoL 客户端心智),
+        实色左条 2px + 高饱和底色 (28%→18%), 胜负字整行同色系。
+        胜率数字仍是绿/红 (--pos/--neg): 判断性数字绿红、事实记录蓝红, 两层语义分开,
+        这是 Akari 配色的关键分层, 不要合并成一套。 ---- */
 #page-live .ri-win {
-  border-left-color: color-mix(in srgb, var(--live-blue) 62%, transparent);
-  background: color-mix(in srgb, var(--live-blue) 6%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--live-blue) 85%, transparent);
+  background: color-mix(in srgb, var(--live-blue) 14%, transparent);
 }
 #page-live .ri-loss {
-  border-left-color: color-mix(in srgb, var(--live-red) 62%, transparent);
-  background: color-mix(in srgb, var(--live-red) 5%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--live-red) 85%, transparent);
+  background: color-mix(in srgb, var(--live-red) 12%, transparent);
 }
 #page-live .ri-win:hover {
-  background: color-mix(in srgb, var(--live-blue) 11%, transparent);
+  background: color-mix(in srgb, var(--live-blue) 20%, transparent);
 }
 #page-live .ri-loss:hover {
-  background: color-mix(in srgb, var(--live-red) 10%, transparent);
+  background: color-mix(in srgb, var(--live-red) 18%, transparent);
 }
 #page-live .ri-date { color: var(--ink-3); }
-#page-live .ri-kda { letter-spacing: .1px; }
-#page-live .ri-win .ri-result { color: color-mix(in srgb, var(--live-blue) 78%, var(--ink-1)); }
-#page-live .ri-loss .ri-result { color: color-mix(in srgb, var(--live-red) 78%, var(--ink-1)); }
-body.dark #page-live .ri-win .ri-result { color: color-mix(in srgb, var(--live-blue) 85%, #fff); }
-body.dark #page-live .ri-loss .ri-result { color: color-mix(in srgb, var(--live-red) 85%, #fff); }
+#page-live .ri-kda { letter-spacing: .1px; font-variant-numeric: tabular-nums; }
+#page-live .ri-win .ri-result { color: #2563eb; }
+#page-live .ri-loss .ri-result { color: #b91c1c; }
+body.dark #page-live .ri-win .ri-result { color: #93c5fd; }
+body.dark #page-live .ri-loss .ri-result { color: #fca5a5; }
 
 /* ---- 20.8 战绩尾部提示: 交代数据量, 消除行数少的卡底部空白观感 ---- */
 #page-live .lp-recent-hint {
