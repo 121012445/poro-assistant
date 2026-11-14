@@ -1574,6 +1574,26 @@ async function findSgpPlatform(puuid, preferredPlatformId, count = 50, onProgres
   return { platformId: preferred, response: { games: [] }, summoner: null, found: false };
 }
 // 统一两种数据格式 (SGP Match-V5 平铺 / LCU 嵌套)
+// 从两种形状里抠"本局强化 id": SGP SUMMARY 的 playerAugment1-6 / augments[],
+// LCU-match-v5 可能把它们放在 stats 下面。两条归一化分支共用, 避免一条有、一条没有。
+function augmentIdsOf(p) {
+  if (!p) return [];
+  const src = (p.stats && typeof p.stats === 'object') ? Object.assign({}, p.stats, p) : p;
+  const out = [];
+  for (let i = 1; i <= 6; i++) {
+    const id = Number(src['playerAugment' + i]);
+    if (Number.isInteger(id) && id > 0) out.push(id);
+  }
+  const arr = src.augments;
+  if (Array.isArray(arr)) {
+    for (const a of arr) {
+      const id = Number(typeof a === 'object' && a ? (a.id != null ? a.id : a.augmentId) : a);
+      if (Number.isInteger(id) && id > 0) out.push(id);
+    }
+  }
+  return [...new Set(out)];
+}
+
 function normalizeGame(g, isSgp) {
   if (isSgp) {
     const teamsObj = {};
@@ -1623,6 +1643,8 @@ function normalizeGame(g, isSgp) {
         items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].filter(id => id && id > 0),
         profileIconId: p.profileIcon || p.profileIconId || 0,
         penta: p.pentaKills || 0, fb: !!p.firstBloodKill,
+        // 本局强化 (海斗/斗魂): 与 LCU 分支共用同一套抠取逻辑
+        augmentIds: augmentIdsOf(p),
         // 多杀嵌套扣减 (Akari): 高级多杀计数包含低级, 需反向扣除
         multi: (() => {
           const penta = p.pentaKills || 0;
@@ -1662,6 +1684,8 @@ function normalizeGame(g, isSgp) {
         wardsPlaced: p.stats?.wardsPlaced || 0, wardsKilled: p.stats?.wardsKilled || 0,
         penta: p.stats?.pentaKills || 0, fb: !!p.stats?.firstBloodKill,
         profileIconId: p.stats?.profileIcon || 0,
+        // 这条分支以前漏了强化, 走它渲染的对局强化整排是空的 (SGP 回来后才补上)
+        augmentIds: augmentIdsOf(p),
         spells: [
           p.spell1Id ?? p.stats?.spell1Id ?? p.summoner1Id ?? p.stats?.summoner1Id,
           p.spell2Id ?? p.stats?.spell2Id ?? p.summoner2Id ?? p.stats?.summoner2Id
@@ -2001,6 +2025,39 @@ function buildHomeGameCard(g, s) {
   const runeIcon = (map, id) => id && map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/${map[id]}` : null;
   const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
   const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol">${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}</div>` : '';
+  // 本局强化 (海斗/斗魂): 只出图标, 名称放 title —— 战绩行高度紧张, 文字会把它撑开
+  const augHtml = (() => {
+    const ids = Array.isArray(p.augmentIds) ? p.augmentIds : [];
+    if (!ids.length || typeof hexAugMeta === 'undefined' || !hexAugMeta) return '';
+    const cells = [];
+    let missing = 0;
+    for (const id of ids.slice(0, 6)) {
+      // 双查: 运行时表 (可能被网络/缓存换过) -> 内置表兜底, 保证不会因为一份表变小而丢图标
+      const m = (hexAugMeta && hexAugMeta[id])
+        || (typeof window !== 'undefined' && window.PORO_AUG_META && window.PORO_AUG_META[id])
+        || null;
+      if (!m || !m.name || !m.icon) { missing++; continue; }
+      // 白剪影 + 稀有度底色 (与战报卡同一份色表; 不依赖 hex.js 的加载时机)
+      const AUG_BG = { '白银': '#6f7c8a', '黄金': '#b8892b', '棱彩': 'linear-gradient(135deg,#7d5bd6 0%,#3fa6c9 100%)', '活动': '#8a5bc9' };
+      const bg = 'background:' + (AUG_BG[m.rarity] || '#5b6673') + ';';
+      // 包内 png 优先 (assets/aug/<id>.png), 失败再回退 CDN; 不再依赖外网可用性。
+      // 双查: 运行时条目可能来自网络表 (没有 local), 内置表里一定有包内路径。
+      const bundled = (typeof window !== 'undefined' && window.PORO_AUG_META && window.PORO_AUG_META[id]) || null;
+      const localSrc = m.local || (bundled && bundled.local) || '';
+      const augSrc = localSrc || m.icon;
+      cells.push(`<img class="ako-aug" style="${bg}" src="${augSrc}" data-aug-id="${id}" data-cdn="${m.icon || ''}" title="${escapeHtml(m.name)}" alt="" onerror="augFallback(this)" loading="eager" decoding="sync">`);
+    }
+    if (missing && !window.__poroAugDiag) {
+      // 一次性诊断 (只写一行到 crash.log): 强化资料没就绪时能立刻看出是哪一环
+      window.__poroAugDiag = true;
+      try {
+        lolAPI.debugLog('[AUG] home ids=' + ids.length + ' meta=' + Object.keys(hexAugMeta || {}).length
+          + ' missing=' + missing + ' bundled=' + (typeof window.PORO_AUG_META !== 'undefined')
+          + ' bundledCount=' + (window.PORO_AUG_META ? Object.keys(window.PORO_AUG_META).length : 0));
+      } catch (e) {}
+    }
+    return cells.length ? `<span class="ako-augs">${cells.join('')}</span>` : '';
+  })();
   const itemHtml = (p.items || []).slice(0, 6).map(id => `<img class="ako-item" src="${itemIcon(id)}" onerror="retryImg(this)" loading="lazy" decoding="async">`).join('')
     + (p.items && p.items[6] ? `<img class="ako-item ako-trinket" src="${itemIcon(p.items[6])}" onerror="retryImg(this)" loading="lazy" decoding="async">` : '');
   const posText = POS_MAP[p.position] || '';
@@ -2058,6 +2115,7 @@ function buildHomeGameCard(g, s) {
           <div class="ako-mid">
             <span class="ako-result">${p.win ? '胜利' : '失败'}</span>
             <div class="ako-itemrow">${itemHtml}</div>
+            ${augHtml}
             ${p.multi ? `<span class="ako-tag">${p.multi}</span>` : ''}
             ${p.fb ? '<span class="ako-tag ako-fbtag">一血</span>' : ''}
              ${cardBadge}
@@ -2073,6 +2131,22 @@ function buildHomeGameCard(g, s) {
         <div class="ako-expand">‹</div>
         <div class="og-game-detail" style="display:none"></div>
       </div>`;
+}
+
+// 强化表兜底: 内置表缺失 (极端情况) 或运行时补拉到新赛季强化后, 重绘一次战绩列表
+let _homeAugRerenderTried = false;
+function homeEnsureAugMeta() {
+  if (_homeAugRerenderTried) return;
+  if (typeof hexAugMeta === 'undefined' || !hexAugMeta) return;
+  const hasBundle = typeof window !== 'undefined' && !!window.PORO_AUG_META;
+  const metaCount = Object.keys(hexAugMeta).length;
+  if (metaCount > 0 && hasBundle) return;      // 正常路径: 内置表已就绪, 无需重绘
+  _homeAugRerenderTried = true;
+  if (typeof loadHexAugments !== 'function') return;
+  loadHexAugments(true).then(ok => {
+    if (!ok) return;
+    try { if (typeof renderHomeGameList === 'function') renderHomeGameList(); } catch (e) {}
+  }).catch(() => {});
 }
 
 // 首页战绩模式筛选
@@ -2138,7 +2212,37 @@ function renderHomeModeFilter() {
     + modes.map(m => opt(m, m, counts[m])).join('')
     + `</select>`;
 }
+// 一次性审计: 首页渲染 2 秒后, 把强化图标的真实状态写一行到 crash.log。
+// 只有出问题时这一行才有价值, 正常情况下它只是日志里的一行记录。
+function auditAugIconsOnce() {
+  if (window.__poroAugAudit) return;
+  window.__poroAugAudit = true;
+  setTimeout(() => {
+    try {
+      if (typeof lolAPI === 'undefined' || !lolAPI || typeof lolAPI.debugLog !== 'function') return;
+      const imgs = [...document.querySelectorAll('#homeGamesList .ako-aug')];
+      if (!imgs.length) { lolAPI.debugLog('[AUG] audit total=0 (首页没有强化图标)'); return; }
+      const bad = imgs.filter(i => !(i.naturalWidth > 0));
+      lolAPI.debugLog('[AUG] audit total=' + imgs.length + ' ok=' + (imgs.length - bad.length)
+        + ' bad=' + bad.length + (bad.length ? ' badIds=' + bad.slice(0, 8).map(i => i.getAttribute('data-aug-id')).join(',') : ''));
+      if (bad.length) {
+        lolAPI.debugLog('[AUG] audit-bad '
+          + bad.slice(0, 6).map(i => {
+            const cs = getComputedStyle(i);
+            return 'id=' + i.getAttribute('data-aug-id')
+              + ' nw=' + i.naturalWidth
+              + ' vis=' + cs.visibility
+              + ' bg=' + cs.backgroundColor
+              + ' src=' + String(i.getAttribute('src') || '').slice(0, 32);
+          }).join(' | '));
+      }
+    } catch (e) {}
+  }, 2000);
+}
+
 function renderHomeGameList() {
+  try { auditAugIconsOnce(); } catch (e) {}
+  try { homeEnsureAugMeta(); } catch (e) {}
   const el = document.getElementById('homeGamesList');
   if (!el || !homeGamesData) return;
   const list = homeModeFilter === 'all' ? homeGamesData : homeGamesData.filter(g => g.mode === homeModeFilter);

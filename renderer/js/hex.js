@@ -8,7 +8,11 @@ if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="p
 // ========== 海克斯大乱斗强化 (HexBox 式自采样本库) ==========
 // 样本来源: SGP 战绩 SUMMARY 的 playerAugment1-6 (queueId 2400), 随战绩查询自动积累
 // 名称/图标: CommunityDragon cherry-augments.json (zh_cn 优先)
-let hexAugMeta = {};    // id -> { name, icon, rarity, key }
+// 内置表 (assets/augments-meta.js, 随包分发): 启动时就有名称与图标地址,
+    // 不用等 CommunityDragon —— 统计卡片的强化行以前在"还没拉完/拉失败"时是空的。
+    let hexAugMeta = (typeof window !== 'undefined' && window.PORO_AUG_META)
+      ? Object.assign({}, window.PORO_AUG_META)
+      : {};    // id -> { name, icon, rarity, key }
 // v2 同时保留全局统计与按英雄统计。champSeen 与 seen 分开，旧库再次读到历史对局时
 // 只补英雄维度，不会把已有的全局统计重复计算。
 let hexDB = { version: 2, seen: [], champSeen: [], aug: {}, champs: {} };
@@ -34,6 +38,20 @@ function setHexBrowseStage(stage) {
 }
 const HEX_RARITY_CN = { kSilver: '白银', kGold: '黄金', kPrismatic: '棱彩', kNone: '' };
 
+// 强化小图标 (augmentSmallIconPath) 本身是**纯白剪影 + alpha**, 直接放在白底卡片上
+// 等于看不见 (实测: 64x64、opaque 像素全是 #FFFFFF)。官方 UI 的做法是给白剪影垫一个
+// 稀有度色块, 这里统一成同一份色表, 战报卡与首页战绩卡共用。
+const HEX_RARITY_BG = {
+  '白银': '#6f7c8a',
+  '黄金': '#b8892b',
+  '棱彩': 'linear-gradient(135deg,#7d5bd6 0%,#3fa6c9 100%)',
+  '活动': '#8a5bc9'
+};
+function augmentIconStyle(rarity) {
+  const bg = HEX_RARITY_BG[String(rarity || '')] || '#5b6673';
+  return 'background:' + bg + ';';
+}
+
 async function loadHexWinStats(championId, force = false) {
   const id = Number(championId) || 0;
   if (!id || typeof lolAPI.getHexChampionAugments !== 'function') return;
@@ -51,6 +69,19 @@ async function loadHexWinStats(championId, force = false) {
     hexWinStats = { championId: id, scope: hexDataScope, loading: false, data: null, error: error.message, requestId };
   }
   if (document.querySelector('.page.active')?.id === 'page-hex') renderHexList();
+}
+
+// 内置表打底 + 新数据覆盖: 覆盖率只增不减。曾经这里是整体替换, 于是"网络表比内置表少"
+// 的那些强化会在首页/战报卡上凭空消失 (表现为偶尔显示不出来)。
+function mergeAugMeta(extra) {
+  const base = (typeof window !== 'undefined' && window.PORO_AUG_META) || {};
+  const out = Object.assign({}, base);
+  // 逐条浅合并: 网络/缓存条目没有 local 字段, 顶层覆盖会把内置表的包内路径弄丢,
+  // 前端就只能退回外网地址 (弱网 -> 空色块)。这里保留本地字段, 只覆盖同名键。
+  for (const id of Object.keys(extra || {})) {
+    out[id] = Object.assign({}, base[id] || {}, extra[id] || {});
+  }
+  return out;
 }
 
 const HEX_AUG_META_CACHE_KEY = 'poro.hexAugMeta.v1';
@@ -93,8 +124,8 @@ async function loadHexAugments(force = false) {
           };
         }
         if (Object.keys(meta).length) {
-          hexAugMeta = meta;
-          try { localStorage.setItem(HEX_AUG_META_CACHE_KEY, JSON.stringify(meta)); } catch (e) {}
+          hexAugMeta = mergeAugMeta(meta);
+          try { localStorage.setItem(HEX_AUG_META_CACHE_KEY, JSON.stringify(hexAugMeta)); } catch (e) {}
           return true;
         }
       } catch (e) {}
@@ -104,7 +135,7 @@ async function loadHexAugments(force = false) {
     if (!Object.keys(hexAugMeta).length) {
       try {
         const cached = JSON.parse(localStorage.getItem(HEX_AUG_META_CACHE_KEY) || 'null');
-        if (cached && Object.keys(cached).length) { hexAugMeta = cached; return true; }
+        if (cached && Object.keys(cached).length) { hexAugMeta = mergeAugMeta(cached); return true; }
       } catch (e) {}
     }
     return false;

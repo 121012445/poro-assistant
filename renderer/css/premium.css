@@ -1670,3 +1670,16 @@ body.dark .gw-plan-warn { color: #f0c674; background: rgba(240, 198, 116, .10); 
 /* .switch-row 是 flex 容器，文字和 <b> 会被拆成多个 flex item 各占一列，
    导致「我在游戏里打的中 / 文 / 自动翻成…」这种错行。文字整体包进 span 才能正常折行。 */
 .switch-row > span { flex: 1; min-width: 0; line-height: 1.5; }
+
+/* ---- 战报卡: 本局强化 (海克斯/斗魂) ---- */
+.bc-augs { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 10px; }
+.bc-augs-label { flex:0 0 auto; font-size:var(--fs-xs); color:var(--text-muted); }
+.bc-aug-list { display:flex; flex-wrap:wrap; gap:5px; flex:1 1 auto; min-width:0; }
+.bc-aug { display:inline-flex; align-items:center; gap:4px; padding:2px 6px 2px 2px; border-radius:var(--radius-xs); background:var(--bg-card); border:1px solid var(--border); }
+.bc-aug-icon { width:18px; height:18px; display:block; border-radius:3px; box-sizing:border-box; padding:2px; }
+.bc-aug b { font-size:var(--fs-xs); font-weight:600; color:var(--text-secondary); white-space:nowrap; }
+
+/* ---- 首页战绩卡片的强化图标 ---- */
+.ako-augs { display:inline-flex; align-items:center; gap:2px; flex:0 0 auto; }
+.ako-aug { width:18px; height:18px; display:block; border-radius:3px; border:1px solid var(--border); box-sizing:border-box; padding:2px; }
+.bc-aug.is-text { padding-left:6px; }

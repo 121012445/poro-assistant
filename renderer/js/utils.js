@@ -309,3 +309,54 @@ function damageCompositionBar(total, phys, magic, truth) {
   const tip = sum > 0 ? `物理 ${fmt(P)} · 魔法 ${fmt(M)} · 真实 ${fmt(T)}` : '无伤害数据';
   return `<span class="dmg-comp-bar" title="${escapeHtml(tip)}">${seg(P, '#e07856', '物理')}${seg(M, '#5b9bd7', '魔法')}${seg(T, '#a8a8a8', '真实')}</span>`;
 }
+
+// 强化图标加载兜底: 包内 png 优先 (离线可用) -> 失败才试 CommunityDragon -> 都失败才隐藏。
+// 之前只有 retryImg (直接重试同一个外网地址), 弱网下重试也失败, 于是首页卡片上
+// 只剩一排稀有度色块 —— 也就是"图案偶尔不显示"。
+const _augDataUrlCache = new Map();
+function augFallback(img) {
+  try {
+    // 每个 img 只记一行: 排查"哪一层挂了"时不用猜 (用户把 crash.log 发来即可)
+    if (!img.dataset.augLog) {
+      img.dataset.augLog = '1';
+      try {
+        if (typeof lolAPI !== 'undefined' && lolAPI && lolAPI.debugLog) {
+          lolAPI.debugLog('[AUG] fallback id=' + (img.getAttribute('data-aug-id') || '')
+            + ' src=' + String(img.getAttribute('src') || '').slice(0, 60));
+        }
+      } catch (e2) {}
+    }
+    // ① 包内 png 失败 -> ② CommunityDragon
+    const cdn = img.getAttribute('data-cdn');
+    if (cdn && !img.dataset.augTried) {
+      img.dataset.augTried = '1';
+      img.src = cdn;
+      return;
+    }
+    // ③ 还失败 -> 让主进程直接读 asar 里的 png 转 dataURL (同步可读, 不依赖网络/相对路径)
+    const id = Number(img.getAttribute('data-aug-id'));
+    if (id > 0 && typeof lolAPI !== 'undefined' && lolAPI && typeof lolAPI.augmentIconData === 'function') {
+      if (_augDataUrlCache.has(id)) {
+        const cached = _augDataUrlCache.get(id);
+        if (cached) { img.src = cached; return; }
+      } else if (!img.dataset.augIpcTried) {
+        img.dataset.augIpcTried = '1';
+        lolAPI.augmentIconData([id]).then(map => {
+          const url = map && map[id];
+          _augDataUrlCache.set(id, url || '');
+          if (url) { img.src = url; return; }
+          img.style.visibility = 'hidden';
+          img.style.background = 'transparent';
+        }).catch(() => {
+          img.style.visibility = 'hidden';
+          img.style.background = 'transparent';
+        });
+        return;
+      }
+    }
+    // 全失败: 不留纯色空块 —— 交给 CSS 画成"虚线空位", 一眼看出是图缺了
+    img.classList.add('is-missing');
+    img.style.background = 'transparent';
+    img.removeAttribute('src');
+  } catch (e) {}
+}

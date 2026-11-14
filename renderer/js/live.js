@@ -9,6 +9,82 @@ if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="p
 const TIMER_DEFS = { BARON_NASHOR: ["大龙Buff", 180], ELDER_DRAGON: ["远古龙Buff", 150], DRAGON: ["下一条小龙", 300] };
 // 加载页/选人页: 从 gameflow session 拉取10名玩家的段位+最近战绩 (LeaguePrank/Seraphine 风格)
 const livePlayersCache = { key: "", data: null, premadeGroups: null };
+// 本局已知的开黑分组 (puuid -> 组号), 按对局粘住, 同一局内只增不减。
+//
+// 为什么需要: 「组N」标签有两个来源 —— 选人期的 lobby challengeId (进对局后 gameflow
+// session 里就没有这个字段) 和近 30 场同队的推断 (要等 10 人战绩拉完)。实时页每 4/12 秒
+// 重入一次, 只要某一帧两个来源都为空 (骨架渲染 / 缓存键漂移 / SGP 抖动 / Live Client Data
+// 只返回己方 5 人), 那一帧就按"没有开黑组"画, 下一帧再补回来 —— 用户看到的就是
+// "组队标签时而显示时而消失"。
+// 现在所有渲染路径 (骨架 / 缓存命中 / 收尾) 渲染前都过 resolveLivePremadeGroups(): 单帧
+// 拿不到数据就沿用本局已知结果, 组号按成员集合沿用旧号 (不会在 组1/组2 之间跳)。
+const livePremadeSticky = { gameKey: '', groups: {} };
+
+// 把 puuid -> 组号 拆成「成员集合」维度, 用来判断两次结果是同一个组。
+function premadeComponents(groups) {
+  const byGroup = new Map();
+  for (const [puuid, gid] of Object.entries(groups || {})) {
+    if (!puuid || gid === null || gid === undefined || gid === '') continue;
+    if (!byGroup.has(gid)) byGroup.set(gid, []);
+    byGroup.get(gid).push(puuid);
+  }
+  const out = [];
+  for (const [gid, members] of byGroup) {
+    const unique = [...new Set(members)].sort();
+    if (unique.length < 2) continue;          // 单人不成组
+    out.push({ key: unique.join('|'), members: unique, gid });
+  }
+  return out.sort((a, b) => (Number(a.gid) || 0) - (Number(b.gid) || 0));
+}
+
+// 合并「上一帧已知」与「本帧新算」: 本帧为准, 本帧没覆盖到的旧组整组保留。
+function mergePremadeGroups(prev, next) {
+  const known = premadeComponents(prev);
+  const fresh = premadeComponents(next);
+  if (!fresh.length) return Object.keys(prev || {}).length ? { ...prev } : {};
+  const knownByKey = new Map(known.map(c => [c.key, c]));
+  const merged = [];
+  const taken = new Set();
+  let maxId = known.reduce((max, c) => Math.max(max, Number(c.gid) || 0), 0);
+  for (const c of fresh) {
+    const same = knownByKey.get(c.key);
+    const gid = same && !taken.has(same.gid) ? same.gid : 0;
+    if (gid) taken.add(gid);
+    merged.push({ members: c.members, gid });
+  }
+  for (const c of merged) if (!c.gid) c.gid = ++maxId;
+  const freshMembers = new Set(fresh.flatMap(c => c.members));
+  for (const c of known) {
+    if (c.members.some(m => freshMembers.has(m))) continue;   // 与本帧冲突, 以本帧为准
+    let gid = c.gid;
+    if (taken.has(gid) || merged.some(m => m.gid === gid)) gid = ++maxId;
+    taken.add(gid);
+    merged.push({ members: c.members, gid });
+  }
+  const out = {};
+  for (const c of merged) for (const puuid of c.members) out[puuid] = c.gid;
+  return out;
+}
+
+// 渲染前的唯一入口: 任何一次刷新都带上本局已知分组。
+function resolveLivePremadeGroups(premadeGroups) {
+  // _currentGameKey 声明在 social.js (加载顺序在 live.js 之后), Node 单测只加载本文件时不存在
+  const gameKey = typeof _currentGameKey === 'string' ? _currentGameKey : '';
+  if (livePremadeSticky.gameKey !== gameKey) {
+    livePremadeSticky.gameKey = gameKey;
+    livePremadeSticky.groups = {};
+  }
+  const merged = mergePremadeGroups(livePremadeSticky.groups, premadeGroups);
+  livePremadeSticky.groups = merged;
+  return merged;
+}
+// 某个玩家本局已知的组号 (给局部刷新兜底用)
+function stickyPremadeGroupOf(puuid) {
+  return puuid && livePremadeSticky.groups ? (livePremadeSticky.groups[puuid] ?? null) : null;
+}
+// 上次实际写进 #liveGameArea 的模板字符串 (见 renderLiveTeams 里的比对说明)
+let _livePageHtml = '';
+function invalidateLivePageCache() { _livePageHtml = ''; }
 // 1.5.146b: 自定义对局/训练模式提示条的状态。hint 必须进 renderLiveTeams 的
 // pageHtml 由比对守卫统一管理 —— 之前 body.prepend 加在渲染之外, 每次比对重绘
 // (pageHtml 不含 hint) 都会把 hint 抹掉, 下一轮全量路径又 prepend 回来,
@@ -21,6 +97,9 @@ let liveRenderToken = 0;
 let liveBalanceMode = false;
 // 当前对局的强度榜模式 (aram / aram_mayhem / urf / null), 用于英雄强度角标
 let liveTierMode = null;
+// 当前对局的模式家族 (rift/aram/arena/fun/other): 习惯卡的阵亡阈值要按模式走 ——
+// 大乱斗一场死 8~10 次很常见, 用峡谷阈值会全员误报 (2026-11 用户反馈)
+let liveModeFamily = "other";
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
@@ -105,6 +184,13 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
             cs: (Number(stats.totalMinionsKilled) || 0) + (Number(stats.neutralMinionsKilled) || 0),
             dur: Number(gj.gameDuration) || 0,
             solo: soloRaw == null ? null : (Number(soloRaw) || 0),
+            // 习惯卡的"一血"用: 拿一血(含参与)。字段缺失记 null —— 不能把"没这个字段"当成"没拿到"。
+            fb: (() => {
+              const kill = stats.firstBloodKill ?? me.firstBloodKill;
+              const assist = stats.firstBloodAssist ?? me.firstBloodAssist;
+              if (kill == null && assist == null) return null;
+              return !!(kill || assist);
+            })(),
             ...teamShareOf(gj.participants, me, k, a)
           });
         }
@@ -147,6 +233,9 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
       cs: me.cs || 0, dur: game.dur || 0,
       // 1.5.139: LCU 战绩接口没有 soloKills 记录 (Akari 同款结论), 只有 challenges 才给
       solo: me.challenges?.soloKills != null ? (Number(me.challenges.soloKills) || 0) : null,
+      // 习惯卡的"一血"用。LCU 侧 normalizeGame 只映射了 firstBloodKill (没有 assist),
+      // 所以这条在 LCU 兜底路径上偏保守: 只认"自己拿到一血", 不算参与。
+      fb: typeof me.fb === 'boolean' ? me.fb : null,
       ...teamShareOf(game.participants, me, me.k || 0, me.a || 0, { dmg: 'dmg', tank: 'dmgTaken', gold: 'gold', kills: 'k' })
     });
   }
@@ -348,6 +437,9 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   liveBalanceMode = isBalanceMode(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
   if (liveBalanceMode) loadAramBalance().catch(() => {});
   liveTierMode = tierModeFor(session?.gameData?.queue?.id, session?.gameData?.queue?.gameMode || session?.map?.gameMode);
+  liveModeFamily = (typeof window !== "undefined" && window.PoroHabits)
+    ? window.PoroHabits.modeFamilyOf(session?.gameData?.queue?.gameMode || session?.map?.gameMode, session?.gameData?.queue?.id)
+    : "other";
   if (liveTierMode) {
     // 强度榜加载完(首次或过期刷新)后重绘一次, 补上角标; 已加载时 loadModeTiers 直接命中缓存, 不会循环触发
     const tierMode = liveTierMode, had = modeTiers[tierMode]?.loadedAt || 0;
@@ -386,6 +478,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   if (!parts.length && !livePlayers) {
     if (renderToken !== liveRenderToken) return;
     setLiveHeadPanel('');
+    invalidateLivePageCache();
     body.innerHTML = `<div class="msg-error">${err || '未获取到对局玩家数据'}</div>`;
     delete body.dataset.liveKey;   // 1.5.146: 骨架 key 守卫的失效点, 换局必须重画
     return;
@@ -564,6 +657,14 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
     await renderLiveTeams(body, fullData, finalGroups, renderToken);
     if (!staleSession()) await announceInferredPremades(fullData, inferred);
   }).catch(() => {});
+}
+
+// 英雄名 (给"最该盯的人"/简报用): champOfLive 已带 name, 这里只做空值兜底
+function champNameOf(id) {
+  try {
+    const c = typeof champOfLive === 'function' ? champOfLive(id) : null;
+    return c && c.name ? c.name : '';
+  } catch (e) { return ''; }
 }
 
 function champOfLive(id) {
@@ -1020,7 +1121,9 @@ function buildLiveDecisionPanel(data, selfPuuid) {
   const enemyTeam = ownComp === blueComp ? red : blue;
   const draft = window.PoroDraftCoach ? window.PoroDraftCoach.build(data, {
     selfTeam: self && +self.team === 200 ? 200 : 100,
-    champOf: champOfLive
+    champOf: champOfLive,
+    // 模式决定规则集: 海斗没有兵线/视野, 峡谷才讲分推和资源
+    mode: (typeof liveModeFamily === 'string' ? liveModeFamily : '')
   }) : null;
   const contextAdvice = liveContextAdvice(self, ownComp, enemyComp, enemyTeam);
   const itemAdvice = contextAdvice.items;
@@ -1209,7 +1312,19 @@ function renderLivePlayerDrawer(player) {
       <section class="lpd-section"><h3>行为画像</h3>${behavior.length ? behavior.map(tag => `<div class="lpd-evidence"><b>${escapeHtml(tag.label)}</b><span>${escapeHtml(tag.detail)}</span></div>`).join('') : '<p class="lpd-empty">样本不足，暂不下结论</p>'}</section>
       <section class="lpd-section"><h3>组队证据</h3><p>${escapeHtml(premade)}</p>${encounterDetailHtml(player.puuid)}</section>
     </div>
+    <section class="lpd-section"><h3>习惯（近 ${allRecent.length} 场）</h3>${habitDrawerHtml(player)}</section>
     <section class="lpd-section"><h3>英雄与位置倾向</h3><p>${escapeHtml(jungleText)}</p></section>`;
+}
+
+// 抽屉里的习惯清单: 用同一份 player-habits 判定, 但把全部结论列出来 (带 tip 证据)
+function habitDrawerHtml(player) {
+  if (typeof window === 'undefined' || !window.PoroHabits || !player) return '<p class="lpd-empty">样本不足，暂不下结论</p>';
+  const profile = player.habitProfile || window.PoroHabits.buildHabitProfile(player.recent);
+  const items = window.PoroHabits.habitItems(profile);
+  if (!items.length) return '<p class="lpd-empty">样本不足，暂不下结论</p>';
+  return items.map(it =>
+    `<div class="lpd-evidence"><b>${escapeHtml(it.label)} ${escapeHtml(it.value)}</b><span>${escapeHtml(it.tip)}</span></div>`
+  ).join('');
 }
 
 function openLivePlayerDrawer(event, key) {
@@ -1339,12 +1454,10 @@ function liveKdaHtml(kda) {
 // 展开态只交代总量。放在 .lp-recent 兄弟节点 (不进列表内部), 不干扰行距分摊。
 // 1.5.150: 提示行随展开态切换; 折叠态场次多于每页 6 场时可点展开。
 // 样本不超过 6 场 / 展开态只交代总量, 不可点 (pointer-events 保持 none, 不挡战绩卡点击)。
-function liveRecentHint(p) {
-  const total = (p && (p.games || p.recent?.length)) || 0;
-  if (!total || total <= LIVE_RECENT_PAGE) return '';
-  const expanded = document.getElementById('page-live')?.classList.contains('live-expanded');
-  if (expanded) return `<div class="lp-recent-hint">共 ${total} 场</div>`;
-  return `<div class="lp-recent-hint is-more" onclick="event.stopPropagation();toggleLiveRecentExpanded(true)" title="展开显示全部 ${total} 场">共 ${total} 场 · 先展示 ${LIVE_RECENT_PAGE} 场 · 点击展开</div>`;
+// 列表已改为卡内滚动 (滚动条本身就说明了), 底部那行「共 N 场 · 滚轮查看」纯属噪音。
+// 返回空串, syncLiveRecentHint 会把已存在的旧节点一并移除。
+function liveRecentHint() {
+  return '';
 }
 
 function syncLiveRecentHint(row, p) {
@@ -1392,8 +1505,51 @@ function syncLiveChampUsage(row, p) {
   } else if (prev) prev.remove();
 }
 
+// ---- 习惯卡 ----
+// 把近 20 场聚合成的"计数型结论"挂 1-2 条在标签行下面 (主玩位置 / 场均阵亡 / 一血)。
+// 判定与阈值全在 player-habits.js (纯函数, 可单测); 这里只负责 DOM 与"样本不足不显示"。
+// 数据复用已加载的 recent, 不发任何新请求。
+function habitLineHtml(p) {
+  if (typeof window === 'undefined' || !window.PoroHabits || !p) return '';
+  const profile = p.habitProfile || window.PoroHabits.buildHabitProfile(p.recent, liveModeFamily);
+  const items = window.PoroHabits.habitPills(profile, 2);
+  if (!items.length) return '';
+  const pills = items.map(it =>
+    `<span class="lp-habit lp-habit-${escapeHtml(it.tone || 'info')}" title="${escapeHtml(it.tip)}">${escapeHtml(it.label)}<b>${escapeHtml(it.value)}</b></span>`
+  ).join('');
+  return `<div class="lp-habit-line">${pills}</div>`;
+}
+
+function syncLiveHabits(row, p) {
+  if (!row) return;
+  if (typeof window !== 'undefined' && window.PoroHabits && p) {
+    p.habitProfile = window.PoroHabits.buildHabitProfile(p.recent, liveModeFamily);
+  }
+  const prev = row.querySelector(':scope > .lp-habit-line');
+  const html = habitLineHtml(p);
+  if (html) {
+    if (prev) { if (prev.outerHTML !== html) prev.outerHTML = html; }
+    else {
+      const usage = row.querySelector(':scope > .lp-champ-usage');
+      if (usage) usage.insertAdjacentHTML('beforebegin', html);
+      else row.querySelector('.lp-profile-line')?.insertAdjacentHTML('afterend', html);
+    }
+  } else if (prev) prev.remove();
+}
+
 function updateLivePlayerRow(p, idx) {
   const key = livePlayerKey(p);
+  // 先取出本行已知的组号, 再覆盖 playerMap。
+  // 旧顺序是 `map.set(key, p)` 之后才读 `map.get(key).premadeGroupId` —— 那时 map 里
+  // 已经是 p 自己, 而 p (本轮新建的 fullData 项) 没有 premadeGroupId, 于是**恒为 null**,
+  // 这一行的标签行被重建一次就丢了「组N」, 要等下一轮全量渲染才补回。
+  // 十个人的战绩陆续返回 → 标签逐个消失 → 12 秒后整页重建才统一恢复,
+  // 这就是"组队标签时而显示时而消失"的直接来源。
+  const knownGroupId = p.premadeGroupId
+    ?? window._poroLivePlayerMap?.get(key)?.premadeGroupId
+    ?? stickyPremadeGroupOf(p.puuid)
+    ?? null;
+  if (knownGroupId != null) p.premadeGroupId = knownGroupId;
   window._poroLivePlayerMap?.set(key, p);
   const rows = [...document.querySelectorAll('.lp-row')];
   // idx 兜底仅对没有 puuid 的条目 (BOT/名字未补全) 开放: 有 puuid 时按下标写
@@ -1415,6 +1571,7 @@ function updateLivePlayerRow(p, idx) {
   if (recentEl && recentEl.innerHTML !== recentHtml) recentEl.innerHTML = recentHtml;
   syncLiveRecentHint(row, p);
   syncLiveChampUsage(row, p);
+  syncLiveHabits(row, p);
   const flashHtml = flashPreferenceHtml(p.flashPreference);
   if (flashEl && flashEl.innerHTML !== flashHtml) flashEl.innerHTML = flashHtml;
   if (winRateEl) {
@@ -1430,8 +1587,7 @@ function updateLivePlayerRow(p, idx) {
   // 标签要等全量重绘才出现; 全量重绘又被骨架周期性重置打断 → 标签间歇消失。
   const pillsEl = row.querySelector('.lp-profile-line');
   if (pillsEl) {
-    const pgid = p.premadeGroupId ?? window._poroLivePlayerMap?.get(key)?.premadeGroupId ?? null;
-    const pillsHtml = buildLivePills(p, pgid);
+    const pillsHtml = buildLivePills(p, knownGroupId);
     if (pillsEl.innerHTML !== pillsHtml) pillsEl.innerHTML = pillsHtml;
   }
   scheduleLiveRowAlignment();
@@ -1439,6 +1595,51 @@ function updateLivePlayerRow(p, idx) {
 
 // 卡片可用高度经常不是战绩行高的整数倍。把滚动区收敛到完整行，
 // 避免底部露出半条记录；10 场数据、滚动与展开模式都保持不变。
+// [LIVE-HEAD] 一次性诊断: 名字为什么看不见 —— 记录卡头各元素的实测宽高与 display。
+// 只在渲染后跑一次 (session 级), 结果进 %APPDATA%\poro-assistant\crash.log, 不占正常路径。
+let _liveHeadDiagDone = false;
+function diagLiveHeadOnce() {
+  if (_liveHeadDiagDone) return;
+  _liveHeadDiagDone = true;
+  try {
+    const row = document.querySelector('#page-live .lp-row:not(.lp-empty)');
+    if (!row) return;
+    const pick = sel => {
+      const el = row.querySelector(sel);
+      if (!el) return sel + ':missing';
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      return sel + ':' + Math.round(r.width) + 'x' + Math.round(r.height)
+        + ' [' + cs.display + ' flex=' + cs.flex + ' minW=' + cs.minWidth + ' vis=' + cs.visibility + ' op=' + cs.opacity + ']';
+    };
+    const text = ['.lp-name', '.lp-name-line', '.lp-identity', '.lp-info', '.lp-card-head'].map(pick).join(' | ');
+    const nameEl = row.querySelector('.lp-name');
+    lolAPI.debugLog('[LIVE-HEAD] ' + text + ' | 文本=' + (nameEl ? JSON.stringify(nameEl.textContent) : '无'));
+  } catch (e) {}
+}
+
+// 本局简报: 纯文本, 只写能确认的事实 (段位/近 N 场胜率/KDA/主玩英雄)
+async function copyLiveBrief() {
+  try {
+    const ctx = window._poroLiveCtx || {};
+    const data = Array.isArray(ctx.data) ? ctx.data : [];
+    if (!data.length) { if (typeof showToast === 'function') showToast('还没有可复制的数据', 'negative'); return; }
+    if (typeof PoroInsights === 'undefined') { if (typeof showToast === 'function') showToast('简报模块未加载', 'negative'); return; }
+    const text = PoroInsights.teamBrief(data, ctx.selfPuuid || '', {
+      mode: (typeof liveModeFamily === 'string' && liveModeFamily !== 'other') ? liveModeFamily : '',
+      championName: id => champNameOf(id)
+    });
+    if (!text) { if (typeof showToast === 'function') showToast('还没有可复制的数据', 'negative'); return; }
+    const ok = await lolAPI.copyText(text).catch(() => false);
+    if (typeof showToast === 'function') {
+      if (ok) showToast('简报已复制, 可直接粘贴', 'positive');
+      else showToast('复制失败', 'negative');
+    }
+  } catch (e) {
+    try { lolAPI.debugLog('[BRIEF] ' + (e && e.message)); } catch (e2) {}
+  }
+}
+
 function scheduleLiveRowAlignment() {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fitLiveMetricRows(); alignLiveRecentRows(); });
   else { fitLiveMetricRows(); alignLiveRecentRows(); }
@@ -1455,31 +1656,17 @@ function fitLiveMetricRows() {
 // 靠提示行/「展开全部战绩」进入全量。旧版"能塞几场塞几场 + 列表内滚动"会露出
 // 8~9 行战绩, 把头部空间吃光 —— 卡头里长 ID 被徽章和胜率挤压到 0 宽 (整行不可见)。
 // 展开态解除隐藏全部显示; 可见行间距仍把剩余高度分摊掉, 不留卡底空白。
+// 1.5.160: 列表改为「卡内滚动」—— 旧逻辑按容量隐藏多余行 + 把剩余高度摊进 gap,
+// 结果是每张卡只看得见 5~6 场, 想看更多只能点「展开全部战绩」(整页变高)。
+// 现在行不再隐藏、间距固定 2px, 溢出交给 CSS 的 overflow-y: auto, 滚轮直接翻。
+// 这里只负责把历史上写过的内联样式复位干净 (展开/收起/窗口变化都要从干净状态起算)。
 function alignLiveRecentRows() {
-  const page = document.getElementById('page-live');
   document.querySelectorAll('#page-live .lp-recent').forEach(list => {
     list.style.removeProperty('height');
     list.style.removeProperty('flex');
     list.style.removeProperty('gap');
     list.style.removeProperty('margin-bottom');
-    const cards = Array.from(list.querySelectorAll('.ri-card'));
-    // 每次重算先复位隐藏 (展开/收起/窗口变化都要从干净状态起算)
-    cards.forEach(el => { el.hidden = false; });
-    if (page?.classList.contains('live-expanded')) return;
-    const first = list.querySelector('.ri-card');
-    if (!first) return;
-    const available = list.clientHeight;
-    const rowHeight = first.getBoundingClientRect().height;
-    if (available < rowHeight) return;
-    const baseGap = parseFloat(getComputedStyle(list).rowGap) || 2;
-    // 高度装不下 6 场时按实际容量收缩, 保证不出现裁半行
-    const fitRows = Math.max(1, Math.floor((available + baseGap) / (rowHeight + baseGap)));
-    const visible = Math.min(LIVE_RECENT_PAGE, fitRows, cards.length);
-    cards.forEach((el, i) => { if (i >= visible) el.hidden = true; });
-    if (visible >= 2) {
-      const gap = Math.min((available - visible * rowHeight) / (visible - 1), 14);
-      if (gap > baseGap + 0.25) list.style.gap = `${gap.toFixed(2)}px`;
-    }
+    list.querySelectorAll('.ri-card').forEach(el => { el.hidden = false; });
   });
 }
 
@@ -1533,11 +1720,17 @@ function buildLivePills(p, premadeGroupId) {
 
 async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   checkBlacklist(data);
+  // 本局已知分组并进来 (只增不减): 骨架渲染 / 缓存漂移 / SGP 抖动都不会让标签消失
+  premadeGroups = resolveLivePremadeGroups(premadeGroups);
   let selfPuuid = null;
   try { const st = await lolAPI.lcuStatus(); selfPuuid = st.summoner?.puuid; } catch(e) {}
   if (expectedToken != null && expectedToken !== liveRenderToken) return;
   window._poroLivePlayerMap = new Map(data.map(player => {
     player.premadeGroupId = premadeGroups && player.puuid ? premadeGroups[player.puuid] : null;
+    // 习惯卡: 每次渲染按当前 recent 重算 (纯函数, 20 场循环, 可忽略)
+    if (typeof window !== 'undefined' && window.PoroHabits) {
+      player.habitProfile = window.PoroHabits.buildHabitProfile(player.recent, liveModeFamily);
+    }
     return [livePlayerKey(player), player];
   }));
   // 每次姓名补全后都允许重试；addEncounter 内部按 gameKey 持久去重，既不会漏记
@@ -1582,12 +1775,14 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
           <div class="lp-identity">
-            <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span></div>
-            <div class="lp-rank">${inlineStats}${p.rank ? `<span class="lp-tier" data-tier="${p.tier || ''}">${escapeHtml(p.rank)}</span>` : '无段位'} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span>${tag}${balanceHtml}${marksHtml}</div>
+            <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
+            <div class="lp-rank">${p.rank ? `<span class="lp-tier" data-tier="${p.tier || ''}">${escapeHtml(p.rank)}</span>` : '无段位'} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
+            ${inlineStats}
           </div>
         </div>
       </div>
       <div class="lp-profile-line">${pills}</div>
+      ${habitLineHtml(p)}
       ${championUsageHtml(p.recent)}
       <div class="lp-recent">${recentHtml}</div>
       ${liveRecentHint(p)}
@@ -1624,8 +1819,20 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       ? '<button type="button" class="lp-build-btn" id="liveBuildBtn"' +
         ' title="按本局双方阵容推荐三套出装: 激进 / 平衡 / 保守">推荐出装</button>'
       : '';
+    // 敌方: 挑一个"最该盯的人"(近 20 场伤害占比中位数最高, 样本 >= 6)
+    const watch = (!withBuild && typeof PoroInsights !== 'undefined')
+      ? PoroInsights.watchTarget(list, { minGames: 6 }) : null;
+    const watchHtml = watch
+      ? `<span class="lp-team-watch" title="按近 ${watch.dmgGames} 场伤害占比中位数挑出, 不是胜率预测">最该盯 <b>${escapeHtml(watch.name || '未知')}</b>` +
+        ` <em>伤害 ${watch.dmg}%</em>${watch.deaths == null ? '' : ` <em>场均死亡 ${watch.deaths}</em>`}` +
+        `${watch.main ? ` <em>${escapeHtml(champNameOf(watch.main.championId))} ${watch.main.games} 场</em>` : ''}</span>`
+      : '';
+    // 我方: 一键复制 10 人简报 (发开黑群/自己备忘)
+    const briefBtn = withBuild
+      ? '<button type="button" class="lp-brief-btn" onclick="event.stopPropagation();copyLiveBrief()" title="把双方 10 人的关键事实复制成 6 行文本">复制简报</button>'
+      : '';
     return `<section class="lp-team ${cls}">
-      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}<span class="lp-team-count">${list.length} 名玩家</span>${buildBtn}${expandBtn}</div>
+      <div class="lp-team-head"><i class="lp-team-dot"></i><strong>${label}</strong>${summary}${watchHtml}<span class="lp-team-count">${list.length} 名玩家</span>${briefBtn}${buildBtn}${expandBtn}</div>
       <div class="lp-team-grid">${list.map(playerRow).join('')}${Array.from({ length: slots }, emptySlot).join('')}</div>
     </section>`;
   };
@@ -1645,10 +1852,16 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   const pageHtml = `
     ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
-  // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与当前页面一致时直接跳过,
+  // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
-  // 渲染是纯确定性的 (无时间戳/随机值), 字符串比对可靠; 数据真变了自然不相等。
-  if (body.innerHTML !== pageHtml) body.innerHTML = pageHtml;
+  // 注意比对的是**上一次写进去的模板字符串**, 不能用 body.innerHTML: 紧随其后的
+  // scheduleLiveRowAlignment() 会给超出的战绩行加 hidden、写 inline gap —— 落地后的 DOM
+  // 和模板永远不相等, 旧实现因此每轮都判定"变了", 每 12 秒整页重建一次。
+  if (pageHtml !== _livePageHtml) {
+    _livePageHtml = pageHtml;
+    body.innerHTML = pageHtml;
+  }
+  diagLiveHeadOnce();
   scheduleLiveRowAlignment();
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
   pushGameLiveBoard(data, premadeGroups);
@@ -1761,11 +1974,14 @@ async function updateLivePage(phase) {  const startedAt = performance.now();
     livePlayersCache.key = '';
     livePlayersCache.data = null;
     livePlayersCache.premadeGroups = null;
+    livePremadeSticky.gameKey = '';
+    livePremadeSticky.groups = {};
     liveRenderToken++;
     setLiveHeadPanel('');
     window._poroLiveSnapshot = null;
     window._poroCurrentDecision = '';
     closeLiveBuildPop();
+    invalidateLivePageCache();
     body.innerHTML = '<div class="meta-loading">当前不在对局中。进入游戏后此处显示: 双方阵容、玩家战绩/段位、游戏时间、大龙/小龙/Buff 倒计时</div>';
     delete body.dataset.liveKey;   // 1.5.146: 骨架 key 守卫的失效点, 新对局必须重画
     syncLiveExpandButton(false);

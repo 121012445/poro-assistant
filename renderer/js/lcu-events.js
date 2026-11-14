@@ -97,11 +97,18 @@ function handleGameflowPhase(phase) {
     champSelectParticipants = null;
     livePlayersCache.key = '';
     livePlayersCache.data = null;
+    livePremadeSticky.gameKey = '';
+    livePremadeSticky.groups = {};
     liveRenderToken++;
     _encounterTrackedFor = '';
     _currentGameKey = '';
     const liveBody = document.getElementById('liveGameArea');
-    if (liveBody) liveBody.innerHTML = '<div class="meta-loading">正在读取本局选人阵容...</div>';
+    if (liveBody) {
+      // 直接换掉了 #liveGameArea 的内容, 实时页的模板指纹要一起作废, 否则下一次渲染
+      // 会以为 DOM 还是自己写的那份而跳过重建, 界面就停在这句提示上。
+      if (typeof invalidateLivePageCache === 'function') invalidateLivePageCache();
+      liveBody.innerHTML = '<div class="meta-loading">正在读取本局选人阵容...</div>';
+    }
     setLiveHeadPanel('');   // 上一局的作战计划条不留到新一局
     // 红蓝方提示由 bench.js handleChampSelectEvent → maybeAnnounceChampSelectSide 负责 (开关在 chat.js 内检查)
   }
