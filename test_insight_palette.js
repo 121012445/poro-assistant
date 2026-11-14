@@ -17,7 +17,10 @@ function stripComments(src) {
 
 const raw = fs.readFileSync(path.join(R, 'renderer/css/v4.css'), 'utf8');
 const css = stripComments(raw);
-const seg31 = raw.slice(raw.indexOf('/* A. 正向类'));
+// §31 段落 = 从 A 段起, 到下一个章节 (§32) 的注释块开始为止。
+// 1.5.158/1.5.159 在文件尾追加了 §32/§33, 若切到文件尾会把它们的色值算进来。
+const _p32 = raw.indexOf('32. 首页数值语义配色');
+const seg31 = raw.slice(raw.indexOf('/* A. 正向类'), _p32 > 0 ? raw.lastIndexOf('/*', _p32) : raw.length);
 const seg31css = stripComments(seg31);
 
 console.log('[A] §31 段存在');

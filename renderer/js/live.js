@@ -498,6 +498,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
       ...p,
       recent: c?.recent || [],
       rank,
+      tier: (solo && solo.tier) || '',
       flashPreference: c?.flashPreference ?? null,
       behaviorSamples: c?.behaviorSamples || [],
       premadeTeamGames: c?.premadeTeamGames || [],
@@ -1582,7 +1583,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         <div class="lp-info">
           <div class="lp-identity">
             <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span></div>
-            <div class="lp-rank">${inlineStats}${escapeHtml(p.rank || '无段位')} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span>${tag}${balanceHtml}${marksHtml}</div>
+            <div class="lp-rank">${inlineStats}${p.rank ? `<span class="lp-tier" data-tier="${p.tier || ''}">${escapeHtml(p.rank)}</span>` : '无段位'} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span>${tag}${balanceHtml}${marksHtml}</div>
           </div>
         </div>
       </div>

@@ -2653,3 +2653,83 @@ body.dark {
   --data-n: var(--brand);
   --data-g: var(--warn);
 }
+
+/* ============================================================================
+   33. 时长/场次上色 + 段位专属色阶 (1.5.159)
+   ----------------------------------------------------------------------------
+   用户: 「时长 场次都加上颜色 段位能不能显示对应段位的颜色」。
+   1.5.158 只给"有好坏方向"的数值上了色, 时长/场次/段位仍是近黑 —— 首页
+   六个 KPI 里两张时长卡、模式表的总场次列、两张大段位卡的标题都还是 text1,
+   视觉上仍缺一层。
+   - 时长/场次属于"规模量", 没有好坏方向, 用中性信息色 (--data-n 蓝),
+     和 K/D/A 的绿红区分开, 不会误导成"好/坏"。
+   - 段位是玩家身份, 用社区通行的十段位色阶: 铁灰→铜褐→银灰→金→铂青→
+     翠绿→钻蓝→大师紫→宗师红→王者亮金。骨架仍是"越往上越亮/越饱和",
+     所以不看文字也能感知高低。
+   ========================================================================== */
+
+:root {
+  --tier-iron: #6A7078;
+  --tier-bronze: #96603A;
+  --tier-silver: #647384;
+  --tier-gold: #8E6C1B;
+  --tier-platinum: #0F7F72;
+  --tier-emerald: #0B7F55;
+  --tier-diamond: #2E6FD0;
+  --tier-master: #8244CE;
+  --tier-grandmaster: #C22C42;
+  --tier-challenger: #C0871A;
+}
+
+/* 深色底用提亮版: 同一色相, 亮度拉到能在 #0A0D12 上读清 (>=4.5:1) */
+body.dark {
+  --tier-iron: #9BA3AD;
+  --tier-bronze: #C98A5C;
+  --tier-silver: #A9B6C4;
+  --tier-gold: #E3B455;
+  --tier-platinum: #2FBFA8;
+  --tier-emerald: #2BC98B;
+  --tier-diamond: #6FA5FF;
+  --tier-master: #B583F8;
+  --tier-grandmaster: #F26376;
+  --tier-challenger: #F0C24F;
+}
+
+/* 段位 → 局部变量。值在元素自身解析, 所以深浅主题各自取到对应色,
+   不存在 1.5.158 遇到过的「:root 处当场固化」问题 */
+[data-tier="IRON"] { --tier-c: var(--tier-iron); }
+[data-tier="BRONZE"] { --tier-c: var(--tier-bronze); }
+[data-tier="SILVER"] { --tier-c: var(--tier-silver); }
+[data-tier="GOLD"] { --tier-c: var(--tier-gold); }
+[data-tier="PLATINUM"] { --tier-c: var(--tier-platinum); }
+[data-tier="EMERALD"] { --tier-c: var(--tier-emerald); }
+[data-tier="DIAMOND"] { --tier-c: var(--tier-diamond); }
+[data-tier="MASTER"] { --tier-c: var(--tier-master); }
+[data-tier="GRANDMASTER"] { --tier-c: var(--tier-grandmaster); }
+[data-tier="CHALLENGER"] { --tier-c: var(--tier-challenger); }
+/* 无段位 / 占位的 "--" 回落中性灰, 不能继承上一个段位的色 */
+[data-tier=""] { --tier-c: var(--ink-3); }
+
+/* 三处段位落点。id 前缀 + 属性选择器 (1,2,0), 压过
+   #page-home .rank-card-tier (1,1,0) 与 body.dark .mode-table td (0,2,1) */
+#page-home .rank-card-tier[data-tier],
+#page-home .td-rank[data-tier],
+#page-home .ogd-rank[data-tier] {
+  color: var(--tier-c, var(--ink-1));
+}
+#page-home .td-rank {
+  font-weight: 600;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+#page-home .ogd-rank { font-weight: 600; }
+
+/* 时长 / 场次: 中性信息蓝。同样声明一次压过 #page-home .stat-card-val 的字重规则 */
+#page-home .stat-card-val.v-n,
+#page-home .td-count,
+#page-home .mode-table td.v-n {
+  color: var(--data-n);
+}
+
+/* 实时对局玩家行里的段位: 与首页同一套段位色阶 */
+#page-live .lp-tier[data-tier] { color: var(--tier-c, var(--ink-2)); }

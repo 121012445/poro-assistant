@@ -101,7 +101,7 @@ function renderRankCards(queues) {
     const wr = total ? Math.round(q.wins / total * 100) : 0;
     return `<div class="rank-card">
       <div class="rank-card-label">${label}</div>
-      <div class="rank-card-tier">${t} ${q.division || ''}</div>
+      <div class="rank-card-tier" data-tier="${q.tier}">${t} ${q.division || ''}</div>
       <div class="rank-card-record"><span class="v-k">${q.wins || 0}</span>胜 <span class="v-d">${q.losses || 0}</span>负 · <span class="${wr >= 50 ? 'v-k' : 'v-d'}">${wr}%</span> · ${lp}LP</div>
       ${rankPromoHtml(q)}
     </div>`;
@@ -1952,7 +1952,7 @@ function rankLineOf(p) {
   const icon = TIER_ICON[q.tier] || '';
   const div = q.division && !['NA', ''].includes(q.division) ? ' ' + q.division : '';
   const lp = q.leaguePoints != null ? ` ${q.leaguePoints}` : '';
-  return `<div class="ogd-rank">${icon} ${rankTierCN(q.tier)}${div}${lp}</div>`;
+  return `<div class="ogd-rank" data-tier="${q.tier}">${icon} ${rankTierCN(q.tier)}${div}${lp}</div>`;
 }
 
 // 首页对局卡片 (模式筛选重渲染共用)
@@ -2310,7 +2310,7 @@ function buildHomeTemplate(v) {
     const wr = total ? Math.round(q.wins / total * 100) : 0;
     return `<div class="rank-card">
       <div class="rank-card-label">${label}</div>
-      <div class="rank-card-tier">${t} ${q.division || ''}</div>
+      <div class="rank-card-tier" data-tier="${q.tier}">${t} ${q.division || ''}</div>
       <div class="rank-card-record"><span class="v-k">${q.wins || 0}</span>胜 <span class="v-d">${q.losses || 0}</span>负 · <span class="${wr >= 50 ? 'v-k' : 'v-d'}">${wr}%</span> · ${lp}LP</div>
       ${rankPromoHtml(q)}
     </div>`;
@@ -2365,8 +2365,8 @@ function buildHomeTemplate(v) {
         ${rankCard(flexQ, '灵活组排')}
       </div>
       <div class="home-stats">
-        <div class="stat-card"><div class="stat-card-val">${totalDurH}:${String(totalDurM).padStart(2, '0')}</div><div class="stat-card-label">总游戏时长</div></div>
-        <div class="stat-card"><div class="stat-card-val">${fmtDur}</div><div class="stat-card-label">场均用时</div></div>
+        <div class="stat-card"><div class="stat-card-val v-n">${totalDurH}:${String(totalDurM).padStart(2, '0')}</div><div class="stat-card-label">总游戏时长</div></div>
+        <div class="stat-card"><div class="stat-card-val v-n">${fmtDur}</div><div class="stat-card-label">场均用时</div></div>
         <div class="stat-card stat-card-split">
           <div class="stat-split">
             <div><b class="v-k">${totK}</b><i>击杀</i></div>
@@ -2416,19 +2416,19 @@ function buildHomeTemplate(v) {
           <tbody>
             ${rankRows.map(r => {
               const mwr = r.n ? Math.round(r.w / r.n * 100) : 0;
-              return `<tr><td>${escapeHtml(r.name)}</td><td>${r.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td class="v-k">${r.w}</td><td class="v-d">${r.n - r.w}</td><td>${escapeHtml(r.rank || '--')}</td><td>${r.lp || '--'}</td></tr>`;
+              return `<tr><td>${escapeHtml(r.name)}</td><td class="v-n">${r.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td class="v-k">${r.w}</td><td class="v-d">${r.n - r.w}</td><td class="td-rank" data-tier="${r.tier || ''}">${escapeHtml(r.rank || '--')}</td><td>${r.lp || '--'}</td></tr>`;
             }).join('')}
             ${Object.keys(modeStats).filter(m => shouldShowRecentModeRow(m, qm)).map(m => {
               const ms = modeStats[m];
               const mwr = Math.round(ms.w / ms.n * 100);
-              return `<tr><td>${m}</td><td>${ms.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td class="v-k">${ms.w}</td><td class="v-d">${ms.n - ms.w}</td><td>--</td><td>--</td></tr>`;
+              return `<tr><td>${m}</td><td class="v-n">${ms.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td class="v-k">${ms.w}</td><td class="v-d">${ms.n - ms.w}</td><td>--</td><td>--</td></tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
       <div class="home-games">
         <div class="rk-summary-bar">
-          <span>近 ${n} 场</span>
+          <span>近 <span class="v-n">${n}</span> 场</span>
           <span class="${wr >= 50 ? 'pos' : 'neg'}">${wins}胜 ${n - wins}负 (${wr}%)</span>
           <label class="rk-toggle"><input type="checkbox" ${includePractice ? 'checked' : ''} onchange="toggleIncludePractice(this.checked)"> 训练/自定义计入</label>
           <span>场均 <span class="v-k">${(totK/n).toFixed(1)}</span>/<span class="v-d">${(totD/n).toFixed(1)}</span>/<span class="v-n">${(totA/n).toFixed(1)}</span></span>
@@ -2856,7 +2856,7 @@ async function loadHomeStats(force, opts) {
       const total = r.wins + r.losses;
       const rank = r.tier ? `${rankTierCN(r.tier)} ${r.division || ''}` : '--';
       const lp = r.leaguePoints || 0;
-      return { name: label + " (当前赛段)", n: total, w: r.wins, rank, lp, season: true };
+      return { name: label + " (当前赛段)", n: total, w: r.wins, rank, lp, tier: r.tier, season: true };
     }).filter(Boolean);
     const mmrChips = buildHomeMmr(qm,modeStats,wr,s);
 

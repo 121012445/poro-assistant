@@ -23,7 +23,9 @@ assert.ok(live.includes("if (expanded) return `<div class=\"lp-recent-hint\">共
 const head = live.slice(live.indexOf('1.5.150: 头部重排'), live.indexOf('lp-profile-line">${pills}'));
 assert.ok(head.includes('<div class="lp-name-line"><span class="lp-name lp-name-link"'), '名字应独占 name-line (不与徽章同排)');
 assert.ok(!head.includes('</span>${tag}${balanceHtml}${marksHtml}</div>\n            <div class="lp-rank">'), '名字行不应再携带徽章 (旧排版)');
-assert.ok(head.includes('<div class="lp-rank">${inlineStats}${escapeHtml(p.rank'), '胜率/KDA 应下沉到段位行');
+// 1.5.159 起段位文本包了一层 span.lp-tier (带 data-tier 上段位色), 断言随之放宽
+assert.ok(head.includes('<div class="lp-rank">${inlineStats}${p.rank ?'), '胜率/KDA 应下沉到段位行');
+assert.ok(head.includes('class="lp-tier" data-tier="${p.tier || \'\'}"'), '段位文本带 data-tier 以套段位色阶');
 assert.ok(head.includes('${tag}${balanceHtml}${marksHtml}</div>'), '自己/平衡性/T级/标记徽章应挪到段位行尾部');
 
 // ---- live.js: 展开切换后提示行重刷 ----

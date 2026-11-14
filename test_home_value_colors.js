@@ -48,8 +48,9 @@ ok(/<b class="v-n">\$\{totA\}<\/b><i>助攻<\/i>/.test(js), '总助攻 → 蓝')
 ok(/<b class="v-g">\$\{penta\}<\/b><i>五杀<\/i>/.test(js), '五杀 → 金');
 ok(/<b class="v-k">\$\{fb\}<\/b><i>一血<\/i>/.test(js), '一血 → 绿');
 ok(/stat-card-val \$\{kdaClass\(avgKda\)\}/.test(js), '场均 KDA 走分级着色');
-ok(/stat-card-val">\$\{totalDurH\}:/.test(js), '总游戏时长保持中性(无着色类)');
-ok(/stat-card-val">\$\{fmtDur\}/.test(js), '场均用时保持中性(无着色类)');
+// 1.5.159 起用户要求时长也上色: 走中性信息蓝 v-n (不是好/坏的绿红)
+ok(/stat-card-val v-n">\$\{totalDurH\}:/.test(js), '总游戏时长上中性蓝 v-n');
+ok(/stat-card-val v-n">\$\{fmtDur\}/.test(js), '场均用时上中性蓝 v-n');
 
 console.log('\n[4] 渲染层: 段位卡 / 模式统计 / 概览条 / 好友');
 ok(/<span class="v-k">\$\{q\.wins \|\| 0\}<\/span>胜 <span class="v-d">\$\{q\.losses \|\| 0\}<\/span>负/.test(js), '段位记录 胜绿/负红');
