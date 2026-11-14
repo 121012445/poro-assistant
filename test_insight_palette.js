@@ -4,6 +4,8 @@ const path = require('path');
 const R = __dirname;
 let pass = 0, fail = 0;
 const ok = (c, n) => { if (c) { pass++; console.log('  ok', n); } else { fail++; console.error('  FAIL', n); } };
+// 1.6.0: 版本断言改成元组比较 —— 旧写法写死 minor===5, 跨大版本会被误判失败
+const atLeastVer = (v, m) => v[0] > m[0] || (v[0] === m[0] && (v[1] > m[1] || (v[1] === m[1] && v[2] >= m[2])));
 
 function stripComments(src) {
   let out = '', i = 0; const n = src.length;
@@ -78,7 +80,7 @@ console.log('[F] 版本与缓存');
 {
   const pkg = JSON.parse(fs.readFileSync(path.join(R, 'package.json'), 'utf8'));
   const v = pkg.version.split('.').map(Number);
-  ok(v[0] === 1 && v[1] === 5 && v[2] >= 157, 'version >= 1.5.157');
+  ok(atLeastVer(v, [1, 5, 157]), `version >= 1.5.157 (实际 ${pkg.version})`);
   const lock = JSON.parse(fs.readFileSync(path.join(R, 'package-lock.json'), 'utf8'));
   ok(lock.version === pkg.version, 'package-lock 同步');
   const html = fs.readFileSync(path.join(R, 'renderer/index.html'), 'utf8');

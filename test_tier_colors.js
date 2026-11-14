@@ -10,6 +10,8 @@ function ok(cond, msg) {
   else { fail++; console.log('  ✗ ' + msg); }
 }
 function stripComments(s) { return s.replace(/\/\*[\s\S]*?\*\//g, ''); }
+// 1.6.0: 版本断言改成元组比较 —— 旧写法写死 minor===5, 跨大版本会被误判失败
+const atLeastVer = (v, m) => v[0] > m[0] || (v[0] === m[0] && (v[1] > m[1] || (v[1] === m[1] && v[2] >= m[2])));
 
 const raw = fs.readFileSync(path.join(R, 'renderer/css/v4.css'), 'utf8');
 const cssNC = stripComments(raw);
@@ -71,7 +73,7 @@ const bare = home.match(/<div class="rank-card-tier">[^<]*</g) || [];
 ok(bare.length > 0 && bare.every(m => m.includes('无排位')), `裸 rank-card-tier 仅「无排位」占位 (${bare.length} 处)`);
 const pkg = JSON.parse(fs.readFileSync(path.join(R, 'package.json'), 'utf8'));
 const v = pkg.version.split('.').map(Number);
-ok(v[0] === 1 && v[1] === 5 && v[2] >= 159, `version >= 1.5.159 (实际 ${pkg.version})`);
+ok(atLeastVer(v, [1, 5, 159]), `version >= 1.5.159 (实际 ${pkg.version})`);
 const html = fs.readFileSync(path.join(R, 'renderer/index.html'), 'utf8');
 const m = html.match(/v4\.css\?v=(\d+)/);
 ok(!!m && Number(m[1]) >= 2026111406, 'v4.css 缓存参数 >= 2026111406');
