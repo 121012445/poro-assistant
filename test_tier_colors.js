@@ -67,7 +67,19 @@ ok(/<span>近 <span class="v-n">\$\{n\}<\/span> 场<\/span>/.test(home), '概览
 ok(/#page-home \.stat-card-val\.v-n/.test(cssNC), 'CSS 兜底: stat-card-val.v-n 上色');
 ok(/\.v-n[\s\S]{0,40}color:\s*var\(--data-n\)/.test(cssNC), '场次色复用 --data-n (与 1.5.158 同一语义层)');
 
-console.log('\n[7] 无遗留未上色段位 / 版本');
+console.log('\n[7] 段位图标与名称不换行 (1.6.0)');
+// 图标基类 .pi 是 display:block, 段位行若还是普通块级 div, 图标会独占一行把名称顶下去。
+const ogdRule = (cssNC.match(/#page-home \.ogd-rank \{[^}]*\}/) || [''])[0];
+ok(/display:\s*flex/.test(ogdRule), 'ogd-rank 用 flex 排图标与段位名');
+ok(/align-items:\s*center/.test(ogdRule), 'ogd-rank 图标与文字垂直居中');
+ok(/gap:\s*\d/.test(ogdRule), 'ogd-rank 图标与文字留间距');
+ok(/white-space:\s*nowrap/.test(ogdRule), 'ogd-rank 长段位名不再从中间折断');
+ok(/#page-home \.ogd-rank \.pi \{[^}]*width:\s*13px/.test(cssNC), 'ogd-rank 图标尺寸受约束 (13px)');
+ok(/#page-home \.ogd-rank \.pi \{[^}]*flex-shrink:\s*0/.test(cssNC), 'ogd-rank 图标不被压缩');
+// 渲染层: 图标与段位名必须在同一个 div 内, 不能有 <br> 或独立容器
+ok(/<div class="ogd-rank" data-tier="\$\{q\.tier\}">\$\{icon\} \$\{rankTierCN/.test(home), 'ogd-rank 图标与段位名同容器同排');
+
+console.log('\n[8] 无遗留未上色段位 / 版本');
 // 裸 rank-card-tier 只允许是「无排位」占位 (它本来就该保持中性灰, 不该套段位色)
 const bare = home.match(/<div class="rank-card-tier">[^<]*</g) || [];
 ok(bare.length > 0 && bare.every(m => m.includes('无排位')), `裸 rank-card-tier 仅「无排位」占位 (${bare.length} 处)`);

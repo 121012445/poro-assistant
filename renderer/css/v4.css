@@ -2722,7 +2722,21 @@ body.dark {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
 }
-#page-home .ogd-rank { font-weight: 600; }
+/* 1.6.0: 段位图标与名称换行。根因是图标基类 .pi 是 display:block (premium.css),
+   放在普通块级 div 里就会独占一行, 段位名被顶到下一行。段位行改成 flex 行内排列,
+   图标 + 文字同一基线居中; nowrap 防止「璀璨钻石Ⅰ 75」这种长名字再从中间折断。 */
+#page-home .ogd-rank {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+#page-home .ogd-rank .pi {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
 
 /* 时长 / 场次: 中性信息蓝。同样声明一次压过 #page-home .stat-card-val 的字重规则 */
 #page-home .stat-card-val.v-n,
