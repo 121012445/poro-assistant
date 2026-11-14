@@ -2604,3 +2604,52 @@ body.dark .ako-insight-muted {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
 }
+
+/* ============================================================================
+   32. 首页数值语义配色 (1.5.158)
+   ----------------------------------------------------------------------------
+   用户: 「首页的字体颜色还是基本都是黑色的啊」, 追问后确认指的是
+   「数字全是黑的, 缺语义彩色」。
+   实测 (浅色, 1360x900): 首页可见文本里数值全是 --ink-1 (#111823) 或
+   --ink-2 (#48566A) —— KPI 六个大数字 (24:59 / 14:59 / 1250 1056 2097 /
+   3.17 / 35 19 / 1 14) 无一着色; 段位卡 "55胜 54负 · 50% · 75LP" 整串同色;
+   对局卡 K/D/A 只有死亡是红的, 击杀和助攻跟标题一样黑。
+   BinanceGUI 的做法是: 标题与名称永远近黑 (text1), 数值按语义着色 ——
+   "看着不黑" 靠的是数值的色彩分布, 不是把标题调浅。
+   本段只给「有明确好坏方向」的数值上色, 中性数值 (时长/场次/LP/CS/承伤)
+   继续用 text1 当骨架, 避免整页变成调色板。
+     --data-k 绿: 击杀 / 一血 / 胜场 / 高胜率 / KDA>=3
+     --data-d 红: 死亡 / 负场 / 低胜率 / KDA<2
+     --data-n 蓝: 助攻 / 中位 KDA
+     --data-g 金: 五杀 / 完美局
+   ========================================================================== */
+
+:root {
+  --data-k: var(--pos);
+  --data-d: var(--neg);
+  --data-n: var(--brand);
+  --data-g: var(--warn);
+}
+
+/* 数值类本身只管字体, 字号/字重/字距一律继承宿主, 不改变既有排版 */
+.v-k, .v-d, .v-n, .v-g {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 颜色用 id 前缀压过 .stat-split b / .ako-big b / .mode-table td 自带的色值 */
+#page-home .v-k, #page-live .v-k, .ako-card .v-k { color: var(--data-k); }
+#page-home .v-d, #page-live .v-d, .ako-card .v-d { color: var(--data-d); }
+#page-home .v-n, #page-live .v-n, .ako-card .v-n { color: var(--data-n); }
+#page-home .v-g, #page-live .v-g, .ako-card .v-g { color: var(--data-g); }
+
+/* 深色主题: 必须在 body.dark 上重新解析一次 --data-*。
+   坑: 自定义属性的 var() 在「声明所在元素」上就完成替换 —— :root 里的
+   --data-k: var(--pos) 会当场固化成浅色 #0E8A4F 再往下继承, body.dark 后来
+   重定义 --pos 对它无效。探针实测深色下 .v-k 仍是 rgb(14,138,79) 即此因。 */
+body.dark {
+  --data-k: var(--pos);
+  --data-d: var(--neg);
+  --data-n: var(--brand);
+  --data-g: var(--warn);
+}

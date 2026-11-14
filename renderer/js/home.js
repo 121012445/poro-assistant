@@ -102,7 +102,7 @@ function renderRankCards(queues) {
     return `<div class="rank-card">
       <div class="rank-card-label">${label}</div>
       <div class="rank-card-tier">${t} ${q.division || ''}</div>
-      <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
+      <div class="rank-card-record"><span class="v-k">${q.wins || 0}</span>胜 <span class="v-d">${q.losses || 0}</span>负 · <span class="${wr >= 50 ? 'v-k' : 'v-d'}">${wr}%</span> · ${lp}LP</div>
       ${rankPromoHtml(q)}
     </div>`;
   }).join("");
@@ -1970,6 +1970,13 @@ function buildPerformanceTags(p, myTeam, kp, dmgShare, minutes, mode) {
   return derivePerformanceTags(p, myTeam, kp, dmgShare, minutes, mode)
     .map(tag => `<span class="ako-tag ako-insight ako-insight-${tag.tone}" title="${escapeHtml(tag.tip)}">${tag.label}</span>`).join('');
 }
+// KDA 语义分级: ≥3 绿 / <2 红 / 中间蓝 (与 BinanceGUI 数值着色同一套语义令牌)
+function kdaClass(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || !n) return '';
+  return n >= 3 ? 'v-k' : (n < 2 ? 'v-d' : 'v-n');
+}
+
 function buildHomeGameCard(g, s) {
   const p = findProfileParticipant(g, s);
   if (!p) return '';
@@ -2027,8 +2034,8 @@ function buildHomeGameCard(g, s) {
             ${spellHtml ? `<div class="ako-spellcol">${spellHtml}</div>` : ''}
             ${runeHtml}
             <div class="ako-stat">
-              <div class="ako-big">${p.k} <i>/</i> <b>${p.d}</b> <i>/</i> ${p.a}</div>
-              <div class="ako-sub">${p.d === 0 && (p.k > 0 || p.a > 0) ? '完美' : kda} (${kp}%)</div>
+              <div class="ako-big"><span class="v-k">${p.k}</span> <i>/</i> <b class="v-d">${p.d}</b> <i>/</i> <span class="v-n">${p.a}</span></div>
+              <div class="ako-sub">${p.d === 0 && (p.k > 0 || p.a > 0) ? '<span class="v-g">完美</span>' : `<span class="${kdaClass(kda)}">${kda}</span>`} (${kp}%)</div>
             </div>
             <div class="ako-stat">
               <div class="ako-big">${dmgShare}%</div>
@@ -2304,7 +2311,7 @@ function buildHomeTemplate(v) {
     return `<div class="rank-card">
       <div class="rank-card-label">${label}</div>
       <div class="rank-card-tier">${t} ${q.division || ''}</div>
-      <div class="rank-card-record">${q.wins || 0}胜 ${q.losses || 0}负 · ${wr}% · ${lp}LP</div>
+      <div class="rank-card-record"><span class="v-k">${q.wins || 0}</span>胜 <span class="v-d">${q.losses || 0}</span>负 · <span class="${wr >= 50 ? 'v-k' : 'v-d'}">${wr}%</span> · ${lp}LP</div>
       ${rankPromoHtml(q)}
     </div>`;
   };
@@ -2319,7 +2326,7 @@ function buildHomeTemplate(v) {
     const displayName = tag ? f.name + '#' + tag : f.name;
     return `<div class="friend-row">
       <div class="friend-row-name" onclick="searchPlayerByPuuid(${inlineArg(puuid)}, ${inlineArg(displayName)})">${escapeHtml(displayName)}</div>
-      <div class="friend-row-count">${f.wins}胜${f.losses}负</div>
+      <div class="friend-row-count"><span class="v-k">${f.wins}</span>胜<span class="v-d">${f.losses}</span>负</div>
     </div>`;
   }).join('');
   // 统计数据
@@ -2362,24 +2369,24 @@ function buildHomeTemplate(v) {
         <div class="stat-card"><div class="stat-card-val">${fmtDur}</div><div class="stat-card-label">场均用时</div></div>
         <div class="stat-card stat-card-split">
           <div class="stat-split">
-            <div><b>${totK}</b><i>击杀</i></div>
-            <div><b>${totD}</b><i>死亡</i></div>
-            <div><b>${totA}</b><i>助攻</i></div>
+            <div><b class="v-k">${totK}</b><i>击杀</i></div>
+            <div><b class="v-d">${totD}</b><i>死亡</i></div>
+            <div><b class="v-n">${totA}</b><i>助攻</i></div>
           </div>
           <div class="stat-card-label">总击杀 / 死亡 / 助攻</div>
         </div>
-        <div class="stat-card"><div class="stat-card-val">${avgKda}</div><div class="stat-card-label">场均 KDA</div></div>
+        <div class="stat-card"><div class="stat-card-val ${kdaClass(avgKda)}">${avgKda}</div><div class="stat-card-label">场均 KDA</div></div>
         <div class="stat-card stat-card-split">
           <div class="stat-split stat-split-2">
-            <div><b>${maxK}</b><i>击杀</i></div>
-            <div><b>${maxD}</b><i>死亡</i></div>
+            <div><b class="v-k">${maxK}</b><i>击杀</i></div>
+            <div><b class="v-d">${maxD}</b><i>死亡</i></div>
           </div>
           <div class="stat-card-label">单局最高杀 / 死</div>
         </div>
         <div class="stat-card stat-card-split">
           <div class="stat-split stat-split-2">
-            <div><b>${penta}</b><i>五杀</i></div>
-            <div><b>${fb}</b><i>一血</i></div>
+            <div><b class="v-g">${penta}</b><i>五杀</i></div>
+            <div><b class="v-k">${fb}</b><i>一血</i></div>
           </div>
           <div class="stat-card-label">五杀 / 一血</div>
         </div>
@@ -2409,12 +2416,12 @@ function buildHomeTemplate(v) {
           <tbody>
             ${rankRows.map(r => {
               const mwr = r.n ? Math.round(r.w / r.n * 100) : 0;
-              return `<tr><td>${escapeHtml(r.name)}</td><td>${r.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td>${r.w}</td><td>${r.n - r.w}</td><td>${escapeHtml(r.rank || '--')}</td><td>${r.lp || '--'}</td></tr>`;
+              return `<tr><td>${escapeHtml(r.name)}</td><td>${r.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td class="v-k">${r.w}</td><td class="v-d">${r.n - r.w}</td><td>${escapeHtml(r.rank || '--')}</td><td>${r.lp || '--'}</td></tr>`;
             }).join('')}
             ${Object.keys(modeStats).filter(m => shouldShowRecentModeRow(m, qm)).map(m => {
               const ms = modeStats[m];
               const mwr = Math.round(ms.w / ms.n * 100);
-              return `<tr><td>${m}</td><td>${ms.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td>${ms.w}</td><td>${ms.n - ms.w}</td><td>--</td><td>--</td></tr>`;
+              return `<tr><td>${m}</td><td>${ms.n}</td><td class="${mwr >= 50 ? 'pos' : 'neg'}">${mwr}%</td><td class="v-k">${ms.w}</td><td class="v-d">${ms.n - ms.w}</td><td>--</td><td>--</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -2424,8 +2431,8 @@ function buildHomeTemplate(v) {
           <span>近 ${n} 场</span>
           <span class="${wr >= 50 ? 'pos' : 'neg'}">${wins}胜 ${n - wins}负 (${wr}%)</span>
           <label class="rk-toggle"><input type="checkbox" ${includePractice ? 'checked' : ''} onchange="toggleIncludePractice(this.checked)"> 训练/自定义计入</label>
-          <span>场均 ${(totK/n).toFixed(1)}/${(totD/n).toFixed(1)}/${(totA/n).toFixed(1)}</span>
-          <span>KDA ${avgKda}</span>
+          <span>场均 <span class="v-k">${(totK/n).toFixed(1)}</span>/<span class="v-d">${(totD/n).toFixed(1)}</span>/<span class="v-n">${(totA/n).toFixed(1)}</span></span>
+          <span>KDA <span class="${kdaClass(avgKda)}">${avgKda}</span></span>
         </div>
         <div class="home-mode-filter" id="homeModeFilter"></div>
         <div id="homeGamesList"></div>
