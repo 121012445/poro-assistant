@@ -89,13 +89,13 @@ async function updateReadyCheck() {
     setReadyState("客户端未连接", 'unavail');
     return;
   }
-  console.log('[auto-accept] GET ready-check:', JSON.stringify({ state: rc.state, playerResponse: rc.playerResponse }));
+  logDebug('[auto-accept] GET ready-check:', JSON.stringify({ state: rc.state, playerResponse: rc.playerResponse }));
   // 兼容多种取值: state 表示有弹窗 + 玩家未响应 → 触发接受 (POST 幂等, 重发无副作用)
   const hasPopup = !!rc.state && rc.state !== 'None' && rc.state !== 'InProgress';
   const notResponded = !rc.playerResponse || rc.playerResponse === 'None' || rc.playerResponse === '';
   if (hasPopup && notResponded) {
     setReadyState("发现对局，自动接受...", 'active');
-    console.log('[auto-accept] POST accept (GET-detected popup)');
+    logDebug('[auto-accept] POST accept (GET-detected popup)');
     await acceptReadyCheckNow();
   } else if (hasPopup && rc.playerResponse === 'Accepted') {
     setReadyState("已接受，等待队友", 'done');
@@ -110,14 +110,14 @@ async function acceptReadyCheckNow() {
   if (_readyCheckAccepting) return;
   _readyCheckAccepting = true;
   try {
-    console.log('[auto-accept] POST accept (send)');
+    logDebug('[auto-accept] POST accept (send)');
     const r = await lolAPI.lcuRequest('POST', '/lol-matchmaking/v1/ready-check/accept');
-    console.log('[auto-accept] POST result:', JSON.stringify(r).substring(0, 160));
+    logDebug('[auto-accept] POST result:', JSON.stringify(r).substring(0, 160));
     if (r && !r.__error && r.playerResponse === 'Accepted') {
       setReadyState("已接受，等待队友", 'done');
     }
   } catch (e) {
-    console.log('[auto-accept] POST threw:', e.message);
+    logDebug('[auto-accept] POST threw:', e.message);
   } finally {
     _readyCheckAccepting = false;
   }
@@ -372,7 +372,7 @@ async function claimAllRewards() {
       const claimable = missions.filter(m => m.status === 'SELECT_REWARDS' || m.status === 'COMPLETED');
       for (const m of claimable) {
         try { await lolAPI.lcuRequest('PUT', '/lol-missions/v1/player', { missionIds: [m.id] }); }
-        catch (e) { console.log('[claim] mission error:', m.id, e.message); }
+        catch (e) { logDebug('[claim] mission error:', m.id, e.message); }
       }
       if (claimable.length) {
         try {

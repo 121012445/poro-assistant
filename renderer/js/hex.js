@@ -47,10 +47,6 @@ const HEX_RARITY_BG = {
   '棱彩': 'linear-gradient(135deg,#7d5bd6 0%,#3fa6c9 100%)',
   '活动': '#8a5bc9'
 };
-function augmentIconStyle(rarity) {
-  const bg = HEX_RARITY_BG[String(rarity || '')] || '#5b6673';
-  return 'background:' + bg + ';';
-}
 
 async function loadHexWinStats(championId, force = false) {
   const id = Number(championId) || 0;

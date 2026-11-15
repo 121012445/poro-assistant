@@ -793,10 +793,7 @@ function homeSearchCandidates(query) {
     outOfScope: (relaxed && region) ? scoped.filter(c => !inRegion(c)).length : 0
   };
 }
-// 兼容旧调用点 (只想要列表的地方)
-function homeSearchCandidateList(query) {
-  return homeSearchCandidates(query).list;
-}
+
 // 远端别名补全: 本地索引只涵盖"见过的人", 陌生玩家靠 Riot Client 的别名服务 ——
 // 给一个**完整名字**就返回该名字下的全部 Tag (实测 "雨未散" 16 条), 这正是
 // Akari 那种"不输完整 Tag 也能查"的能力。该接口只认完整名字, 前缀/子串仍由本地索引负责。
@@ -1090,10 +1087,6 @@ function homeSearchScheduleAutoGo() {
   }, HOME_AUTOGO_DELAY);
 }
 
-function homeServerLabel() {
-  return (typeof cachedPlatformId === 'string' && cachedPlatformId && typeof SERVER_NAMES !== 'undefined')
-    ? (SERVER_NAMES[cachedPlatformId] || cachedPlatformId) : '';
-}
 function homeRegionName(platformId) {
   if (!platformId) return '';
   return typeof SERVER_NAMES !== 'undefined' ? (SERVER_NAMES[platformId] || platformId) : platformId;

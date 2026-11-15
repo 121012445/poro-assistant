@@ -1,12 +1,6 @@
 // 图标兜底：Node 测试 require 本文件时 icons.js 不在作用域（同 home.js 的守卫）。
 if (typeof poroIcon !== 'function') { globalThis.poroIcon = () => '<svg class="pi"></svg>'; }
 
-// 实时对局
-// 由 _debug_archive/split_renderer.py 从 app.js 抽出; 依赖 utils.js 与 app.js 里的全局函数,
-// 因此 index.html 中必须排在 app.js 之前加载。
-
-// ========== 实时对局 (Live Client Data + 倒计时) ==========
-const TIMER_DEFS = { BARON_NASHOR: ["大龙Buff", 180], ELDER_DRAGON: ["远古龙Buff", 150], DRAGON: ["下一条小龙", 300] };
 // 加载页/选人页: 从 gameflow session 拉取10名玩家的段位+最近战绩 (LeaguePrank/Seraphine 风格)
 const livePlayersCache = { key: "", data: null, premadeGroups: null };
 // 本局已知的开黑分组 (puuid -> 组号), 按对局粘住, 同一局内只增不减。
@@ -284,7 +278,7 @@ async function announceInferredPremades(players, groups) {
   showToast(text, 'positive');
   if (window._gameflowPhase === 'ChampSelect' && !complianceOn) {
     const result = await sendGameChat(text);
-    if (!result.ok) console.log('[premade] chat skip:', result.error);
+    if (!result.ok) logDebug('[premade] chat skip:', result.error);
   }
 }
 // 取 Live Client Data 的双方玩家。
@@ -305,7 +299,7 @@ async function fetchLivePlayers(phase, parts) {
       try {
         const pl = await lolAPI.livePlayerlist();
         const plInfo = Array.isArray(pl) ? ('len=' + pl.length + ' first=' + JSON.stringify(pl[0] || {}).substring(0, 200)) : 'type=' + typeof pl;
-        console.log(`[livePage] playerlist attempt=${attempt} isArray=${Array.isArray(pl)} ${plInfo}`);
+        logDebug(`[livePage] playerlist attempt=${attempt} isArray=${Array.isArray(pl)} ${plInfo}`);
         if (Array.isArray(pl) && pl.length >= 5) { livePlayers = pl; break; }
       } catch (e) {}
       try {
@@ -502,7 +496,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   const blueN = players.filter(p => p.team === 100 || p.team === '100').length;
   const redN = players.filter(p => p.team === 200 || p.team === '200').length;
   const unknownN = players.length - blueN - redN;
-  console.log(`[livePage] path=${livePlayers ? 'live('+livePlayers.length+')' : 'session('+parts.length+')'} players=${players.length} blue=${blueN} red=${redN} unknown=${unknownN} phase=${phase}`);
+  logDebug(`[livePage] path=${livePlayers ? 'live('+livePlayers.length+')' : 'session('+parts.length+')'} players=${players.length} blue=${blueN} red=${redN} unknown=${unknownN} phase=${phase}`);
 
   // 训练模式/自定义局: LCU 只返回自己 1 人 (isCustomGame:true), 是平台限制而非 bug
   const onlySelf = players.length <= 1;
@@ -781,10 +775,6 @@ function liveContextAdvice(self, ownComp, enemyComp, enemyTeam) {
   };
 }
 
-function liveItemAdvice(self, enemyComp, ownComp, enemyTeam) {
-  return liveContextAdvice(self, ownComp || { frontline: 0 }, enemyComp, enemyTeam || []).items;
-}
-
 // 用出装引擎按双方阵容生成三套方案; 引擎未就绪时返回 null, 由 liveContextAdvice 兜底
 function liveBuildPlans(self, ownSide, enemySide) {
   if (!self || typeof poroBuildEngine === 'undefined' || !poroBuildEngine.itemDatabase) return null;
@@ -896,7 +886,7 @@ function ensureLiveBuildPop() {
 // 诊断日志: 只有 [RENDERER] 前缀会被转到 crash.log, debugLog 会补这个前缀
 function lbpLog(msg) {
   try { if (window.lolAPI && lolAPI.debugLog) lolAPI.debugLog('[BUILD POP] ' + msg); } catch (e) {}
-  try { console.log('[BUILD POP]', msg); } catch (e) {}
+  try { logDebug('[BUILD POP]', msg); } catch (e) {}
 }
 
 // 本局上下文: 三级回退。_poroLiveSnapshot 在数据不全时整个为 null,

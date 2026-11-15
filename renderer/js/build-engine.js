@@ -88,7 +88,7 @@ const poroBuildEngine = {
       const id = Number(c.key);
       if (Number.isFinite(id) && id > 0) this.championById[id] = c;
     });
-    console.log('[BuildEngine] Initialized with',
+    logDebug('[BuildEngine] Initialized with',
       Object.keys(this.itemDatabase).length, 'items /',
       Object.keys(this.championById).length, 'champions');
   },

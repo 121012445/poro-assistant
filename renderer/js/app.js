@@ -64,13 +64,6 @@ function fmtTime(sec) {
   return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
 }
 
-// ========== 主题系统: 明暗 × 强调色 ==========
-// 1.5.128 把四套完整色板收敛成「一套表面阶梯 + 只换 accent」之后，旧的四选项
-// 里有三个已经点不出变化：'c' 就是默认值、'b'(暗色玻璃) 与 'dark'(经典深色) 渲染
-// 结果相同。现在拆成两个正交维度 —— 明暗 2 种 × 强调色 2 种 = 4 种组合，每个按钮
-// 都真的会改变画面，也不再需要维护第二套深色色板。
-const THEME_MODES = ['light', 'dark'];
-const THEME_ACCENTS = ['blue', 'violet'];
 // 旧 store 值迁移: b(暗色玻璃) 当时是深色 + 蓝, a 是浅色 + 紫
 const LEGACY_UI_THEME = {
   c: { mode: 'dark', accent: 'blue' },
@@ -87,10 +80,6 @@ function currentThemeState() {
 }
 function syncThemeUi() {
   const st = currentThemeState();
-  const btn = document.getElementById('themeToggle');
-  if (btn && typeof poroIcon === 'function') {
-    btn.innerHTML = st.mode === 'dark' ? poroIcon('sun') : poroIcon('moon');
-  }
   document.querySelectorAll('#themePopover [data-mode]').forEach(el => {
     const on = el.dataset.mode === st.mode;
     el.classList.toggle('on', on);
@@ -125,7 +114,7 @@ function applyUiTheme(v, persist = true) {
   if (st && st.mode === 'light') st = { mode: 'dark', accent: st.accent };
   applyThemeState(st || { mode: 'dark', accent: 'blue' }, persist);
 }
-function setUiTheme(v) { applyUiTheme(v); }
+
 function pickThemeMode(mode) {
   applyThemeState({ mode, accent: currentThemeState().accent });
 }
@@ -149,11 +138,7 @@ function toggleThemePicker(e) {
   pop.style.left = x + 'px';
   pop.style.top = y + 'px';
 }
-function pickTheme(v) {
-  applyUiTheme(v);
-  const pop = document.getElementById('themePopover');
-  if (pop) pop.hidden = true;
-}
+
 document.addEventListener('click', (e) => {
   const pop = document.getElementById('themePopover');
   if (!pop || pop.hidden) return;
@@ -250,7 +235,7 @@ async function loadPerkIcons(ver) {
     } catch (e) {
       if (attempt < 2) { await new Promise(r => setTimeout(r, 600)); continue; }
       // 三次都失败: 已有缓存则不影响使用, 只降级提示
-      if (Object.keys(perkIconMap || {}).length) console.log("符文数据刷新失败, 已使用本地缓存:", e.message);
+      if (Object.keys(perkIconMap || {}).length) logDebug("符文数据刷新失败, 已使用本地缓存:", e.message);
       else console.warn("符文数据加载失败且无缓存:", e.message);
     } finally {
       clearTimeout(timer);

@@ -88,7 +88,7 @@ function handleGameflowPhase(phase) {
   }
   // 阶段到达 ReadyCheck (匹配确认弹窗出现) 即刻接受: 最可靠触发通道, 不依赖 GET ready-check 的具体字段
   if (phase === 'ReadyCheck' && autoAcceptOn && !complianceOn && (!window.automationModeAllows || window.automationModeAllows('autoAcceptToggle'))) {
-    console.log('[auto-accept] phase=ReadyCheck → 立即接受');
+    logDebug('[auto-accept] phase=ReadyCheck → 立即接受');
     acceptReadyCheckNow();
   }
   const activePage = document.querySelector(".page.active")?.id;

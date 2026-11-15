@@ -600,7 +600,7 @@ function handleChampSelectEvent(session) {
   if (!_champSelectChatCid && session && Array.isArray(session.myTeam) && session.myTeam.length) {
     lolAPI.lcuRequest('GET', '/lol-chat/v1/conversations').then(cs => {
       const room = Array.isArray(cs) && cs.find(c => c && c.type === 'championSelect' && c.id);
-      if (room) { _champSelectChatCid = room.id; console.log('[chat] champSelect room captured:', room.id); }
+      if (room) { _champSelectChatCid = room.id; logDebug('[chat] champSelect room captured:', room.id); }
     }).catch(() => {});
   }
   if (autoRuneEnabled && session?.myTeam && window._myPuuid) {
@@ -613,7 +613,7 @@ function handleChampSelectEvent(session) {
 let _premadeNotifiedFor = '';
 function handleReadyCheckEvent(rc) {
   if (!autoAcceptOn || complianceOn) return;
-  console.log('[auto-accept] WS ready-check:', JSON.stringify({ state: rc?.state, playerResponse: rc?.playerResponse }));
+  logDebug('[auto-accept] WS ready-check:', JSON.stringify({ state: rc?.state, playerResponse: rc?.playerResponse }));
   const hasPopup = rc && !!rc.state && rc.state !== 'None' && rc.state !== 'InProgress';
   const notResponded = !rc?.playerResponse || rc.playerResponse === 'None' || rc.playerResponse === '';
   if (hasPopup && notResponded) {

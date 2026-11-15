@@ -104,7 +104,7 @@ async function startSpectate() {
     if (legacy.ok) return toolMsg('<span style="color:var(--positive)">正在启动观战: ' + nickname + '</span>');
     toolMsg('<span style="color:var(--negative)">' + nickname + ' 当前无法被观战: 国服只能观战好友列表中正在对局的好友，且对局开始数分钟后才开放接入</span>' + spectateHintList(friends));
   } catch (e) {
-    console.log("[Spectate] error:", e);
+    logDebug("[Spectate] error:", e);
     toolMsg('<span style="color:var(--negative)">观战失败: ' + e.message + '</span>');
   }
 }

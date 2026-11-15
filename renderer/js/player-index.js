@@ -352,11 +352,6 @@ function playerIndexAutoGoTarget(raw) {
   return hit.label || q;
 }
 
-function playerIndexClear() {
-  _piCache = [];
-  try { const st = piStore(); if (st) st.removeItem(PI_STORE_KEY); } catch (e) {}
-}
-
 // 从英雄联盟战绩对象里抽取参与者塞进索引 (SGP / EOG 两种结构都兼容)
 function playerIndexFromGames(games) {
   const out = [];
