@@ -533,7 +533,13 @@ ipcMain.handle('overlay:update', async (e, payload) => {
   };
   // 主进程是最终门禁：即使渲染层收到迟到的 champ-select/列表事件，只要已经进入
   // GameStart（加载页）或 InProgress，就拒绝重新显示备战区浮窗。
-  const want = !!p.visible && lastReportedPhase === 'ChampSelect';
+  // 阶段兜底: payload 自己带 phase 时也认（Poro 中途启动会错过 phase:report）
+  const payloadPhase = String(p.phase || '');
+  const want = !!p.visible && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
+  if (want !== overlayVisible || want) {
+    // 诊断: 只有"该显示/该收起"时才打, 每局几条
+    try { logErr('[OVERLAY] want=' + want + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase + ' items=' + overlayPayload.items.length + ' win=' + !!(overlayWindow && !overlayWindow.isDestroyed())); } catch (e) {}
+  }
   if (want) {
     const win = createOverlayWindow();
     overlayVisible = true;

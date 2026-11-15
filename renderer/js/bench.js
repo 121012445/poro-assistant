@@ -238,13 +238,25 @@ function _benchOverlaySync() {
     _benchOverlayState + '|' + _benchOverlayStateClass;
   if (key === _benchOverlayKey) return;
   _benchOverlayKey = key;
+  // 诊断: 只在"该不该显示 / 条数"变化时打一行, 不刷屏
+if (visible !== _benchOverlayLastVisible || _benchOverlayItems.length !== _benchOverlayLastCount) {
+  _benchOverlayLastVisible = visible;
+  _benchOverlayLastCount = _benchOverlayItems.length;
   try {
+    logDebug('[BENCH-OV] visible=' + visible + ' phase=' + window._gameflowPhase
+      + ' on=' + benchOverlayOn + ' dismissed=' + _benchOverlayDismissed
+      + ' items=' + _benchOverlayItems.length + ' sess=' + !!(s && Array.isArray(s.benchChampions)));
+  } catch (e) {}
+}
+try {
     Promise.resolve(lolAPI.overlayUpdate({
       title: BENCH_OVERLAY_TITLE,
       items: visible ? _benchOverlayItems : [],
       state: _benchOverlayState,
       stateClass: _benchOverlayStateClass,
-      visible: visible
+      visible: visible,
+      // 主进程拿它兜底判断阶段: 只靠 phase:report 的话, Poro 中途启动会丢这一步
+      phase: window._gameflowPhase || ''
     })).then(ok => {
       // 主进程重启/窗口创建竞态时允许下一帧重发，不能让去重 key 永久吞掉这次更新。
       if (!ok && _benchOverlayKey === key) _benchOverlayKey = '';
