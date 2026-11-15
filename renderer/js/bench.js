@@ -239,13 +239,16 @@ function _benchOverlaySync() {
   if (key === _benchOverlayKey) return;
   _benchOverlayKey = key;
   // 诊断: 只在"该不该显示 / 条数"变化时打一行, 不刷屏
-if (visible !== _benchOverlayLastVisible || _benchOverlayItems.length !== _benchOverlayLastCount) {
+if (_benchOverlayLastVisible === null
+    || visible !== _benchOverlayLastVisible || _benchOverlayItems.length !== _benchOverlayLastCount) {
   _benchOverlayLastVisible = visible;
   _benchOverlayLastCount = _benchOverlayItems.length;
   try {
     logDebug('[BENCH-OV] visible=' + visible + ' phase=' + window._gameflowPhase
+      + ' mode=' + ((_benchLastSession && (_benchLastSession.queueId || _benchLastSession.gameMode)) || '')
       + ' on=' + benchOverlayOn + ' dismissed=' + _benchOverlayDismissed
-      + ' items=' + _benchOverlayItems.length + ' sess=' + !!(s && Array.isArray(s.benchChampions)));
+      + ' items=' + _benchOverlayItems.length
+      + ' sess=' + !!(_benchLastSession && Array.isArray(_benchLastSession.benchChampions)));
   } catch (e) {}
 }
 try {
@@ -464,7 +467,9 @@ function benchRenderSwapButtons(session) {
   if (key === _benchSwapBtnsKey) return;
   _benchSwapBtnsKey = key;
   try {
-    lolAPI.debugLog?.('[BENCH] bench=' + benchIds.length + ' subset=' + subsetIds.length +
+    const _benchModeTag = (s && (s.queueId || s.gameMode || (s.queue && s.queue.id))) || '';
+    lolAPI.debugLog?.('[BENCH] bench=' + benchIds.length + ' subset=' + subsetIds.length
+      + ' mode=' + _benchModeTag + ' phase=' + window._gameflowPhase +
       ' pickable=' + gateN + ' visible=' + usable.length + ' blockedSubset=' + blocked);
   } catch (e) {}
   // 英雄按钮列表已移除：数据已在上面的 _benchOverlayItems + _benchOverlaySync() 交给浮窗。

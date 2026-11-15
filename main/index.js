@@ -536,10 +536,13 @@ ipcMain.handle('overlay:update', async (e, payload) => {
   // 阶段兜底: payload 自己带 phase 时也认（Poro 中途启动会错过 phase:report）
   const payloadPhase = String(p.phase || '');
   const want = !!p.visible && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
-  if (want !== overlayVisible || want) {
-    // 诊断: 只有"该显示/该收起"时才打, 每局几条
-    try { logErr('[OVERLAY] want=' + want + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase + ' items=' + overlayPayload.items.length + ' win=' + !!(overlayWindow && !overlayWindow.isDestroyed())); } catch (e) {}
-  }
+  // 诊断: 每次都记（渲染层已经做了去重, 频率与选人事件同量级）, 这样"为什么没出"也一定留痕
+  try {
+    logErr('[OVERLAY] want=' + want + ' visible=' + !!p.visible
+      + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase
+      + ' items=' + overlayPayload.items.length
+      + ' win=' + !!(overlayWindow && !overlayWindow.isDestroyed()));
+  } catch (e) {}
   if (want) {
     const win = createOverlayWindow();
     overlayVisible = true;
