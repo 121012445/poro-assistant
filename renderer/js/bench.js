@@ -64,8 +64,6 @@ function _benchAlertReset() {
   _benchSubsetState = 'idle';
   _benchPickableState = 'idle';
   _benchSwapBtnsKey = '';
-  const box = document.getElementById('benchSwapBtns');
-  if (box) box.innerHTML = '<span class="tool-state">当前没有可换的英雄</span>';
   _benchSetSwapState('');
   _benchRenderDiag();
   _benchOverlayReset();   // 最后收尾: 让浮窗也收起, 不带走上一局的按钮
@@ -417,8 +415,8 @@ function benchSwapComparison(session, championId) {
 }
 
 function benchRenderSwapButtons(session) {
-  const box = document.getElementById('benchSwapBtns');
-  if (!box) return;
+  // 1.6.2: 工具箱里不再铺英雄按钮（英雄多会重叠）。这里只算数据并喂给选人浮窗，
+  // 浮窗点击 → overlay:swap → benchSwapNow()，换人链路不变。
   // 强度角标要用当前模式 (大乱斗/海斗) 的榜单; 模式从 gameflow 队列派生, 未知时不显示
   const benchTierMode = tierModeFor(hexRecommendContext?.queueId, '');
   if (benchTierMode) loadModeTiers(benchTierMode).then(t => { if (t && t.loadedAt !== (benchTierMode in _benchTierSeen ? _benchTierSeen[benchTierMode] : -1)) { _benchTierSeen[benchTierMode] = t.loadedAt; _benchSwapBtnsKey = ''; benchRenderSwapButtons(); } }).catch(() => {});
@@ -457,23 +455,8 @@ function benchRenderSwapButtons(session) {
     lolAPI.debugLog?.('[BENCH] bench=' + benchIds.length + ' subset=' + subsetIds.length +
       ' pickable=' + gateN + ' visible=' + usable.length + ' blockedSubset=' + blocked);
   } catch (e) {}
-  if (!usable.length) {
-    box.innerHTML = blocked
-      ? '<span class="tool-state">' + blocked + ' 个备选池英雄暂不可选' +
-        (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'
-      : '<span class="tool-state">当前没有可换的英雄</span>';
-    return;
-  }
-  box.innerHTML = usable.map(it => {
-    const name = escapeHtml(champNumMap?.[String(it.id)]?.name || ('英雄#' + it.id));
-    const rate = hexRecommendContext?.isHex ? _benchHexRateCache.get(it.id) : null;
-    const rateText = Number.isFinite(rate?.winRate) ? ' · ' + (rate.winRate * 100).toFixed(1) + '%' : '';
-    return '<button class="btn-secondary" onclick="benchSwapNow(' + it.id + ')">换到 ' + name +
-      ' <span class="bench-tag">' + it.tag + rateText + '</span>' + balanceBadgeHtml(it.id) + (benchTierMode ? modeTierBadgeHtml(benchTierMode, it.id) : '') + '<small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
-  }).join('') + (blocked
-    ? '<span class="tool-state">另有 ' + blocked + ' 个备选池英雄暂不可选' +
-      (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'
-    : '');
+  // 英雄按钮列表已移除：数据已在上面的 _benchOverlayItems + _benchOverlaySync() 交给浮窗。
+  // 没有可用英雄时也不再往页面写占位文案——状态由 #benchSwapState / #benchDiag 交代。
 }
 
 function _benchSwapCancel() {
