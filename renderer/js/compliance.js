@@ -90,14 +90,21 @@ async function updateReadyCheck() {
     return;
   }
   logDebug('[auto-accept] GET ready-check:', JSON.stringify({ state: rc.state, playerResponse: rc.playerResponse }));
-  // 兼容多种取值: state 表示有弹窗 + 玩家未响应 → 触发接受 (POST 幂等, 重发无副作用)
-  const hasPopup = !!rc.state && rc.state !== 'None' && rc.state !== 'InProgress';
+  // LCU 的 ready-check.state 枚举: InProgress(弹窗正在等待响应) / Accepted / Declined /
+  // Invalid / Expired / Error / None —— **只有 InProgress 是此刻可以接受的状态**。
+  // 旧写法把 InProgress 取反排除了: 它恰好排除了唯一该接受的状态, 反过来把
+  // Error / Invalid 当成"有待接受弹窗"。实测 crash.log: GET 侧出现
+  // 415 次 Error + 6 次 Invalid + 只有 2 次 InProgress, 那 421 次失效状态全部触发了
+  // POST accept, 每次 500 (RPC_ERROR "Failed to accept team builder ready check"),
+  // 且轮询每 12 秒重入 —— 一次弹窗失效后就会无限重试下去(全量日志 438 次 POST / 433 次 500)。
+  // 真正可靠的是 lcu-events.js 的 phase=ReadyCheck 触发, 这里只作兜底, 必须判准。
+  const pending = String(rc.state || '') === 'InProgress';
   const notResponded = !rc.playerResponse || rc.playerResponse === 'None' || rc.playerResponse === '';
-  if (hasPopup && notResponded) {
+  if (pending && notResponded) {
     setReadyState("发现对局，自动接受...", 'active');
     logDebug('[auto-accept] POST accept (GET-detected popup)');
     await acceptReadyCheckNow();
-  } else if (hasPopup && rc.playerResponse === 'Accepted') {
+  } else if (rc.playerResponse === 'Accepted') {
     setReadyState("已接受，等待队友", 'done');
   } else {
     setReadyState("监听中...", 'listening');

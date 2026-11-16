@@ -1972,6 +1972,44 @@ ipcMain.handle('opgg:champions', async () => {
   } catch (err) { return { __error: err.message, data: [] }; }
 });
 
+// ---------- op.gg 对位胜率 (BP 建议用) ----------
+// 上面那份 /champions/ranked 里每个 (英雄,位置) 只带 3 条 counters —— 做 BP 推荐太稀疏,
+// 用来算"敌方亮了 A,我该选谁"会大面积无数据。单独的对位接口一次给 40+ 条:
+//   GET /api/KR/champions/ranked/{championId}/{position}/counters → { data: [{champion_id, play, win}] }
+// 胜率方向已实测: win 是**被列出英雄自己**的胜率, 两个方向互为补数
+// (Ahri 视角 Sylas 52.31% ⇄ Sylas 视角 Ahri 47.69%, play 同为 2485)。
+// 所以"我选的英雄 C 打敌方 E 的胜率" = E 的对位表里查 C, 不需要自己再取反。
+const OPGG_COUNTER_TTL_MS = 30 * 60 * 1000;
+const OPGG_COUNTER_CACHE_MAX = 400;
+const OPGG_COUNTER_POSITIONS = ['top', 'jungle', 'mid', 'adc', 'support'];
+const opggCounterCache = new Map();
+ipcMain.handle('opgg:counters', async (e, championId, position) => {
+  const id = Number(championId);
+  const pos = String(position || '').toLowerCase();
+  if (!Number.isInteger(id) || id <= 0) return { __error: '无效的英雄 ID' };
+  if (!OPGG_COUNTER_POSITIONS.includes(pos)) return { __error: '无效的位置: ' + pos };
+  const key = id + ':' + pos;
+  const hit = opggCounterCache.get(key);
+  if (hit && Date.now() - hit.t < OPGG_COUNTER_TTL_MS) return hit.data;
+  try {
+    const raw = await httpGet('lol-api-champion.op.gg',
+      '/api/KR/champions/ranked/' + id + '/' + pos + '/counters');
+    // 渲染层只吃裁剪后的形状; 脏行(play<=0 / win>play / id 越界)在这里就丢掉
+    const rows = (Array.isArray(raw && raw.data) ? raw.data : [])
+      .map(r => ({ championId: Number(r && r.champion_id), play: Number(r && r.play), win: Number(r && r.win) }))
+      .filter(r => Number.isInteger(r.championId) && r.championId > 0 && r.championId < 10000
+        && Number.isFinite(r.play) && r.play > 0
+        && Number.isFinite(r.win) && r.win >= 0 && r.win <= r.play);
+    const data = { championId: id, position: pos, rows };
+    if (opggCounterCache.size >= OPGG_COUNTER_CACHE_MAX) {
+      const oldest = [...opggCounterCache.entries()].sort((a, b) => a[1].t - b[1].t)[0];
+      if (oldest) opggCounterCache.delete(oldest[0]);
+    }
+    opggCounterCache.set(key, { t: Date.now(), data });
+    return data;
+  } catch (err) { return { __error: err.message }; }
+});
+
 // 海克斯大乱斗：真实英雄维度强化胜率，主进程统一做校验、缓存和失败回退。
 ipcMain.handle('hex:championAugments', async (e, championId, scope) => {
   try { return await aramkit.getChampionAugments(championId, USER_DATA, scope); }

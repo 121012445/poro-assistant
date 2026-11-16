@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getItems: (v) => ipcRenderer.invoke('ddragon:getItems', v),
   getSummonerSpells: (v) => ipcRenderer.invoke('ddragon:getSummonerSpells', v),
   getOpgg: () => ipcRenderer.invoke('opgg:champions'),
+  getOpggCounters: (championId, position) => ipcRenderer.invoke('opgg:counters', championId, position),
   getAramBalance: () => ipcRenderer.invoke('opgg:aramBalance'),
   getModeTiers: (mode) => ipcRenderer.invoke('opgg:tiers', mode),
   getOpggBuild: (mode, championId, position) => ipcRenderer.invoke('opgg:build', mode, championId, position),

@@ -618,11 +618,16 @@ let _premadeNotifiedFor = '';
 function handleReadyCheckEvent(rc) {
   if (!autoAcceptOn || complianceOn) return;
   logDebug('[auto-accept] WS ready-check:', JSON.stringify({ state: rc?.state, playerResponse: rc?.playerResponse }));
-  const hasPopup = rc && !!rc.state && rc.state !== 'None' && rc.state !== 'InProgress';
+  // WS 侧 state 实测取值: InProgress(弹窗进行中) / EveryoneReady(全员已接受) /
+  // StrangerNotReady / Error。与 compliance.js 的 GET 侧同一处错误: 旧写法把
+  // InProgress 取反排除, 恰好排除了唯一该接受的状态, 把 EveryoneReady / Error
+  // 当成"待接受弹窗"去 POST, 结果一律 500。
+  // 两处判定必须保持一致, 改动时同步 compliance.js:updateReadyCheck。
+  const pending = String(rc?.state || '') === 'InProgress';
   const notResponded = !rc?.playerResponse || rc.playerResponse === 'None' || rc.playerResponse === '';
-  if (hasPopup && notResponded) {
+  if (pending && notResponded) {
     acceptReadyCheckNow();
-  } else if (hasPopup && rc.playerResponse === 'Accepted') {
+  } else if (rc?.playerResponse === 'Accepted') {
     setReadyState("已接受，等待队友", 'done');
   } else {
     setReadyState("监听中...", 'listening');

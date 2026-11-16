@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026111603">
-<link rel="stylesheet" href="css/extras.css?v=2026111603">
-<link rel="stylesheet" href="css/dark.css?v=2026111603">
-<link rel="stylesheet" href="css/premium.css?v=2026111603">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026111603">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111603">
-<link rel="stylesheet" href="css/v4.css?v=2026111603">
+<link rel="stylesheet" href="css/style.css?v=2026111604">
+<link rel="stylesheet" href="css/extras.css?v=2026111604">
+<link rel="stylesheet" href="css/dark.css?v=2026111604">
+<link rel="stylesheet" href="css/premium.css?v=2026111604">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111604">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111604">
+<link rel="stylesheet" href="css/v4.css?v=2026111604">
 </head>
 <body>
 
@@ -158,7 +158,13 @@
     <div class="page-header">
       <h2>克制关系</h2>
     </div>
-    <p class="page-desc">进入选人阶段后自动识别你选的英雄，按对位胜率列出被克制与克制的英雄。</p>
+    <p class="page-desc">进入选人阶段后自动识别你选的英雄，按对位胜率列出被克制与克制的英雄；顶部的 BP 建议会跟着敌我双方的选人实时更新。</p>
+    <!-- BP 建议：选人阶段按敌方已亮英雄的对位胜率给 pick/ban 建议。
+         放在克制关系页顶部 —— 这里本来就是"选人时看对位"的地方, 不必再开一页。
+         内容由 bp-advisor.js 整块重绘 (自带表头/两栏/脚注)。 -->
+    <div class="bp-advisor" id="bpAdvisor" hidden>
+      <div id="bpAdvisorBody"></div>
+    </div>
     <div class="client-pick-banner" id="clientPickBanner" hidden>进入选人阶段后，自动识别你当前选择的英雄</div>
     <div class="counter-simple-layout" id="counterLayout" hidden>
       <div class="counter-hero-section">
@@ -763,62 +769,63 @@
   </div>
 </div>
 
-<script src="js/utils.js?v=2026111603"></script>
-<script src="js/player-index.js?v=2026111603"></script>
-<script src="js/local-cache.js?v=2026111603"></script>
-<script src="js/icons.js?v=2026111603"></script>
-<script src="js/data-model.js?v=2026111603"></script>
-<script src="js/session-state.js?v=2026111603"></script>
-<script src="js/performance.js?v=2026111603"></script>
-<script src="js/diagnostics.js?v=2026111603"></script>
-<script src="js/balance.js?v=2026111603"></script>
-<script src="js/behavior-tags.js?v=2026111603"></script>
-<script src="js/bench.js?v=2026111603"></script>
-<script src="js/champions.js?v=2026111603"></script>
-<script src="js/progress-report.js?v=2026111603"></script>
-<script src="js/home.js?v=2026111603"></script>
-<script src="js/automation-log.js?v=2026111603"></script>
-<script src="js/automation-matrix.js?v=2026111603"></script>
-<script src="js/home-status.js?v=2026111603"></script>
-<script src="js/ai-markdown.js?v=2026111603"></script>
-<script src="js/repeat-mistakes.js?v=2026111603"></script>
-<script src="js/review.js?v=2026111603"></script>
-<script src="js/theme.js?v=2026111603"></script>
-<script src="assets/augments-meta.js?v=2026111603"></script>
-<script src="js/hex.js?v=2026111603"></script>
-<script src="js/history.js?v=2026111603"></script>
-<script src="js/enemy-intel.js?v=2026111603"></script>
-<script src="js/live-insights.js?v=2026111603"></script>
-<script src="js/draft-coach.js?v=2026111603"></script>
-<script src="js/growth-model.js?v=2026111603"></script>
-<script src="js/growth.js?v=2026111603"></script>
-<script src="js/battle-card.js?v=2026111603"></script>
-<script src="js/build-engine.js?v=2026111603"></script>
-<script src="js/player-habits.js?v=2026111603"></script>
-<script src="js/live.js?v=2026111603"></script>
-<script src="js/weekly.js?v=2026111603"></script>
-<script src="js/friends.js?v=2026111603"></script>
-<script src="js/compliance.js?v=2026111603"></script>
-<script src="js/blacklist.js?v=2026111603"></script>
-<script src="js/social.js?v=2026111603"></script>
-<script src="js/chat.js?v=2026111603"></script>
-<script src="js/translate.js?v=2026111603"></script>
-<script src="js/autobp.js?v=2026111603"></script>
-<script src="js/pick-guard.js?v=2026111603"></script>
-<script src="js/lcu-events.js?v=2026111603"></script>
-<script src="js/opgg-loadout.js?v=2026111603"></script>
-<script src="js/update.js?v=2026111603"></script>
-<script src="js/autoflow.js?v=2026111603"></script>
-<script src="js/chat-status.js?v=2026111603"></script>
-<script src="js/settings.js?v=2026111603"></script>
-<script src="js/persist.js?v=2026111603"></script>
-<script src="js/hotkeys.js?v=2026111603"></script>
-<script src="js/live-metrics.js?v=2026111603"></script>
-<script src="js/live-tips.js?v=2026111603"></script>
-<script src="js/autoreturn.js?v=2026111603"></script>
-<script src="js/sona-extra.js?v=2026111603"></script>
-<script src="js/tools-nav.js?v=2026111603"></script>
-<script src="js/tools-overview.js?v=2026111603"></script>
-<script src="js/app.js?v=2026111603"></script>
+<script src="js/utils.js?v=2026111604"></script>
+<script src="js/player-index.js?v=2026111604"></script>
+<script src="js/local-cache.js?v=2026111604"></script>
+<script src="js/icons.js?v=2026111604"></script>
+<script src="js/data-model.js?v=2026111604"></script>
+<script src="js/session-state.js?v=2026111604"></script>
+<script src="js/performance.js?v=2026111604"></script>
+<script src="js/diagnostics.js?v=2026111604"></script>
+<script src="js/balance.js?v=2026111604"></script>
+<script src="js/behavior-tags.js?v=2026111604"></script>
+<script src="js/bench.js?v=2026111604"></script>
+<script src="js/champions.js?v=2026111604"></script>
+<script src="js/progress-report.js?v=2026111604"></script>
+<script src="js/home.js?v=2026111604"></script>
+<script src="js/automation-log.js?v=2026111604"></script>
+<script src="js/automation-matrix.js?v=2026111604"></script>
+<script src="js/home-status.js?v=2026111604"></script>
+<script src="js/ai-markdown.js?v=2026111604"></script>
+<script src="js/repeat-mistakes.js?v=2026111604"></script>
+<script src="js/review.js?v=2026111604"></script>
+<script src="js/theme.js?v=2026111604"></script>
+<script src="assets/augments-meta.js?v=2026111604"></script>
+<script src="js/hex.js?v=2026111604"></script>
+<script src="js/history.js?v=2026111604"></script>
+<script src="js/enemy-intel.js?v=2026111604"></script>
+<script src="js/live-insights.js?v=2026111604"></script>
+<script src="js/draft-coach.js?v=2026111604"></script>
+<script src="js/bp-advisor.js?v=2026111604"></script>
+<script src="js/growth-model.js?v=2026111604"></script>
+<script src="js/growth.js?v=2026111604"></script>
+<script src="js/battle-card.js?v=2026111604"></script>
+<script src="js/build-engine.js?v=2026111604"></script>
+<script src="js/player-habits.js?v=2026111604"></script>
+<script src="js/live.js?v=2026111604"></script>
+<script src="js/weekly.js?v=2026111604"></script>
+<script src="js/friends.js?v=2026111604"></script>
+<script src="js/compliance.js?v=2026111604"></script>
+<script src="js/blacklist.js?v=2026111604"></script>
+<script src="js/social.js?v=2026111604"></script>
+<script src="js/chat.js?v=2026111604"></script>
+<script src="js/translate.js?v=2026111604"></script>
+<script src="js/autobp.js?v=2026111604"></script>
+<script src="js/pick-guard.js?v=2026111604"></script>
+<script src="js/lcu-events.js?v=2026111604"></script>
+<script src="js/opgg-loadout.js?v=2026111604"></script>
+<script src="js/update.js?v=2026111604"></script>
+<script src="js/autoflow.js?v=2026111604"></script>
+<script src="js/chat-status.js?v=2026111604"></script>
+<script src="js/settings.js?v=2026111604"></script>
+<script src="js/persist.js?v=2026111604"></script>
+<script src="js/hotkeys.js?v=2026111604"></script>
+<script src="js/live-metrics.js?v=2026111604"></script>
+<script src="js/live-tips.js?v=2026111604"></script>
+<script src="js/autoreturn.js?v=2026111604"></script>
+<script src="js/sona-extra.js?v=2026111604"></script>
+<script src="js/tools-nav.js?v=2026111604"></script>
+<script src="js/tools-overview.js?v=2026111604"></script>
+<script src="js/app.js?v=2026111604"></script>
 </body>
 </html>

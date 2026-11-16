@@ -3246,3 +3246,83 @@ body.dark #page-live .lp-brief-btn { background: rgba(255, 255, 255, .06); borde
 }
 body.dark .ako-aug.is-missing,
 body.dark .gw-aug-icon.is-missing { border-color: rgba(255, 255, 255, .22); }
+
+/* ==== 34. BP 对位建议 (克制关系页顶部) ==== */
+/* 默认 hidden, 只在选人阶段由 bp-advisor.js 显示。
+   两栏用 auto-fit 折行: 窗口变窄自动并成一栏, 不需要再写媒体查询。
+   配色全部走主题变量, 亮/暗色自动跟随, 不硬编码颜色。 */
+.bp-advisor {
+  margin-bottom: 14px;
+  padding: 14px 16px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.bp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+/* 标题不允许被挤成两行 ("BP 建 议"), 让后面的状态文字去省略 */
+.bp-head b { flex: 0 0 auto; font-size: var(--fs-md); color: var(--text-primary); white-space: nowrap; }
+.bp-head span {
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.bp-col-title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  letter-spacing: .02em;
+}
+.bp-list { display: flex; flex-direction: column; gap: 6px; }
+.bp-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  transition: background .16s ease;
+}
+.bp-card:hover { background: var(--bg-hover); }
+.bp-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-xs);
+  flex: 0 0 auto;
+  background: var(--bg-card);
+  object-fit: cover;
+}
+.bp-body { flex: 1 1 auto; min-width: 0; }
+.bp-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+/* 英雄名可能很长 (国服称号), 超长要省略而不是把分数挤出行外 */
+.bp-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-score { flex: 0 0 auto; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.bp-score.pos { color: var(--positive); }
+.bp-score.neg { color: var(--negative); }
+/* ban 的分数是优先级, 不是优势百分点: 用中性强调色, 不加正负号 */
+.bp-score.ban { color: var(--text-secondary); font-weight: 700; }
+.bp-why {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-foot {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.bp-empty { padding: 6px 2px; font-size: var(--fs-xs); color: var(--text-muted); }

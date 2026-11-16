@@ -1757,9 +1757,23 @@ function showCounterLayout(text, isActive) {
   if (empty) empty.hidden = true;
   if (banner) { banner.hidden = false; banner.innerHTML = text; banner.className = isActive ? "client-pick-banner active" : "client-pick-banner"; }
 }
+// BP 建议面板：没轮到你选英雄时也要工作, 所以与克制清单的三分支解耦, 单独留一个入口。
+// 用 window.PoroBPAdvisor 而不是裸名 —— 它在 index.html 里排在 hex.js 之后加载。
+function syncBPAdvisor(session) {
+  const bp = window.PoroBPAdvisor;
+  if (!bp) return;
+  if (!session) { bp.clear(); return; }
+  try {
+    const p = bp.refresh(session);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) {}
+}
 async function updateCounterClientPick() {
   try {
     const session = await lolAPI.lcuRequest("GET", "/lol-champ-select/v1/session");
+    // BP 建议面板与克制清单共用这个会话, 但它不依赖"我是否已选英雄" ——
+    // 必须在下面的 champId 分支之前先刷新, 否则选人前半段（还没轮到你选）面板永远是空的。
+    syncBPAdvisor(session && !session.__error ? session : null);
     if (!session) { showCounterEmpty(); return; }
     // 404 = 不在选人阶段(正常状态); 仅真正的 5xx/网络错误才算"数据异常"
     if (session.__error) {

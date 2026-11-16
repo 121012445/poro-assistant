@@ -254,6 +254,39 @@ async function recentProfileFor(platformId, puuid, count = 30) {
   } catch (e) { /* LCU 也不可用 */ }
   return sgpProfile || { t: Date.now(), ttl: 30000, recent: [], teamGames: [], flashPreference: null };
 }
+// Live Client Data 只给 Riot ID ("名字#TAG"), 没有真实 puuid; 选人会话的 theirTeam 在
+// 征召阶段也不给真实身份。旧实现把 Riot ID 直接当 puuid 传进 SGP, 接口必然查不到 ——
+// 表现就是敌方 5 人卡片上的"最近常用英雄/胜率/习惯标签"整排空白, 而队友正常。
+// 这里用客户端的 alias/lookup 反查一次真实 puuid, 查到了再继续拉画像。
+// 结果按 Riot ID 缓存: 同一局轮询每 4/12 秒重入一次, 不缓存会反复打同一个请求。
+const _riotIdPuuidCache = new Map();     // riotId(小写) → { t, puuid }
+const RIOTID_CACHE_TTL = 30 * 60 * 1000;
+const RIOTID_FAIL_TTL = 5 * 60 * 1000;   // 查不到只压抑 5 分钟 (可能是改名/跨区, 值得重试)
+async function resolvePuuidFromRiotId(riotId) {
+  const raw = String(riotId || '').trim();
+  const key = raw.toLocaleLowerCase();
+  if (!key || key.indexOf('#') < 0) return '';
+  const hit = _riotIdPuuidCache.get(key);
+  if (hit && Date.now() - hit.t < (hit.puuid ? RIOTID_CACHE_TTL : RIOTID_FAIL_TTL)) return hit.puuid;
+  let puuid = '';
+  try {
+    const at = raw.lastIndexOf('#');
+    const gameName = raw.slice(0, at).trim();
+    const tagLine = raw.slice(at + 1).trim();
+    if (gameName && tagLine) {
+      // 国服这张接口必须 gameName 与 tagLine 同时给, 缺一个直接 404
+      const r = await lolAPI.lcuRequest(
+        'GET',
+        '/lol-summoner/v1/alias/lookup?gameName=' + encodeURIComponent(gameName) + '&tagLine=' + encodeURIComponent(tagLine)
+      );
+      if (r && !r.__error && r.puuid) puuid = String(r.puuid);
+    }
+  } catch (e) { puuid = ''; }
+  _riotIdPuuidCache.delete(key);
+  _riotIdPuuidCache.set(key, { t: Date.now(), puuid });
+  limitMapSize(_riotIdPuuidCache, 200);
+  return puuid;
+}
 async function announceInferredPremades(players, groups) {
   if (!premadeNotifyOn) return;
   const grouped = new Map();
@@ -623,6 +656,13 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
 
   const sgpLoad = mapWithConcurrency(fullData, 4, async (p, idx) => {
     if (p.isBot || !platformId || !p.puuid) return;
+    // 带 # 的一定是 Riot ID 而不是 puuid (Live Client Data 只给 Riot ID)。
+    // 先把身份修正好, 否则后面全部按错误的 puuid 查询, 敌方的画像永远是空的。
+    if (p.puuid.indexOf('#') >= 0) {
+      const real = await resolvePuuidFromRiotId(p.puuid);
+      if (!real) return;
+      p.puuid = real;
+    }
     // 走 10 分钟 TTL 缓存 + 30 场拉取; 命中缓存时是同步返回, 几乎无延迟
     try {
       let profile = await recentProfileFor(platformId, p.puuid, 30);
