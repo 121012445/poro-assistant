@@ -3326,3 +3326,30 @@ body.dark .gw-aug-icon.is-missing { border-color: rgba(255, 255, 255, .22); }
   color: var(--text-muted);
 }
 .bp-empty { padding: 6px 2px; font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* ==== 33. 卡头不再被长 ID 撑破 (2026-11-16) ==== */
+/* 现象: 名字长的那几张卡, KDA 的「KDA」字样、段位行的 F闪、名字行末尾的 T 级徽章一起消失。
+   根因: .lp-info 从 premium.css:1200 继承了 align-items:flex-start, 列内子项按 max-content
+   排版。长 ID 让 .lp-identity 算出比可用宽度更宽的 max-content (实测 159.2px vs 可用
+   146.2px, 溢出 13px), 右侧被 .lp-row{overflow:hidden} 整块切掉 —— 而 KDA/段位行/徽章
+   恰好都贴在这一行的右端, 于是"看起来是被挤掉了", 实际是被裁了。
+   修法: 让列内子项 stretch 到 info 宽度, 超宽只允许在 .lp-name-line 内部用省略号消化。 */
+#page-live .lp-info { align-items: stretch; }
+#page-live .lp-identity { width: 100%; max-width: 100%; }
+#page-live .lp-name-line,
+#page-live .lp-rank,
+#page-live .lp-inline-stats { max-width: 100%; }
+/* 名字仍是最先让位的元素, 但压到 32px 时「雨未散」会只剩「雨…」, 太伤可读性。
+   故保 42px (约 3 个汉字), 缺的宽度从徽章间距里出: 名字行 5px → 4px,
+   44 + 自己26 + 增强32 + T3 21 + 间距12 = 135 < 146 可用宽度。 */
+#page-live .lp-name { min-width: 42px; }
+#page-live .lp-name-line { gap: 4px; }
+/* 窗口再窄时 (实测内容宽 <=940px, 单卡约 181px) 一行连「名字42 + 自己 + 增强 + T3」
+   都排不下, 上面的 stretch 只能保证不越出卡片, 徽章仍会被 name-line 自己的
+   overflow:hidden 切掉。这一档允许换行: 徽章整块掉到名字下一行, 卡头高 18px 换信息完整。
+   注意不能全局 wrap —— wrap 之后 flex 不再收缩, 1079px 下名字会保持满宽把徽章顶下去,
+   反而比修复前更差。所以按 grid 的容器宽度分档, 只在窄档启用。 */
+#page-live .lp-team-grid { container-type: inline-size; }
+@container (max-width: 1000px) {
+  #page-live .lp-name-line { flex-wrap: wrap; row-gap: 2px; }
+}
