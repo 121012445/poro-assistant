@@ -2573,6 +2573,15 @@ function buildPostGameCoach(games) {
         const tip = window.PoroMistakes.tipOf(it.key, mode) || it.label;
         push(it.evidence ? `${tip} — ${it.evidence}` : tip);
       }
+      // 复盘→BP 闭环：把这一局的实质短板沉淀成本地信号，下一局 BP 时读取并补位。
+      // 只在本人战绩、且是最近一局时写；纯函数 extract 在本模块之外完成，失败不影响复盘展示。
+      if (window.PoroReviewBPBridge && typeof storeSet === 'function') {
+        try {
+          const payload = window.PoroReviewBPBridge.extract(
+            issues, latest.gid || latest.gameId || 0, mode, Date.now());
+          window.PoroReviewBPBridge.save(payload, storeSet);
+        } catch (e) {}
+      }
     }
   } catch (e) {}
 

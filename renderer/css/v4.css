@@ -1014,6 +1014,14 @@ body.dark .counter-hero-section, body.dark .counter-list-section {
   letter-spacing: .3px;
   text-transform: none;
 }
+/* 30/90 天两栏的口径说明：明确告诉用户"一致"是数据事实而非渲染 bug (2026-11-17) */
+.gw-champ-note {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--ink-4, var(--ink-3));
+  opacity: .8;
+  margin-left: 4px;
+}
 .gw-champ {
   background: var(--surface-2);
   border: 1px solid transparent;
@@ -3326,6 +3334,55 @@ body.dark .gw-aug-icon.is-missing { border-color: rgba(255, 255, 255, .22); }
   color: var(--text-muted);
 }
 .bp-empty { padding: 6px 2px; font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* ==== BP 三合一融合结论 (2026-11-17) ==== */
+/* 对位 + 阵容补位 + 敌方结构三套信号叠加后的一条「综合首选」。
+   放在 BP 建议表头与两栏之间，用左侧强调边与卡片区分层级；颜色全走 token。 */
+.bp-fusion {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, var(--positive));
+  border-radius: var(--radius-sm);
+}
+.bp-fusion-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+.bp-fusion-head b { flex: 0 0 auto; font-size: var(--fs-sm); color: var(--text-primary); white-space: nowrap; }
+.bp-fusion-head span {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-fusion-main { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.bp-fusion-name { font-size: var(--fs-lg, 17px); font-weight: 700; color: var(--text-primary); }
+.bp-fusion-total {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--positive);
+  font-variant-numeric: tabular-nums;
+}
+.bp-fusion-why {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.bp-fusion-alts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.bp-fusion-alt { color: var(--text-secondary); }
+.bp-fusion-alt i { color: var(--text-muted); font-style: normal; font-variant-numeric: tabular-nums; }
 
 /* ==== 33. 卡头不再被长 ID 撑破 (2026-11-16) ==== */
 /* 现象: 名字长的那几张卡, KDA 的「KDA」字样、段位行的 F闪、名字行末尾的 T 级徽章一起消失。

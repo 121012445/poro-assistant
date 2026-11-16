@@ -127,6 +127,25 @@ const { createSgpCache } = require('./sgp-cache');
 const { createOpggClient } = require('./opgg');
 const { createUpdater } = require('./updater');
 const { createChangeLog } = require('./log-change');
+const proxyUtil = require('./proxy');
+const { HttpsProxyTunnelAgent } = require('./proxy-tunnel');
+
+// 外网 HTTPS 的代理支持：仅用于「检查更新 / 下载安装包」。
+// Node 的 https 不读系统代理，国内直连 api.github.com 会超时 → 更新器一直显示检查失败。
+// 用自写的零依赖 CONNECT 隧道 Agent（main/proxy-tunnel.js）——asar 只带 koffi/ws，
+// 不能依赖 https-proxy-agent 这类外部包。无代理配置时返回 undefined 走直连。
+let _sysProxy = null;      // 惰性读取一次 Windows 系统代理
+let _agentCache = new Map();  // proxyUrl -> agent 实例
+function httpsAgentFor(host) {
+  try {
+    if (!_sysProxy) _sysProxy = proxyUtil.readWindowsProxy(null, logErr);
+    const url = proxyUtil.resolve(process.env, _sysProxy, host);
+    if (!url) return undefined; // 直连
+    let agent = _agentCache.get(url);
+    if (!agent) { agent = new HttpsProxyTunnelAgent(url); _agentCache.set(url, agent); }
+    return agent;
+  } catch (e) { return undefined; }
+}
 
 // 周期性重复的日志（浮窗可见性、OCR 识别结果）只在内容变化时才写。
 // 2026-09-27 实测这两类占了 crash.log 的 55%，512KB 轮转下会把
@@ -198,6 +217,7 @@ function httpGet(hostname, urlPath, headers) {
   return new Promise((resolve, reject) => {
     const req = https.get({
       hostname, port: 443, path: urlPath, method: 'GET',
+      agent: httpsAgentFor(host),
       headers: Object.assign({ 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, headers || {})
     }, (res) => {
       // 必须先收齐 Buffer 再整体按 UTF-8 解码:
@@ -2906,7 +2926,7 @@ const appUpdater = createUpdater({
   getJson: httpGet,
   httpsGet: (url, headers) => new Promise((resolve, reject) => {
     const u = new URL(url);
-    const req = https.get({ hostname: u.hostname, port: 443, path: u.pathname + u.search, headers }, resolve);
+    const req = https.get({ hostname: u.hostname, port: 443, path: u.pathname + u.search, agent: httpsAgentFor(u.hostname), headers }, resolve);
     req.on('error', reject);
     req.setTimeout(30000, () => req.destroy(new Error('下载超时')));
   }),

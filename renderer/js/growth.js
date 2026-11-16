@@ -136,9 +136,16 @@ function growthTrendHtml(tr) {
     growthKpi('CS / 分钟', num(tr.d30.csMin), '')
   ].join('');
 
+  // 每个英雄显示「场次 · 占该窗口比例」。两栏各自传自己的 total —— 这样即便
+  // 30/90 天的前三名是同一批英雄，占比与分母不同，两栏也不会看起来像复制粘贴。
   const champLine = (list, total) => list.length
-    ? list.map(c => `<span class="gw-champ"><img src="${growthChampImg(c.id)}" alt="" onerror="this.style.display='none'"><b>${escapeHtml(growthChampName(c.id))}</b><i>${c.n}</i></span>`).join('')
+    ? list.map(c => {
+        const share = total > 0 ? Math.round(c.n / total * 100) : 0;
+        return `<span class="gw-champ"><img src="${growthChampImg(c.id)}" alt="" onerror="this.style.display='none'"><b>${escapeHtml(growthChampName(c.id))}</b><i>${c.n} 局 · ${share}%</i></span>`;
+      }).join('')
     : '<span class="gw-champ-none">暂无</span>';
+  // 两栏前三名一致是常见情况（最近一个月就玩这几个），明确说出来，免得被当成渲染 bug。
+  const sameTop = JSON.stringify((tr.champs30 || []).map(c => c.id)) === JSON.stringify((tr.champs90 || []).map(c => c.id));
   const since = tr.firstAt ? new Date(tr.firstAt) : null;
   const sinceStr = since ? `${since.getMonth() + 1}月${since.getDate()}日` : '';
   const spanNote = tr.spanDays < 90
@@ -162,8 +169,8 @@ function growthTrendHtml(tr) {
     <div class="gw-kpis">${kpis}</div>
     <div class="gw-chart-wrap"><canvas class="gw-chart" width="640" height="132"></canvas><div class="gw-chart-note">${escapeHtml(weekNote)}</div></div>
     <div class="gw-champrow">
-      <div class="gw-champcol"><span class="gw-champhead">近 30 天常用</span><div class="gw-champs">${champLine(tr.champs30)}</div></div>
-      <div class="gw-champcol"><span class="gw-champhead">近 90 天常用</span><div class="gw-champs">${champLine(tr.champs90)}</div></div>
+      <div class="gw-champcol"><span class="gw-champhead">近 30 天常用 <i class="gw-champ-note">${sameTop ? '与近 90 天一致' : '较近 90 天有变化'}</i></span><div class="gw-champs">${champLine(tr.champs30, tr.d30.n)}</div></div>
+      <div class="gw-champcol"><span class="gw-champhead">近 90 天常用 <i class="gw-champ-note">${tr.d90.n} 局样本</i></span><div class="gw-champs">${champLine(tr.champs90, tr.d90.n)}</div></div>
     </div>
     <div class="gw-breakdown-row"><div><span class="gw-champhead">近 90 天英雄表现</span><div class="gw-breakdowns">${champBreakdown}</div></div><div><span class="gw-champhead">近 90 天位置表现</span><div class="gw-breakdowns">${positionBreakdown}</div></div></div>
     <div class="gw-foot">${escapeHtml(spanNote)} 近 90 天共 ${tr.d90.n} 局。数据存本机，清空配置即清空。</div>`;

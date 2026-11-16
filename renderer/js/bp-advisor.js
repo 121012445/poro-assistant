@@ -239,7 +239,7 @@
       + '</div></div>';
   }
 
-  function buildHtml(state, picks, bans) {
+  function buildHtml(state, picks, bans, extra) {
     const head = [];
     if (state.myPosition) head.push('你的位置：' + KEY_CN[state.myPosition]);
     head.push('敌方已亮 ' + state.enemy.length + ' 人');
@@ -250,7 +250,24 @@
     const banHtml = bans.length
       ? bans.map(b => cardHtml(b, 'ban')).join('')
       : '<div class="bp-empty">暂无 ban 建议</div>';
+    // 三合一融合结论：三套信号（对位/阵容/敌方结构）叠加，给一条「这一手拿谁」。
+    // extra 由 refresh 注入；旧的三参数调用（含测试）没有 extra 时不渲染，保持兼容。
+    let fusionHtml = '';
+    if (extra && root.PoroBPFusion && picks.length) {
+      try {
+        const model = root.PoroBPFusion.blend(picks, {
+          ally: extra.ally, enemy: extra.enemy, mode: extra.mode, reviewHints: extra.reviewHints,
+          champNumMap: (typeof champNumMap !== 'undefined' ? champNumMap : null),
+          allChampions: (typeof allChampions !== 'undefined' ? allChampions : null)
+        });
+        fusionHtml = root.PoroBPFusion.render(model, {
+          champNumMap: (typeof champNumMap !== 'undefined' ? champNumMap : null),
+          allChampions: (typeof allChampions !== 'undefined' ? allChampions : null)
+        });
+      } catch (e) { fusionHtml = ''; }
+    }
     return '<div class="bp-head"><b>BP 建议</b><span>' + esc(head.join(' · ')) + '</span></div>'
+      + fusionHtml
       + '<div class="bp-cols">'
       + '<div class="bp-col"><div class="bp-col-title">推荐 Pick</div><div class="bp-list">' + pickHtml + '</div></div>'
       + '<div class="bp-col"><div class="bp-col-title">推荐 Ban</div><div class="bp-list">' + banHtml + '</div></div>'
@@ -325,6 +342,18 @@
       [...state.unavailable].sort((a, b) => a - b).join(',')].join('|');
   }
 
+  // 从 hex.js 已维护的队列上下文推导模式族，交给融合层决定要不要谈"视野/前排承压"。
+  // hex.js 在本文件之前加载，queueId 2400 = 海斗；450 = 大乱斗；其他按峡谷处理。
+  function modeOfSession() {
+    try {
+      const ctx = (typeof hexRecommendContext !== 'undefined' && hexRecommendContext) || null;
+      const q = ctx && +ctx.queueId;
+      if (q === 2400) return 'mayhem';
+      if (q === 450) return 'aram';
+      return 'rift';
+    } catch (e) { return 'rift'; }
+  }
+
   async function refresh(session) {
     const state = readSession(session);
     if (!state.inChampSelect) { clear(); return; }
@@ -342,7 +371,17 @@
       const box = el('bpAdvisor');
       const body = el('bpAdvisorBody');
       if (!box || !body) return;
-      body.innerHTML = buildHtml(state, picks, bans);
+      // 复盘→BP：读取最近一局沉淀的「下局补位」信号，作为融合的第四源。
+      let reviewHints = [];
+      try {
+        const bridge = root.PoroReviewBPBridge;
+        if (bridge && typeof storeGet === 'function') {
+          reviewHints = bridge.adopt(bridge.load({ get: k => storeGet(k) }));
+        }
+      } catch (e) { reviewHints = []; }
+      body.innerHTML = buildHtml(state, picks, bans, {
+        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints
+      });
       box.hidden = false;
       _lastKey = key;
     } finally { _refreshing = false; }

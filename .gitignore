@@ -49,3 +49,5 @@ _debug_archive/*
 
 # 临时离屏渲染探针（复现/验证 UI 几何，不入库）
 preview_live/
+preview_bp_fusion/
+preview_home_stats/
