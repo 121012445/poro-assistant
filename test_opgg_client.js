@@ -115,5 +115,17 @@ assert.strictEqual(normalizeBuild({ data: { summary: { id: 1 } } }).runes, null)
   responses['/api/global/champions/aram/1/none'] = { data: { summary: { id: 1 } } };
   await assert.rejects(client.getBuild('aram', 1), /暂无/, '没有任何可用配置时报错');
 
+  // ---------- httpGet 代理接线: 作用域拼写守护 ----------
+  // 1.6.5 曾把 httpsAgentFor(host) 写成未定义变量 host (形参是 hostname),
+  // 导致所有 opgg IPC 请求抛 ReferenceError: host is not defined ——
+  // 海斗/大乱斗强度榜与平衡徽标全程不显示 (crash.log 累计 436 次)。静态断言防回归。
+  {
+    const mainSrc = require('fs').readFileSync(require('path').join(__dirname, 'main/index.js'), 'utf8');
+    assert.ok(!/agent:\s*httpsAgentFor\(host\)/.test(mainSrc),
+      'httpGet 不得引用未定义的 host (形参名是 hostname)');
+    assert.ok(/function httpGet\(hostname, urlPath, headers\)[\s\S]{0,300}agent:\s*httpsAgentFor\(hostname\)/.test(mainSrc),
+      'httpGet 必须把 hostname 传给 httpsAgentFor');
+  }
+
   console.log('OP.GG 平衡性与推荐配置解析测试通过');
 })().catch(e => { console.error(e); process.exitCode = 1; });

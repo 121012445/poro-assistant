@@ -217,7 +217,7 @@ function httpGet(hostname, urlPath, headers) {
   return new Promise((resolve, reject) => {
     const req = https.get({
       hostname, port: 443, path: urlPath, method: 'GET',
-      agent: httpsAgentFor(host),
+      agent: httpsAgentFor(hostname),
       headers: Object.assign({ 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, headers || {})
     }, (res) => {
       // 必须先收齐 Buffer 再整体按 UTF-8 解码:
