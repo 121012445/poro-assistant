@@ -56,6 +56,14 @@ assert(!good.html.includes('继续保持当前节奏，下一局重点观察死�
 assert(/阵亡 \d+ 次|分均补刀 \d/.test(good.items.join(' ')), '正向建议要带本局真实数字');
 for (const line of good.items) assert(line.trim().length > 10, '每条都要有实质内容: ' + line);
 assert(good.html.includes('胜局巩固'), '胜局标记');
+// 已经夸过的指标不能再当目标, 否则「分均补刀 6.3 不错」+「分均补刀提到 7.1」读起来像凑数
+for (const kw of ['分均补刀', '视野得分', '参团率', '伤害占比']) {
+  const praised = good.items.filter(t => t.includes(kw) && !t.includes('目标'));
+  const goal = good.items.filter(t => t.includes(kw) && t.includes('目标'));
+  assert(!(praised.length && goal.length), `${kw} 同时出现在表扬与目标里: ` + good.items.join(' | '));
+}
+// 好局也要给出下一步, 不能三条全是表扬
+assert(good.items.some(t => t.includes('下局目标')), '好局应至少留一条下一局目标');
 
 // B. 打得差的一局: 由 repeat-mistakes 的按模式判定给出, 且带证据数字
 const bad = build([game({

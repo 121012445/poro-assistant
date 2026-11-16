@@ -2571,27 +2571,29 @@ function buildPostGameCoach(games) {
       const issues = window.PoroMistakes.detect(latest, me.puuid, { requireDuration: false }) || [];
       for (const it of issues) {
         const tip = window.PoroMistakes.tipOf(it.key, mode) || it.label;
-        push(it.evidence ? `${tip}（${it.evidence}）` : tip);
+        push(it.evidence ? `${tip} — ${it.evidence}` : tip);
       }
     }
   } catch (e) {}
 
   // 2) 失误不足 3 条就补「这一局做对的地方」: 全部带本局真实数字, 所以每局都不一样。
-  if (out.length < 3 && mins >= 12) {
-    if (deaths <= 3) push(`本局只阵亡 ${deaths} 次：进退节奏稳，下一局保持这个容错。`);
-    if (mode === 'rift' && !isSupport && csm >= 6) push(`分均补刀 ${csm.toFixed(1)}（${cs} 刀 / ${Math.round(mins)} 分钟）：对线经济稳定，回城尽量压在 1100 金以上。`);
-    if (share != null && share >= 25) push(`伤害占比 ${share}%：团战输出位置找得对，继续保持这个站位。`);
-    if (kp != null && kp >= 60) push(`参团率 ${kp}%（全队 ${teamKills} 杀）：跟团节奏到位，继续保持。`);
-    if (mode === 'rift' && vision >= 25) push(`视野得分 ${vision}：关键区域有信息，这套眼位可以延续。`);
+  if (out.length < 2 && mins >= 12) {
+    if (deaths <= 3 && out.length < 2) push(`本局只阵亡 ${deaths} 次：进退节奏稳，下一局保持这个容错。`);
+    if (mode === 'rift' && !isSupport && csm >= 6 && out.length < 2) push(`分均补刀 ${csm.toFixed(1)}（${cs} 刀 / ${Math.round(mins)} 分钟）：对线经济稳定，回城尽量压在 1100 金以上。`);
+    if (share != null && share >= 25 && out.length < 2) push(`伤害占比 ${share}%：团战输出位置找得对，继续保持这个站位。`);
+    if (kp != null && kp >= 60 && out.length < 2) push(`参团率 ${kp}%（全队 ${teamKills} 杀）：跟团节奏到位，继续保持。`);
+    if (mode === 'rift' && vision >= 25 && out.length < 2) push(`视野得分 ${vision}：关键区域有信息，这套眼位可以延续。`);
   }
 
   // 3) 还不够就用「下一局可量化目标」补齐 —— 目标值由本局数值推出来, 不是固定文案。
+  // 已经夸过的指标不再当目标 (否则「分均补刀 6.3 不错」+「分均补刀提到 7.1」读起来像凑数)
+  const said = kw => out.some(t => t.includes(kw));
   const goals = [];
-  if (mode === 'rift' && !isSupport) goals.push(`下局目标：分均补刀从 ${csm.toFixed(1)} 提到 ${(csm + 0.8).toFixed(1)}。`);
-  if (mode === 'rift') goals.push(`下局目标：视野得分从 ${vision} 提到 ${vision + 5}。`);
-  if (kp != null) goals.push(`下局目标：参团率从 ${kp}% 提到 ${Math.min(85, kp + 8)}%。`);
-  if (share != null) goals.push(`下局目标：伤害占比从 ${share}% 提到 ${Math.min(45, share + 3)}%。`);
-  if (mode === 'rift') goals.push(`下局目标：把阵亡压在 ${Math.max(2, deaths)} 次以内。`);
+  if (mode === 'rift' && !isSupport && !said('补刀')) goals.push(`下局目标：分均补刀从 ${csm.toFixed(1)} 提到 ${(csm + 0.8).toFixed(1)}。`);
+  if (mode === 'rift' && !said('视野')) goals.push(`下局目标：视野得分从 ${vision} 提到 ${vision + 5}。`);
+  if (kp != null && !said('参团率')) goals.push(`下局目标：参团率从 ${kp}% 提到 ${Math.min(85, kp + 8)}%。`);
+  if (share != null && !said('伤害占比')) goals.push(`下局目标：伤害占比从 ${share}% 提到 ${Math.min(45, share + 3)}%。`);
+  if (mode === 'rift' && !said('阵亡')) goals.push(`下局目标：把阵亡压在 ${Math.max(2, deaths)} 次以内。`);
   const generic = [
     '下局目标：每次回城至少补一个控制守卫。',
     '下局目标：主动报一次「对面打野在哪」，把信息换成节奏。',
