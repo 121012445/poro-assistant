@@ -104,45 +104,7 @@ async function watchReplay() {
     _replayBusy = false;
   }
 }
-// Game ID 复制 (对局详情处调用)
-function copyGameId(gameId) {
-  if (lolAPI.copyText) {
-    lolAPI.copyText(String(gameId));
-    showToast('Game ID 已复制: ' + gameId, 'positive');
-  }
-}
 
-// ========== 增强游戏中好友状态 (模式 + 实时时长) ==========
-// 数据源: /lol-chat/v1/friends 的 lol 字段 (gameStatus/gameMode/gameQueueType/timestamp)
-function fmtGameDuration(ms) {
-  if (!ms || ms <= 0) return '';
-  const min = Math.floor(ms / 60000);
-  if (min < 1) return '刚开局';
-  if (min < 60) return min + ' 分钟';
-  return Math.floor(min / 60) + ' 小时 ' + (min % 60) + ' 分';
-}
-function friendInGameMeta(f) {
-  const lol = f && f.lol;
-  if (!lol || !lol.gameStatus || lol.gameStatus === 'outOfGame' || !lol.gameId) return null;
-  const mode = MODE_NAMES[lol.gameMode] || lol.gameMode || '';
-  const dur = fmtGameDuration(lol.gameTime ? Date.now() - lol.gameTime : 0);
-  return { mode, dur };
-}
-// 挂到好友列表渲染 (social.js 的好友区块渲染后调用, 每条前缀标注)
-function enrichFriendGameStatus() {
-  try {
-    lolAPI.lcuRequest('GET', '/lol-chat/v1/friends').then(friends => {
-      if (!Array.isArray(friends)) return;
-      const map = {};
-      for (const f of friends) {
-        const meta = friendInGameMeta(f);
-        if (meta) map[(f.gameName || f.name || '') + '#' + (f.gameTag || f.tagLine || '')] = meta;
-      }
-      // 标注到首页"常一起玩"与黑名单页出现的名字元素 (数据驱动的轻量方案)
-      window._friendGameMeta = map;
-    }).catch(() => {});
-  } catch (e) {}
-}
 
 // ========== 选择性领取通行证奖励 ==========
 let _selectableRewards = [];   // { missionId, missionName, options: [{rewardId, name, ...}] }
@@ -208,7 +170,6 @@ async function claimSelectedRewards() {
 // ========== 符文页记忆恢复 (个人习惯优先, OP.GG 兜底) ==========
 // 记录玩家手动保存过的符文页 (英雄+模式 → 页快照), 自动符文时优先恢复记忆
 let runeMemory = {};
-let _runeMemTimer = null;
 function runeMemPath() { return (window._userDataPath || '') + '/rune-memory.json'; }
 async function loadRuneMemory() {
   try {
@@ -216,24 +177,7 @@ async function loadRuneMemory() {
     if (c) { const d = JSON.parse(c); if (d && typeof d === 'object') runeMemory = d; }
   } catch (e) {}
 }
-function scheduleRuneMemSave() {
-  clearTimeout(_runeMemTimer);
-  _runeMemTimer = setTimeout(async () => { try { await lolAPI.writeFile(runeMemPath(), JSON.stringify(runeMemory)); } catch (e) {} }, 1500);
-}
-// 记录: 玩家在选人阶段手动编辑符文页后触发 (champ-select session 事件里检测本地玩家)
-async function captureRuneMemory(championId, gameMode) {
-  if (!championId || complianceOn) return;
-  try {
-    const page = await lolAPI.lcuRequest('GET', '/lol-perks/v1/currentpage');
-    if (!page || page.__error || !page.selectedPerkIds || !page.selectedPerkIds.length) return;
-    const key = championId + '|' + (gameMode || 'any');
-    const prev = runeMemory[key];
-    // 未变化则跳过
-    if (prev && JSON.stringify(prev.perks) === JSON.stringify({ p: page.primaryStyleId, s: page.subStyleId, ids: page.selectedPerkIds })) return;
-    runeMemory[key] = { p: page.primaryStyleId, s: page.subStyleId, ids: page.selectedPerkIds, ts: Date.now() };
-    scheduleRuneMemSave();
-  } catch (e) {}
-}
+
 // 恢复: 自动符文时优先用记忆, 失败/无记忆返回 false 由原 OP.GG 逻辑兜底
 async function applyRememberedRune(championId, gameMode) {
   const key = championId + '|' + (gameMode || 'any');

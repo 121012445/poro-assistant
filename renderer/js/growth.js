@@ -50,6 +50,33 @@ function growthRecordGames(games, puuid) {
   const prev = growthLedger();
   const r = PoroGrowth.mergeLedger(prev, games, puuid, typeof isExcludedGame === 'function' ? isExcludedGame : null, Date.now());
   if (r.added > 0 || r.records.length !== prev.length) growthSaveLedger(r.records);
+  // 重复失误台账: 同一批战绩顺手判一遍 (纯本地计算, 不发请求; 按 gid 去重, 重复调用无害)
+  try {
+    if (typeof window !== 'undefined' && window.PoroMistakes) window.PoroMistakes.recordGames(games, puuid);
+  } catch (e) {}
+}
+
+// 「重复失误」卡片: 同一类失误在近 10 局出现 >=3 次算习惯; 过去是习惯、最近 3 局没再出现则标「已改掉」。
+// 判定与阈值全在 repeat-mistakes.js (纯函数, 可单测), 这里只渲染。台账只存 {gid, at, m, keys},
+// 不含玩家名/PUUID, 60 局后滚动丢弃。
+// 按模式分组展示: 峡谷的"高阵亡"和海斗的"高阵亡"门槛不同, 不能合成一行。
+function growthMistakesHtml() {
+  if (typeof window === 'undefined' || !window.PoroMistakes) return '';
+  const M = window.PoroMistakes;
+  let rows = [];
+  try { rows = M.summarize(M.readLedger()); } catch (e) { return ''; }
+  const body = rows.length
+    ? rows.map(r => {
+      const cls = r.status === 'habit' ? 'is-habit' : r.status === 'fixed' ? 'is-fixed' : 'is-watch';
+      const badge = r.status === 'fixed' ? '已改掉' : `近 ${r.window} 局 ${r.count} 次`;
+      return `<div class="gw-mistake ${cls}"><b>${escapeHtml(r.modeLabel || '')} · ${escapeHtml(r.label)}</b><span>${escapeHtml(badge)}</span><em>${escapeHtml(r.tip)}</em></div>`;
+    }).join('')
+    : '<div class="gw-empty">还没有足够的对局记录。打开几局对局详情、或等首页刷新战绩，就会开始统计同一类失误。</div>';
+  return `<section class="gw-card">
+      <div class="gw-head"><b>重复失误</b><span>近 ${M.WINDOW} 局 · 本机记录 · 按模式分开统计</span></div>
+      ${body}
+      <div class="gw-foot">同一模式下、同类失误近 ${M.WINDOW} 局出现 ≥${M.HABIT_AT} 次才升级为习惯；最近 ${M.CLEAN_GAMES} 局没再出现会标「已改掉」。大乱斗/海斗不判视野、补刀与野区资源。</div>
+    </section>`;
 }
 
 function growthChampName(cid) {
@@ -203,6 +230,118 @@ function growthDrawChart(canvas, weeks) {
   });
 }
 
+// ===== 1.5.161 强化组合台账 + 战绩库检索 =====
+const GW_AUG_BG = { '白银': '#6f7c8a', '黄金': '#b8892b', '棱彩': 'linear-gradient(135deg,#7d5bd6 0%,#3fa6c9 100%)', '活动': '#8a5bc9' };
+const GW_FAM_LABEL = { mayhem: '海斗', aram: '极地', arena: '斗魂', rift: '峡谷' };
+
+function growthAugChip(id) {
+  const meta = (typeof hexAugMeta !== 'undefined' && hexAugMeta && hexAugMeta[id]) || null;
+  const name = meta ? meta.name : ('#' + id);
+  const bg = meta && GW_AUG_BG[meta.rarity] ? GW_AUG_BG[meta.rarity] : '#5b6673';
+  // 强化小图标是纯白剪影, 必须垫稀有度色块才看得见 (与战报卡同一套处理)
+  // 包内 png 优先, 失败回退 CDN (与首页同一套兜底)
+  const bundled = (typeof window !== 'undefined' && window.PORO_AUG_META && window.PORO_AUG_META[id]) || null;
+  const iconSrc = meta ? ((meta.local || (bundled && bundled.local)) || meta.icon) : (bundled && (bundled.local || bundled.icon));
+  const icon = iconSrc
+    ? `<img class="gw-aug-icon" style="background:${bg}" src="${iconSrc}" data-aug-id="${id}" data-cdn="${meta.icon || ''}" alt="" onerror="augFallback(this)">`
+    : '';
+  return `<span class="gw-aug">${icon}${escapeHtml(name)}</span>`;
+}
+
+// ① 海斗强化组合: 只统计"本局 >= 2 个强化"的对局; 组合场次 < 8 不给胜率
+function growthAugmentHtml(ledger) {
+  const rows = (ledger || []).filter(r => Array.isArray(r.aug) && r.aug.length >= 2);
+  if (!rows.length) {
+    return `<section class="gw-card">
+      <div class="gw-head"><b>海克斯强化组合</b><span>还没有数据</span></div>
+      <div class="gw-empty">海斗 / 斗魂打完一局后自动积累（赛后从 SGP 读本局强化，最多 6 个）。</div>
+    </section>`;
+  }
+  const total = PoroInsights.ledgerStats(rows);
+  const combos = PoroInsights.augmentCombos(rows, { minGames: 8 }).slice(0, 4);
+  const usage = PoroInsights.augmentUsage(rows, { minGames: 8 }).slice(0, 10);
+  const comboRows = combos.map(c => {
+    const chips = c.ids.map(growthAugChip).join('');
+    const wr = c.wr == null ? '<em>样本不足</em>' : `<b>${c.wr}%</b>`;
+    return `<div class="gw-aug-row"><span class="gw-aug-set">${chips}</span><span class="gw-aug-meta">${c.games} 场 · ${wr}</span></div>`;
+  }).join('');
+  const usageRows = usage.map(u => {
+    const wr = u.wr == null ? '<em>样本不足</em>' : `<b>${u.wr}%</b>`;
+    return `<div class="gw-aug-row"><span class="gw-aug-set">${growthAugChip(u.id)}</span><span class="gw-aug-meta">${u.games} 场 · ${wr}</span></div>`;
+  }).join('');
+  return `<section class="gw-card">
+    <div class="gw-head"><b>海克斯强化组合</b><span>带强化的 ${total.n} 局</span></div>
+    <div class="gw-sub">同一局拿到的那套强化算一个组合；组合样本 < 8 场只给场次。</div>
+    ${comboRows || '<div class="gw-empty">还没有重复出现的组合。</div>'}
+    <div class="gw-head gw-head-sub"><b>单个强化</b><span>按你拿到过多少次排序</span></div>
+    ${usageRows || '<div class="gw-empty">暂无。</div>'}
+    <div class="gw-foot">强化胜率来自你自己这些对局，不是全体玩家的数据；样本少的不要当结论。</div>
+  </section>`;
+}
+
+// ⑤ 战绩库检索: 状态放在模块级, 切筛选不会因为重绘丢失
+let growthHistState = { champId: 0, family: '', win: '', days: 0 };
+let growthHistLimit = 40;
+function growthHistSet(key, value) {
+  growthHistState[key] = key === 'champId' ? (Number(value) || 0) : (key === 'days' ? (Number(value) || 0) : String(value || ''));
+  growthHistLimit = 40;
+  renderGrowthPage();
+}
+function growthHistoryHtml(ledger) {
+  const all = Array.isArray(ledger) ? ledger : [];
+  if (!all.length) {
+    return `<section class="gw-card"><div class="gw-head"><b>战绩库</b><span>还没有记录</span></div>
+      <div class="gw-empty">先在首页加载战绩，台账会随后台刷新自动积累（最多 800 局 / 400 天）。</div></section>`;
+  }
+  const st = growthHistState;
+  const rows = PoroInsights.filterLedger(all, { champId: st.champId, family: st.family, win: st.win === 'win' ? true : st.win === 'loss' ? false : null, days: st.days });
+  const s = PoroInsights.ledgerStats(rows);
+  // 英雄下拉: 只列台账里出现过的英雄
+  const seen = new Map();
+  for (const r of all) if (r.c) seen.set(+r.c, (seen.get(+r.c) || 0) + 1);
+  const champOptions = [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40)
+    .map(([id, n]) => `<option value="${id}"${+st.champId === id ? ' selected' : ''}>${escapeHtml(growthChampName(id))} (${n})</option>`).join('');
+  const famBtn = (v, label) => `<button type="button" class="gw-chip${st.family === v ? ' is-on' : ''}" onclick="growthHistSet('family','${v}')">${label}</button>`;
+  const dayBtn = (v, label) => `<button type="button" class="gw-chip${+st.days === v ? ' is-on' : ''}" onclick="growthHistSet('days',${v})">${label}</button>`;
+  const winBtn = (v, label) => `<button type="button" class="gw-chip${st.win === v ? ' is-on' : ''}" onclick="growthHistSet('win','${v}')">${label}</button>`;
+  const list = rows.slice(0, growthHistLimit).map(r => {
+    const fam = GW_FAM_LABEL[PoroInsights.queueFamily(r.q)] || '对局';
+    const date = new Date(+r.t || 0);
+    const when = (date.getMonth() + 1) + '-' + String(date.getDate()).padStart(2, '0');
+    const kda = `${+r.k || 0}/${+r.d || 0}/${+r.a || 0}`;
+    const dmg = Number.isFinite(+r.dmg) ? (+r.dmg + '%') : '—';
+    const kp = Number.isFinite(+r.kp) ? (+r.kp + '%') : '—';
+    return `<div class="gw-hist-row ${r.w ? 'is-win' : 'is-loss'}">
+      <img class="gw-hist-champ" src="${growthChampImg(+r.c)}" alt="">
+      <span class="gw-hist-main"><b>${escapeHtml(growthChampName(+r.c))}</b><small>${fam} · ${when} · ${r.w ? '胜' : '负'}</small></span>
+      <span class="gw-hist-kda">${kda}</span>
+      <span class="gw-hist-metric" title="伤害占比">${dmg}</span>
+      <span class="gw-hist-metric" title="参团率">${kp}</span>
+    </div>`;
+  }).join('');
+  const more = rows.length > growthHistLimit
+    ? `<button type="button" class="gw-more" onclick="growthHistLimit += 40; renderGrowthPage();">显示更多（还有 ${rows.length - growthHistLimit} 场）</button>`
+    : '';
+  return `<section class="gw-card">
+    <div class="gw-head"><b>战绩库</b><span>筛选后 ${s.n} 场</span></div>
+    <div class="gw-filter">
+      <select class="gw-select" onchange="growthHistSet('champId', this.value)">
+        <option value="0">全部英雄</option>${champOptions}
+      </select>
+      <span class="gw-filter-group">${famBtn('', '全部')}${famBtn('mayhem', '海斗')}${famBtn('aram', '极地')}${famBtn('arena', '斗魂')}${famBtn('rift', '峡谷')}</span>
+      <span class="gw-filter-group">${winBtn('', '不分')}${winBtn('win', '胜')}${winBtn('loss', '负')}</span>
+      <span class="gw-filter-group">${dayBtn(0, '全部')}${dayBtn(7, '7 天')}${dayBtn(30, '30 天')}</span>
+    </div>
+    <div class="gw-hist-sum">
+      ${s.n ? `样本 ${s.n} 场 · 胜率 ${s.wr}% · 场均死亡 ${s.dAvg}` : '这个筛选下没有对局'}
+      ${s.dmgAvg == null ? '' : ` · 伤害占比 ${s.dmgAvg}%`}
+      ${s.kpAvg == null ? '' : ` · 参团 ${s.kpAvg}%`}
+    </div>
+    <div class="gw-hist-list">${list || ''}</div>
+    ${more}
+  </section>`;
+}
+
 function renderGrowthPage() {
   const box = document.getElementById('growthPanel');
   if (!box) return;
@@ -242,7 +381,10 @@ function renderGrowthPage() {
     <section class="gw-card">
       <div class="gw-head"><b>长期趋势</b><span>本机累计 ${trend.total} 局</span></div>
       ${growthTrendHtml(trend)}
-    </section>`;
+    </section>
+    ${growthMistakesHtml()}
+    ${growthAugmentHtml(ledger)}
+    ${growthHistoryHtml(ledger)}`;
 
   if (trend.total) {
     const cv = box.querySelector('.gw-chart');

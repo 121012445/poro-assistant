@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   onAugmentOverlayData: (cb) => { ipcRenderer.on('augment-overlay:data', (e, d) => cb(d)); },
   // 对局内简报: 可预填，也可在用户明确启用的快捷键流程中直接发送
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
+  // 包内强化图标 -> dataURL (战报卡离屏渲染用)
+  augmentIconData: (ids) => ipcRenderer.invoke('augment:icon-data', ids),
   prefillGameChat: (text, activate) => ipcRenderer.invoke('game:prefillChat', text, !!activate),
   sendGameChatNow: (text, activate) => ipcRenderer.invoke('game:sendChat', text, !!activate),
   // 系统通知 (游戏中主窗口不可见时的反馈通道)
@@ -110,7 +112,10 @@ contextBridge.exposeInMainWorld('lolAPI', {
   ttsSynthesize: (text, opts) => ipcRenderer.invoke('tts:synthesize', text, opts),
   ttsVoices: () => ipcRenderer.invoke('tts:voices'),
   // 分享卡 (周报/战报): 主进程离屏渲染并保存 PNG; opts={title,prefix,theme}
-  saveShareCard: (html, width, height, opts) => ipcRenderer.invoke('share-card:save', html, width, height, opts),
+  // 战报/周报卡: 先 render 拿 dataUrl 在应用内预览, 用户确认后再 save / copy
+    renderShareCard: (html, width, height, opts) => ipcRenderer.invoke('share-card:render', html, width, height, opts),
+    saveShareCardImage: (dataUrl, opts) => ipcRenderer.invoke('share-card:save', dataUrl, opts),
+    copyShareCardImage: (dataUrl) => ipcRenderer.invoke('share-card:copy', dataUrl),
   // 设置 (托盘/自启)
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setAutoLaunch: (on) => ipcRenderer.invoke('settings:autoLaunch', on),

@@ -135,6 +135,12 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
     <div class="rv-chips">${chart.chips}</div>
     <div class="rv-ai"><button class="btn-secondary rv-ai-btn">AI 复盘</button><div class="rv-ai-out"></div></div>`;
   paint(body.querySelector('.rv-canvas'));
+  // 重复失误: 本局最该改的一件事。判定与累计全在本地 (repeat-mistakes.js), AI 不参与,
+  // 所以没配 AI 也有; 文案只报数字与"近 10 局第 N 次", 不打分、不预测。
+  try {
+    const mistakeHtml = buildMistakeCard(norm, gameId);
+    if (mistakeHtml) body.insertAdjacentHTML('beforeend', mistakeHtml);
+  } catch (e) {}
   const cachedAi = readAiReviewCache(gameId);
   if (cachedAi?.text) {
     renderAiReviewText(body.querySelector('.rv-ai-out'), cachedAi.text, true, cachedAi.style, cachedAi.generatedAt);
@@ -144,6 +150,49 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
     runAiReview(ev.target, norm, chart, gameId);
   });
 }
+// 复盘里"我"是谁: 与 buildPoroRating 同一口径
+function reviewOwnerPuuid() {
+  try {
+    return (typeof profileOverride !== 'undefined' && profileOverride && profileOverride.puuid)
+      || (typeof cachedSummoner !== 'undefined' && cachedSummoner && cachedSummoner.puuid)
+      || window._myPuuid || '';
+  } catch (e) { return ''; }
+}
+
+// 「本局最该改的一件事」: 只挑唯一一条最严重的, 附证据与"近 10 局第 N 次"。
+// 判定按模式分流 (大乱斗不判视野/补刀/资源, 见 repeat-mistakes.js), 文案也随模式走。
+// 一条都不成立时整块不渲染 —— 不硬凑、不给"本局没有失误"这种假结论。
+function buildMistakeCard(norm, gameId) {
+  if (typeof window === 'undefined' || !window.PoroMistakes || !norm) return '';
+  const self = reviewOwnerPuuid();
+  if (!self) return '';
+  const M = window.PoroMistakes;
+  const found = M.detect(norm, self, { requireDuration: true });
+  const primary = M.primaryOf(found);
+  if (!primary) return '';
+  // 记账 (幂等, 首页也会记一遍) + 取"同一模式下近 10 局第 N 次"
+  let summary = null;
+  try {
+    const gid = gameId || norm.gid || 0;
+    let rows = M.readLedger();
+    if (gid) {
+      rows = M.mergeLedger(rows, gid, found.map(x => x.key), Number(norm.time) || Date.now(), M.MAX_GAMES, primary.mode);
+      M.writeLedger(rows);
+    }
+    // 必须限定同一模式: 峡谷死 8 次和海斗死 12 次不是同一件事, 混着数会给出假的"第 N 次"
+    summary = (M.summarize(rows, { mode: primary.mode }) || []).find(r => r.key === primary.key) || null;
+  } catch (e) {}
+  const nth = summary && summary.count > 1
+    ? `<em>${escapeHtml(primary.modeLabel)}模式下, 近 ${summary.window} 局第 ${summary.count} 次${summary.status === 'habit' ? '，已经算习惯' : ''}</em>`
+    : '';
+  return `<div class="rv-mistake">
+      <div class="rv-mistake-head"><b>本局最该改的一件事</b><span>${escapeHtml(primary.modeLabel)} · ${escapeHtml(primary.label)}</span></div>
+      <p class="rv-mistake-ev">${escapeHtml(primary.evidence)}</p>
+      <p class="rv-mistake-tip">${escapeHtml(M.tipOf(primary.key, primary.mode))}</p>
+      ${nth}
+    </div>`;
+}
+
 // 解析时间线帧 → 经济差序列 + 关键事件
 function buildTimelineData(frames, pidTeam) {
   const diffs = [];   // {t(分钟), diff(蓝-红经济)}

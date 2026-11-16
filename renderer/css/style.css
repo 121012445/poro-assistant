@@ -1198,11 +1198,7 @@ body {
 /* 工具箱内的风险提示文案 */
 .tool-warn { font-size: var(--fs-xs); line-height: 1.65; color: var(--warning, #f39c12); margin-top: 6px; }
 /* 备战区助手: 一键换英雄按钮行 + 状态行 */
-.bench-swap-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.bench-swap-btns .btn-secondary { font-size: var(--fs-xs); }
 .bench-swap-state { margin-top: 6px; font-size: var(--fs-xs); line-height: 1.5; }
-/* 按钮上的来源标记: 备选(抽卡池, 无冷却) / 备战席(队友重随, 有 3 秒冷却) */
-.bench-tag { font-size: var(--fs-2xs); opacity: .75; margin-left: 4px; padding: 0 4px; border-radius: var(--radius-xs); background: rgba(127,127,127,.22); }
 /* 数据源诊断行: 真机排查"为什么没有按钮" */
 .bench-diag { margin-top: 4px; font-size: var(--fs-2xs); line-height: 1.5; color: var(--text-muted, #888); }
 /* ========== 黑名单页面 ========== */

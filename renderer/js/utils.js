@@ -233,46 +233,6 @@ function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') 
   return tags.slice(0, 3);
 }
 
-// 赛前风险画像只根据近期样本给出可解释提示，不把低样本结论包装成事实。
-function deriveRiskProfile(recent) {
-  const games = Array.isArray(recent) ? recent.filter(Boolean) : [];
-  if (!games.length) return { level: 'unknown', label: '数据不足', confidence: 0, evidence: ['暂无近期有效对局'] };
-  const wins = games.filter(g => g.win === true || g.win === 'Win').length;
-  const deaths = games.reduce((sum, g) => sum + Math.max(0, +g.d || 0), 0);
-  const kills = games.reduce((sum, g) => sum + Math.max(0, +g.k || 0), 0);
-  const assists = games.reduce((sum, g) => sum + Math.max(0, +g.a || 0), 0);
-  const winRate = Math.round(wins / games.length * 100);
-  const kda = (kills + assists) / Math.max(1, deaths);
-  const avgDeaths = deaths / games.length;
-  const evidence = [`近 ${games.length} 场 ${wins}胜${games.length - wins}负`, `KDA ${kda.toFixed(1)} · 场均死亡 ${avgDeaths.toFixed(1)}`];
-  if (games.length < 4) return { level: 'unknown', label: '样本较少', confidence: 15 + games.length * 10, evidence };
-
-  let level = 'normal';
-  let label = '状态一般';
-  if (winRate >= 60 && kda >= 3.2) { level = 'steady'; label = '近期稳定'; }
-  else if (avgDeaths >= 8 || (winRate <= 35 && kda < 1.8)) { level = 'watch'; label = '需要观察'; }
-
-  // 置信度不再等同于“是否拿满 10 场”。它同时考虑：
-  // 1) 最多 20 场的样本覆盖；2) 各局 KDA 是否一致；3) 指标离画像阈值有多远。
-  // 因为这仍是近期行为提示而非概率模型，最高封顶 95%，避免制造“100%确定”的错觉。
-  const perGameKda = games.map(g => (Math.max(0, +g.k || 0) + Math.max(0, +g.a || 0)) / Math.max(1, Math.max(0, +g.d || 0)));
-  const mean = perGameKda.reduce((sum, value) => sum + value, 0) / perGameKda.length;
-  const deviation = Math.sqrt(perGameKda.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / perGameKda.length);
-  const consistency = 1 - Math.min(1, deviation / Math.max(1, mean));
-  const clamp01 = value => Math.max(0, Math.min(1, value));
-  let decisiveness = 0.25;
-  if (level === 'steady') {
-    decisiveness = (clamp01((winRate - 55) / 25) + clamp01((kda - 2.7) / 2.5)) / 2;
-  } else if (level === 'watch') {
-    const deathSignal = clamp01((avgDeaths - 6.5) / 4.5);
-    const weakSignal = clamp01((40 - winRate) / 25) * 0.55 + clamp01((2.2 - kda) / 1.8) * 0.45;
-    decisiveness = Math.max(deathSignal, weakSignal);
-  }
-  const sampleScore = 35 + Math.min(1, games.length / 20) * 40;
-  const confidence = Math.min(95, Math.round(sampleScore + consistency * 8 + decisiveness * 12));
-  return { level, label, confidence, evidence };
-}
-
 // 图片一次性重试 (2026-09-28): 头像/装备/符文/技能图标都是 ddragon/communitydragon
 // 的直连 <img>, 首屏网络被游戏重连挤占时可能瞬时加载失败 —— 原先 onerror 直接
 // visibility='hidden', 之后哪怕网络恢复也不再有人重试 (要等下一次整块重渲染)。
@@ -308,4 +268,67 @@ function damageCompositionBar(total, phys, magic, truth) {
   };
   const tip = sum > 0 ? `物理 ${fmt(P)} · 魔法 ${fmt(M)} · 真实 ${fmt(T)}` : '无伤害数据';
   return `<span class="dmg-comp-bar" title="${escapeHtml(tip)}">${seg(P, '#e07856', '物理')}${seg(M, '#5b9bd7', '魔法')}${seg(T, '#a8a8a8', '真实')}</span>`;
+}
+
+// 强化图标加载兜底: 包内 png 优先 (离线可用) -> 失败才试 CommunityDragon -> 都失败才隐藏。
+// 之前只有 retryImg (直接重试同一个外网地址), 弱网下重试也失败, 于是首页卡片上
+// 只剩一排稀有度色块 —— 也就是"图案偶尔不显示"。
+const _augDataUrlCache = new Map();
+function augFallback(img) {
+  try {
+    // 每个 img 只记一行: 排查"哪一层挂了"时不用猜 (用户把 crash.log 发来即可)
+    if (!img.dataset.augLog) {
+      img.dataset.augLog = '1';
+      try {
+        if (typeof lolAPI !== 'undefined' && lolAPI && lolAPI.debugLog) {
+          lolAPI.debugLog('[AUG] fallback id=' + (img.getAttribute('data-aug-id') || '')
+            + ' src=' + String(img.getAttribute('src') || '').slice(0, 60));
+        }
+      } catch (e2) {}
+    }
+    // ① 包内 png 失败 -> ② CommunityDragon
+    const cdn = img.getAttribute('data-cdn');
+    if (cdn && !img.dataset.augTried) {
+      img.dataset.augTried = '1';
+      img.src = cdn;
+      return;
+    }
+    // ③ 还失败 -> 让主进程直接读 asar 里的 png 转 dataURL (同步可读, 不依赖网络/相对路径)
+    const id = Number(img.getAttribute('data-aug-id'));
+    if (id > 0 && typeof lolAPI !== 'undefined' && lolAPI && typeof lolAPI.augmentIconData === 'function') {
+      if (_augDataUrlCache.has(id)) {
+        const cached = _augDataUrlCache.get(id);
+        if (cached) { img.src = cached; return; }
+      } else if (!img.dataset.augIpcTried) {
+        img.dataset.augIpcTried = '1';
+        lolAPI.augmentIconData([id]).then(map => {
+          const url = map && map[id];
+          _augDataUrlCache.set(id, url || '');
+          if (url) { img.src = url; return; }
+          img.style.visibility = 'hidden';
+          img.style.background = 'transparent';
+        }).catch(() => {
+          img.style.visibility = 'hidden';
+          img.style.background = 'transparent';
+        });
+        return;
+      }
+    }
+    // 全失败: 不留纯色空块 —— 交给 CSS 画成"虚线空位", 一眼看出是图缺了
+    img.classList.add('is-missing');
+    img.style.background = 'transparent';
+    img.removeAttribute('src');
+  } catch (e) {}
+}
+
+// 统一的应用内日志出口: 旧代码里的 console.log 统一走这里, 只写 crash.log,
+// 不打到 DevTools 控制台 (开发时想看的话下面 console 分支也可以放开)。
+function logDebug(...args) {
+  try {
+    const text = args.map(a => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a); } catch (e) { return String(a); }
+    }).join(' ');
+    if (typeof lolAPI !== 'undefined' && lolAPI && typeof lolAPI.debugLog === 'function') lolAPI.debugLog(text);
+  } catch (e) {}
 }

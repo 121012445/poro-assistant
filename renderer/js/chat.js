@@ -286,7 +286,7 @@ async function sendKDABriefing(ally) {
         const me = await lolAPI.lcuRequest('GET', '/lol-summoner/v1/current-summoner');
         dlog('fetch self=' + (me?.puuid ? 'ok' : 'missing') + ' error=' + (me?.__error || ''));
         if (me && me.puuid) window._myPuuid = me.puuid;
-      } catch (e) { console.log('[KDA] fetch _myPuuid error:', e); }
+      } catch (e) { logDebug('[KDA] fetch _myPuuid error:', e); }
     }
     if (!window._myPuuid) { showToast('无法获取自己的信息', 'negative'); return; }
     const selected = kdaTargetRoster(parts, window._myPuuid, ally);
@@ -304,7 +304,7 @@ async function sendKDABriefing(ally) {
     // 名字解析: gameflow 会话可能不带名字, 用缓存兜底 (否则简报里全是"未知")
     await resolveNames(target.map(p => p.puuid).filter(Boolean));
     const platformId = await getPlatformId();
-    console.log('[KDA] platformId:', platformId);
+    logDebug('[KDA] platformId:', platformId);
     const buildLine = async p => {
       try {
         const profile = await recentProfileFor(platformId, p.puuid, 10);

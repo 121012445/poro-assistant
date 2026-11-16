@@ -64,8 +64,6 @@ function _benchAlertReset() {
   _benchSubsetState = 'idle';
   _benchPickableState = 'idle';
   _benchSwapBtnsKey = '';
-  const box = document.getElementById('benchSwapBtns');
-  if (box) box.innerHTML = '<span class="tool-state">当前没有可换的英雄</span>';
   _benchSetSwapState('');
   _benchRenderDiag();
   _benchOverlayReset();   // 最后收尾: 让浮窗也收起, 不带走上一局的按钮
@@ -186,6 +184,10 @@ let _benchOverlayItems = [];         // 最近一次算出的可用英雄 [{id,n
 let _benchOverlayState = '';         // 推给浮窗的状态文案
 let _benchOverlayStateClass = '';    // positive | negative | accent | '' (与浮窗 CSS 类名一致)
 let _benchOverlayKey = '';           // 去重: 内容没变就不打 IPC (选人事件每秒数次)
+// 诊断节流用的上一次状态: 必须显式声明, 否则 _benchOverlaySync 读到未定义变量会抛
+// ReferenceError, 后面的 overlayUpdate 就永远发不出去 —— 浮窗整局不显示。
+let _benchOverlayLastVisible = null;
+let _benchOverlayLastCount = -1;
 const _benchHexRateCache = new Map(); // championId -> {winRate,games}; 仅海克斯模式使用
 const _benchHexRatePending = new Set();
 const BENCH_OVERLAY_TITLE = '备战区';
@@ -240,13 +242,28 @@ function _benchOverlaySync() {
     _benchOverlayState + '|' + _benchOverlayStateClass;
   if (key === _benchOverlayKey) return;
   _benchOverlayKey = key;
+  // 诊断: 只在"该不该显示 / 条数"变化时打一行, 不刷屏
+if (_benchOverlayLastVisible === null
+    || visible !== _benchOverlayLastVisible || _benchOverlayItems.length !== _benchOverlayLastCount) {
+  _benchOverlayLastVisible = visible;
+  _benchOverlayLastCount = _benchOverlayItems.length;
   try {
+    logDebug('[BENCH-OV] visible=' + visible + ' phase=' + window._gameflowPhase
+      + ' mode=' + ((_benchLastSession && (_benchLastSession.queueId || _benchLastSession.gameMode)) || '')
+      + ' on=' + benchOverlayOn + ' dismissed=' + _benchOverlayDismissed
+      + ' items=' + _benchOverlayItems.length
+      + ' sess=' + !!(_benchLastSession && Array.isArray(_benchLastSession.benchChampions)));
+  } catch (e) {}
+}
+try {
     Promise.resolve(lolAPI.overlayUpdate({
       title: BENCH_OVERLAY_TITLE,
       items: visible ? _benchOverlayItems : [],
       state: _benchOverlayState,
       stateClass: _benchOverlayStateClass,
-      visible: visible
+      visible: visible,
+      // 主进程拿它兜底判断阶段: 只靠 phase:report 的话, Poro 中途启动会丢这一步
+      phase: window._gameflowPhase || ''
     })).then(ok => {
       // 主进程重启/窗口创建竞态时允许下一帧重发，不能让去重 key 永久吞掉这次更新。
       if (!ok && _benchOverlayKey === key) _benchOverlayKey = '';
@@ -417,8 +434,8 @@ function benchSwapComparison(session, championId) {
 }
 
 function benchRenderSwapButtons(session) {
-  const box = document.getElementById('benchSwapBtns');
-  if (!box) return;
+  // 1.6.2: 工具箱里不再铺英雄按钮（英雄多会重叠）。这里只算数据并喂给选人浮窗，
+  // 浮窗点击 → overlay:swap → benchSwapNow()，换人链路不变。
   // 强度角标要用当前模式 (大乱斗/海斗) 的榜单; 模式从 gameflow 队列派生, 未知时不显示
   const benchTierMode = tierModeFor(hexRecommendContext?.queueId, '');
   if (benchTierMode) loadModeTiers(benchTierMode).then(t => { if (t && t.loadedAt !== (benchTierMode in _benchTierSeen ? _benchTierSeen[benchTierMode] : -1)) { _benchTierSeen[benchTierMode] = t.loadedAt; _benchSwapBtnsKey = ''; benchRenderSwapButtons(); } }).catch(() => {});
@@ -454,26 +471,13 @@ function benchRenderSwapButtons(session) {
   if (key === _benchSwapBtnsKey) return;
   _benchSwapBtnsKey = key;
   try {
-    lolAPI.debugLog?.('[BENCH] bench=' + benchIds.length + ' subset=' + subsetIds.length +
+    const _benchModeTag = (s && (s.queueId || s.gameMode || (s.queue && s.queue.id))) || '';
+    lolAPI.debugLog?.('[BENCH] bench=' + benchIds.length + ' subset=' + subsetIds.length
+      + ' mode=' + _benchModeTag + ' phase=' + window._gameflowPhase +
       ' pickable=' + gateN + ' visible=' + usable.length + ' blockedSubset=' + blocked);
   } catch (e) {}
-  if (!usable.length) {
-    box.innerHTML = blocked
-      ? '<span class="tool-state">' + blocked + ' 个备选池英雄暂不可选' +
-        (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'
-      : '<span class="tool-state">当前没有可换的英雄</span>';
-    return;
-  }
-  box.innerHTML = usable.map(it => {
-    const name = escapeHtml(champNumMap?.[String(it.id)]?.name || ('英雄#' + it.id));
-    const rate = hexRecommendContext?.isHex ? _benchHexRateCache.get(it.id) : null;
-    const rateText = Number.isFinite(rate?.winRate) ? ' · ' + (rate.winRate * 100).toFixed(1) + '%' : '';
-    return '<button class="btn-secondary" onclick="benchSwapNow(' + it.id + ')">换到 ' + name +
-      ' <span class="bench-tag">' + it.tag + rateText + '</span>' + balanceBadgeHtml(it.id) + (benchTierMode ? modeTierBadgeHtml(benchTierMode, it.id) : '') + '<small style="display:block;white-space:normal">' + escapeHtml(benchSwapComparison(s, it.id)) + '</small></button>';
-  }).join('') + (blocked
-    ? '<span class="tool-state">另有 ' + blocked + ' 个备选池英雄暂不可选' +
-      (gateN >= 0 ? '（该列表仅 ' + gateN + ' 项）' : '') + '</span>'
-    : '');
+  // 英雄按钮列表已移除：数据已在上面的 _benchOverlayItems + _benchOverlaySync() 交给浮窗。
+  // 没有可用英雄时也不再往页面写占位文案——状态由 #benchSwapState / #benchDiag 交代。
 }
 
 function _benchSwapCancel() {
@@ -600,7 +604,7 @@ function handleChampSelectEvent(session) {
   if (!_champSelectChatCid && session && Array.isArray(session.myTeam) && session.myTeam.length) {
     lolAPI.lcuRequest('GET', '/lol-chat/v1/conversations').then(cs => {
       const room = Array.isArray(cs) && cs.find(c => c && c.type === 'championSelect' && c.id);
-      if (room) { _champSelectChatCid = room.id; console.log('[chat] champSelect room captured:', room.id); }
+      if (room) { _champSelectChatCid = room.id; logDebug('[chat] champSelect room captured:', room.id); }
     }).catch(() => {});
   }
   if (autoRuneEnabled && session?.myTeam && window._myPuuid) {
@@ -613,7 +617,7 @@ function handleChampSelectEvent(session) {
 let _premadeNotifiedFor = '';
 function handleReadyCheckEvent(rc) {
   if (!autoAcceptOn || complianceOn) return;
-  console.log('[auto-accept] WS ready-check:', JSON.stringify({ state: rc?.state, playerResponse: rc?.playerResponse }));
+  logDebug('[auto-accept] WS ready-check:', JSON.stringify({ state: rc?.state, playerResponse: rc?.playerResponse }));
   const hasPopup = rc && !!rc.state && rc.state !== 'None' && rc.state !== 'InProgress';
   const notResponded = !rc?.playerResponse || rc.playerResponse === 'None' || rc.playerResponse === '';
   if (hasPopup && notResponded) {

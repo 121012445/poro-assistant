@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026111407">
-<link rel="stylesheet" href="css/extras.css?v=2026111407">
-<link rel="stylesheet" href="css/dark.css?v=2026111407">
-<link rel="stylesheet" href="css/premium.css?v=2026111407">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026111407">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111407">
-<link rel="stylesheet" href="css/v4.css?v=2026111407">
+<link rel="stylesheet" href="css/style.css?v=2026111603">
+<link rel="stylesheet" href="css/extras.css?v=2026111603">
+<link rel="stylesheet" href="css/dark.css?v=2026111603">
+<link rel="stylesheet" href="css/premium.css?v=2026111603">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111603">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111603">
+<link rel="stylesheet" href="css/v4.css?v=2026111603">
 </head>
 <body>
 
@@ -316,8 +316,8 @@
       <div class="tools-section" id="tools-sec-pick" data-cat="选人与对局辅助">选人与对局辅助</div>
       <div class="tool-card">
         <h3>备战区助手（大乱斗 / 海斗）</h3>
-        <p>列出<b>当前能换到的英雄</b>，点一下就发起，<b>不做本地等待</b>：<b>备选</b>（抽卡池）里的英雄开局就固定、从来没有冷却，点了就是瞬换；<b>备战席</b>里的英雄绝大多数也能立即换到 —— 只有<b>刚被骰子重随进备战席</b>的那一个带 3 秒保护期（官方 14.13 起，防队友抢板凳）。助手一律先出手问服务器，被拒了才把它当作保护期、精确等到结束自动再换。<b>你不需要盯着倒计时，也不需要反复点。</b>开启开关后还会弹出倒计时提醒。</p>
-        <p class="tool-warn">⚠ 那 3 秒保护期由服务器判定，本助手无法也不尝试缩短它，只是把"等"和"重试"从你身上挪走；按钮只列出服务器当前允许你选择的英雄。使用第三方辅助工具仍可能违反游戏规则，请自行评估账号风险。</p>
+        <p>英雄列表只在<b>选人浮窗</b>里显示与点击（浮窗贴在客户端旁边，免切窗口）；这个页面只负责开关与运行状态，不再铺一长串英雄按钮 —— 英雄多时会互相挤压。助手一律先出手问服务器，<b>不做本地等待</b>：<b>备选</b>（抽卡池）里的英雄开局就固定、从无冷却；<b>备战席</b>里绝大多数也能立即换到，只有<b>刚被骰子重随进备战席</b>的那个带 3 秒保护期（官方 14.13 起）。被拒了才当作保护期、精确等到结束自动再换。</p>
+        <p class="tool-warn">⚠ 那 3 秒保护期由服务器判定，本助手无法也不尝试缩短它，只是把"等"和"重试"从你身上挪走；浮窗里只列出服务器当前允许你选择的英雄。使用第三方辅助工具仍可能违反游戏规则，请自行评估账号风险。</p>
         <div class="tool-row">
           <span id="benchAlertState" class="tool-state">已关闭</span>
           <label class="switch"><input type="checkbox" id="benchAlertToggle" onchange="toggleBenchAlert(this.checked)"><span class="slider"></span></label>
@@ -326,7 +326,6 @@
           <span class="tool-state">选人浮窗（浮在客户端旁边，免切窗口换英雄）</span>
           <label class="switch"><input type="checkbox" id="benchOverlayToggle" onchange="toggleBenchOverlay(this.checked)"><span class="slider"></span></label>
         </div>
-        <div id="benchSwapBtns" class="bench-swap-btns"></div>
         <div id="benchSwapState" class="tool-state bench-swap-state"></div>
         <div id="benchDiag" class="tool-state bench-diag"></div>
       </div>
@@ -764,58 +763,62 @@
   </div>
 </div>
 
-<script src="js/utils.js?v=2026111407"></script>
-<script src="js/player-index.js?v=2026111407"></script>
-<script src="js/local-cache.js?v=2026111407"></script>
-<script src="js/icons.js?v=2026111407"></script>
-<script src="js/data-model.js?v=2026111407"></script>
-<script src="js/session-state.js?v=2026111407"></script>
-<script src="js/performance.js?v=2026111407"></script>
-<script src="js/diagnostics.js?v=2026111407"></script>
-<script src="js/balance.js?v=2026111407"></script>
-<script src="js/behavior-tags.js?v=2026111407"></script>
-<script src="js/bench.js?v=2026111407"></script>
-<script src="js/champions.js?v=2026111407"></script>
-<script src="js/progress-report.js?v=2026111407"></script>
-<script src="js/home.js?v=2026111407"></script>
-<script src="js/automation-log.js?v=2026111407"></script>
-<script src="js/automation-matrix.js?v=2026111407"></script>
-<script src="js/home-status.js?v=2026111407"></script>
-<script src="js/ai-markdown.js?v=2026111407"></script>
-<script src="js/review.js?v=2026111407"></script>
-<script src="js/theme.js?v=2026111407"></script>
-<script src="js/hex.js?v=2026111407"></script>
-<script src="js/history.js?v=2026111407"></script>
-<script src="js/enemy-intel.js?v=2026111407"></script>
-<script src="js/draft-coach.js?v=2026111407"></script>
-<script src="js/growth-model.js?v=2026111407"></script>
-<script src="js/growth.js?v=2026111407"></script>
-<script src="js/battle-card.js?v=2026111407"></script>
-<script src="js/build-engine.js?v=2026111407"></script>
-<script src="js/live.js?v=2026111407"></script>
-<script src="js/weekly.js?v=2026111407"></script>
-<script src="js/friends.js?v=2026111407"></script>
-<script src="js/compliance.js?v=2026111407"></script>
-<script src="js/blacklist.js?v=2026111407"></script>
-<script src="js/social.js?v=2026111407"></script>
-<script src="js/chat.js?v=2026111407"></script>
-<script src="js/translate.js?v=2026111407"></script>
-<script src="js/autobp.js?v=2026111407"></script>
-<script src="js/pick-guard.js?v=2026111407"></script>
-<script src="js/lcu-events.js?v=2026111407"></script>
-<script src="js/opgg-loadout.js?v=2026111407"></script>
-<script src="js/update.js?v=2026111407"></script>
-<script src="js/autoflow.js?v=2026111407"></script>
-<script src="js/chat-status.js?v=2026111407"></script>
-<script src="js/settings.js?v=2026111407"></script>
-<script src="js/persist.js?v=2026111407"></script>
-<script src="js/hotkeys.js?v=2026111407"></script>
-<script src="js/live-metrics.js?v=2026111407"></script>
-<script src="js/live-tips.js?v=2026111407"></script>
-<script src="js/autoreturn.js?v=2026111407"></script>
-<script src="js/sona-extra.js?v=2026111407"></script>
-<script src="js/tools-nav.js?v=2026111407"></script>
-<script src="js/tools-overview.js?v=2026111407"></script>
-<script src="js/app.js?v=2026111407"></script>
+<script src="js/utils.js?v=2026111603"></script>
+<script src="js/player-index.js?v=2026111603"></script>
+<script src="js/local-cache.js?v=2026111603"></script>
+<script src="js/icons.js?v=2026111603"></script>
+<script src="js/data-model.js?v=2026111603"></script>
+<script src="js/session-state.js?v=2026111603"></script>
+<script src="js/performance.js?v=2026111603"></script>
+<script src="js/diagnostics.js?v=2026111603"></script>
+<script src="js/balance.js?v=2026111603"></script>
+<script src="js/behavior-tags.js?v=2026111603"></script>
+<script src="js/bench.js?v=2026111603"></script>
+<script src="js/champions.js?v=2026111603"></script>
+<script src="js/progress-report.js?v=2026111603"></script>
+<script src="js/home.js?v=2026111603"></script>
+<script src="js/automation-log.js?v=2026111603"></script>
+<script src="js/automation-matrix.js?v=2026111603"></script>
+<script src="js/home-status.js?v=2026111603"></script>
+<script src="js/ai-markdown.js?v=2026111603"></script>
+<script src="js/repeat-mistakes.js?v=2026111603"></script>
+<script src="js/review.js?v=2026111603"></script>
+<script src="js/theme.js?v=2026111603"></script>
+<script src="assets/augments-meta.js?v=2026111603"></script>
+<script src="js/hex.js?v=2026111603"></script>
+<script src="js/history.js?v=2026111603"></script>
+<script src="js/enemy-intel.js?v=2026111603"></script>
+<script src="js/live-insights.js?v=2026111603"></script>
+<script src="js/draft-coach.js?v=2026111603"></script>
+<script src="js/growth-model.js?v=2026111603"></script>
+<script src="js/growth.js?v=2026111603"></script>
+<script src="js/battle-card.js?v=2026111603"></script>
+<script src="js/build-engine.js?v=2026111603"></script>
+<script src="js/player-habits.js?v=2026111603"></script>
+<script src="js/live.js?v=2026111603"></script>
+<script src="js/weekly.js?v=2026111603"></script>
+<script src="js/friends.js?v=2026111603"></script>
+<script src="js/compliance.js?v=2026111603"></script>
+<script src="js/blacklist.js?v=2026111603"></script>
+<script src="js/social.js?v=2026111603"></script>
+<script src="js/chat.js?v=2026111603"></script>
+<script src="js/translate.js?v=2026111603"></script>
+<script src="js/autobp.js?v=2026111603"></script>
+<script src="js/pick-guard.js?v=2026111603"></script>
+<script src="js/lcu-events.js?v=2026111603"></script>
+<script src="js/opgg-loadout.js?v=2026111603"></script>
+<script src="js/update.js?v=2026111603"></script>
+<script src="js/autoflow.js?v=2026111603"></script>
+<script src="js/chat-status.js?v=2026111603"></script>
+<script src="js/settings.js?v=2026111603"></script>
+<script src="js/persist.js?v=2026111603"></script>
+<script src="js/hotkeys.js?v=2026111603"></script>
+<script src="js/live-metrics.js?v=2026111603"></script>
+<script src="js/live-tips.js?v=2026111603"></script>
+<script src="js/autoreturn.js?v=2026111603"></script>
+<script src="js/sona-extra.js?v=2026111603"></script>
+<script src="js/tools-nav.js?v=2026111603"></script>
+<script src="js/tools-overview.js?v=2026111603"></script>
+<script src="js/app.js?v=2026111603"></script>
 </body>
 </html>

@@ -254,6 +254,12 @@
     if (!me) return null;
     const t = +game.time || 0;
     if (!t) return null;
+    const team = Array.isArray(game.participants)
+      ? game.participants.filter(x => x && +x.team === +me.team)
+      : [me];
+    const teamDmg = team.reduce((s, x) => s + (+x.dmg || 0), 0);
+    const teamGold = team.reduce((s, x) => s + (+x.gold || 0), 0);
+    const teamKills = team.reduce((s, x) => s + (+x.k || 0), 0);
     return {
       id: String(game.gid || game.gameId || ''),
       t,
@@ -265,7 +271,14 @@
       d: +me.d || 0,
       a: +me.a || 0,
       cs: +me.cs || 0,
-      dur: Math.max(0, Math.round(+game.dur || 0))
+      dur: Math.max(0, Math.round(+game.dur || 0)),
+      // 1.5.161: 台账补指标字段 —— 伤害占比/参团/经济占比按"本队总量"算, 视野取原始分,
+      // 强化 id 供海斗组合统计。老台账没有这些字段: 读取端一律把"无分母"当 null, 不补 0。
+      dmg: teamDmg > 0 ? Math.round((+me.dmg || 0) / teamDmg * 100) : null,
+      kp: teamKills > 0 ? Math.round(((+me.k || 0) + (+me.a || 0)) / teamKills * 100) : null,
+      gld: teamGold > 0 ? Math.round((+me.gold || 0) / teamGold * 100) : null,
+      vis: +me.visionScore || 0,
+      aug: Array.isArray(me.augmentIds) ? me.augmentIds.map(Number).filter(n => n > 0).slice(0, 6) : []
     };
   }
 

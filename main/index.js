@@ -533,7 +533,16 @@ ipcMain.handle('overlay:update', async (e, payload) => {
   };
   // 主进程是最终门禁：即使渲染层收到迟到的 champ-select/列表事件，只要已经进入
   // GameStart（加载页）或 InProgress，就拒绝重新显示备战区浮窗。
-  const want = !!p.visible && lastReportedPhase === 'ChampSelect';
+  // 阶段兜底: payload 自己带 phase 时也认（Poro 中途启动会错过 phase:report）
+  const payloadPhase = String(p.phase || '');
+  const want = !!p.visible && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
+  // 诊断: 每次都记（渲染层已经做了去重, 频率与选人事件同量级）, 这样"为什么没出"也一定留痕
+  try {
+    logErr('[OVERLAY] want=' + want + ' visible=' + !!p.visible
+      + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase
+      + ' items=' + overlayPayload.items.length
+      + ' win=' + !!(overlayWindow && !overlayWindow.isDestroyed()));
+  } catch (e) {}
   if (want) {
     const win = createOverlayWindow();
     overlayVisible = true;
@@ -2396,16 +2405,14 @@ function shareCardCss() {
   return out;
 }
 
-ipcMain.handle('share-card:save', async (e, html, width, height, opts) => {
-  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+// 战报/周报卡: 只做离屏渲染成 PNG, 不弹保存框 —— 先把图给渲染层预览, 用户点「保存到…」再落盘。
+// 旧实现是渲染完直接 showSaveDialog(默认桌面), 用户看不到要存的是什么, 体感上就是"点一下直接跳文件夹"。
+async function renderShareCardPng(html, width, height, opts) {
   const w = Math.max(200, Math.min(1600, Number(width) || 460));
   const h = Math.max(200, Math.min(2400, Number(height) || 760));
-  if (typeof html !== 'string' || !html.length || html.length > 500000) return { __error: '内容无效' };
+  if (typeof html !== 'string' || !html.length || html.length > 500000) throw new Error('内容无效');
   const o = (opts && typeof opts === 'object') ? opts : {};
   const dark = o.theme === 'dark';
-  const saveTitle = (typeof o.title === 'string' && o.title.trim()) ? o.title.trim().slice(0, 40) : '保存分享图片';
-  const prefix = ((typeof o.prefix === 'string' && o.prefix.trim()) ? o.prefix.trim() : 'Poro周报')
-    .replace(/[\\/:*?"<>|]/g, '').slice(0, 20) || 'Poro';
   let win = null;
   try {
     win = new BrowserWindow({
@@ -2419,7 +2426,7 @@ ipcMain.handle('share-card:save', async (e, html, width, height, opts) => {
     const reset = '<style>html,body{margin:0!important;padding:0!important;display:block!important;'
       + 'grid-template-columns:none!important;background:' + (dark ? '#14151a' : '#fafafa') + '!important;overflow:hidden}</style>';
     const wrapped = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-      + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src https://ddragon.leagueoflegends.com">'
+      + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org">'
       + '<style>' + shareCardCss() + '</style>' + reset
       + '</head><body class="' + (dark ? 'dark' : '') + '">' + html + '</body></html>';
     // data URL 长度随样式表变大（当前约 310KB）。超过 1.2MB 时 Chromium 会拒绝加载，
@@ -2434,19 +2441,68 @@ ipcMain.handle('share-card:save', async (e, html, width, height, opts) => {
     }
     await new Promise(resolve => setTimeout(resolve, 600)); // 等图片解码
     const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: h });
+    return image.toPNG();
+  } finally {
+    try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
+  }
+}
+
+const SHARE_CARD_MAX_DATA_URL = 32 * 1024 * 1024;   // 防呆: 正常截图几百 KB
+function shareCardBufferOf(dataUrl) {
+  const s = String(dataUrl || '');
+  if (!s.startsWith('data:image/png;base64,')) return null;
+  if (s.length > SHARE_CARD_MAX_DATA_URL) return null;
+  try { return Buffer.from(s.slice('data:image/png;base64,'.length), 'base64'); } catch (e) { return null; }
+}
+function shareCardFileName(opts) {
+  const o = (opts && typeof opts === 'object') ? opts : {};
+  const prefix = ((typeof o.prefix === 'string' && o.prefix.trim()) ? o.prefix.trim() : 'Poro战报')
+    .replace(/[\\/:*?"<>|]/g, '').slice(0, 20) || 'Poro';
+  return prefix + '-' + new Date().toISOString().slice(0, 10) + '.png';
+}
+
+ipcMain.handle('share-card:render', async (e, html, width, height, opts) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+  try {
+    const png = await renderShareCardPng(html, width, height, opts || {});
+    return { ok: true, dataUrl: 'data:image/png;base64,' + png.toString('base64') };
+  } catch (error) {
+    logErr('[SHARE CARD] render failed: ' + error.message);
+    return { __error: error.message };
+  }
+});
+
+ipcMain.handle('share-card:save', async (e, dataUrl, opts) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+  try {
+    const buf = shareCardBufferOf(dataUrl);
+    if (!buf || !buf.length) return { __error: '图片数据无效' };
+    const o = (opts && typeof opts === 'object') ? opts : {};
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
-      title: saveTitle,
-      defaultPath: path.join(app.getPath('desktop'), prefix + '-' + new Date().toISOString().slice(0, 10) + '.png'),
+      title: (typeof o.saveTitle === 'string' && o.saveTitle.trim()) ? o.saveTitle.trim().slice(0, 40) : '保存分享图片',
+      defaultPath: path.join(app.getPath('pictures') || app.getPath('desktop'), shareCardFileName(o)),
       filters: [{ name: 'PNG 图片', extensions: ['png'] }]
     });
     if (canceled || !filePath) return { canceled: true };
-    fs.writeFileSync(filePath, image.toPNG());
+    fs.writeFileSync(filePath, buf);
     return { ok: true, filePath };
   } catch (error) {
     logErr('[SHARE CARD] save failed: ' + error.message);
     return { __error: error.message };
-  } finally {
-    try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
+  }
+});
+
+ipcMain.handle('share-card:copy', async (e, dataUrl) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
+  try {
+    const buf = shareCardBufferOf(dataUrl);
+    if (!buf || !buf.length) return { __error: '图片数据无效' };
+    const { clipboard } = require('electron');
+    clipboard.writeImage(nativeImage.createFromBuffer(buf, { scaleFactor: 1 }));
+    return { ok: true };
+  } catch (error) {
+    logErr('[SHARE CARD] copy failed: ' + error.message);
+    return { __error: error.message };
   }
 });
 
@@ -2545,6 +2601,26 @@ ipcMain.handle('system:fixWindow', async () => {
 });
 
 // ---------- 剪贴板写入 (对局内简报复制) ----------
+// 强化图标 (包内 png) -> dataURL: 战报卡离屏渲染用, 不依赖外网
+ipcMain.handle('augment:icon-data', async (e, ids) => {
+  const out = {};
+  try {
+    const fsMod = require('fs');
+    const pathMod = require('path');
+    const dir = pathMod.join(__dirname, '..', 'renderer', 'assets', 'aug');
+    for (const raw of (Array.isArray(ids) ? ids : []).slice(0, 24)) {
+      const id = Number(raw);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      const file = pathMod.join(dir, id + '.png');
+      try {
+        const buf = fsMod.readFileSync(file);
+        if (buf.length) out[id] = 'data:image/png;base64,' + buf.toString('base64');
+      } catch (err) { /* 缺文件就交给前端回退外链 */ }
+    }
+  } catch (err) { /* ignore */ }
+  return out;
+});
+
 ipcMain.handle('clipboard:write', async (e, text) => {
   try {
     const { clipboard } = require('electron');

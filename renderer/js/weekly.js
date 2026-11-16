@@ -105,12 +105,19 @@ function closeWeeklyModal() {
   if (modal) modal.classList.remove('show');
 }
 
+// 周报图片: 与战报卡一致 —— 先预览, 再选保存位置
 async function saveWeeklyReportImage() {
   const card = document.getElementById('weeklyCardInner');
   if (!card) return;
-  const r = await lolAPI.saveShareCard(card.outerHTML, Math.ceil(card.getBoundingClientRect().width), Math.ceil(card.getBoundingClientRect().height), {
-    title: '保存周报图片', prefix: 'Poro周报', theme: document.body.classList.contains('dark') ? 'dark' : 'light'
-  }).catch(e => ({ __error: e?.message || e }));
-  if (r && r.ok) showToast('周报已保存: ' + r.filePath, 'positive');
-  else if (r && !r.canceled) showToast('保存失败: ' + (r.__error || '未知错误'), 'negative');
+  const rect = card.getBoundingClientRect();
+  const theme = document.body.classList.contains('dark') ? 'dark' : 'light';
+  const opts = { title: '周报预览', saveTitle: '保存周报图片', prefix: 'Poro周报', theme };
+  showToast('正在生成图片…', 'info');
+  const r = await lolAPI.renderShareCard(card.outerHTML, Math.ceil(rect.width), Math.ceil(rect.height), opts)
+    .catch(e => ({ __error: e?.message || e }));
+  if (r && r.ok && r.dataUrl) {
+    if (window.PoroBattleCard && typeof window.PoroBattleCard.preview === 'function') window.PoroBattleCard.preview(r.dataUrl, opts);
+    return;
+  }
+  showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
 }
