@@ -2541,21 +2541,71 @@ function buildPostGameCoach(games) {
   const latest = Array.isArray(games) && games[0];
   const me = latest?.participants?.find(p => p && (p.puuid === window._myPuuid || p.isLocalPlayer));
   if (!latest || !me) return '';
-  const suggestions = [];
-  const durMin = Math.max(1, Number(latest.dur || 0) / 60);
-  const csPerMin = Number(me.cs || 0) / durMin;
-  if (Number(me.d || 0) >= 8) suggestions.push('死亡次数偏高：下局优先补视野，避免无信息接战。');
-  if (csPerMin > 0 && csPerMin < 5) suggestions.push(`补刀约 ${csPerMin.toFixed(1)}/分钟：前 10 分钟优先保证安全补刀和回城节奏。`);
-  const teammates = latest.participants?.filter(p => p.teamId === me.teamId) || [];
-  const teamDmg = teammates.reduce((n, p) => n + Number(p.dmg || 0), 0);
-  if (Number(me.dmg || 0) > 0 && teamDmg > 0) {
-    const share = Math.round(Number(me.dmg) / teamDmg * 100);
-    if (share < 18) suggestions.push(`团队伤害占比 ${share}%：团战中优先跟随前排输出，减少单独带线。`);
+
+  const mins = Math.max(1, Number(latest.dur || 0) / 60);
+  const mates = (Array.isArray(latest.participants) ? latest.participants : [])
+    .filter(p => p && Number(p.teamId) === Number(me.teamId));
+  const kills = Number(me.k) || 0, deaths = Number(me.d) || 0, assists = Number(me.a) || 0;
+  const teamKills = mates.reduce((s, p) => s + (Number(p.k) || 0), 0);
+  const teamDmg = mates.reduce((s, p) => s + (Number(p.dmg) || 0), 0);
+  const share = teamDmg > 0 ? Math.round((Number(me.dmg) || 0) / teamDmg * 100) : null;
+  const kp = teamKills > 0 ? Math.round((kills + assists) / teamKills * 100) : null;
+  const cs = Number(me.cs) || 0;
+  const csm = cs / mins;
+  const vision = Number(me.visionScore) || 0;
+  const isSupport = String(me.position || '').toUpperCase() === 'UTILITY';
+
+  const out = [];
+  const push = text => {
+    const s = String(text || '').trim();
+    if (s && !out.includes(s)) out.push(s);   // 去重: 旧版这里没有去重, 兜底会吐三条一样的
+  };
+
+  // 1) 复用「重复失误」那套按模式分流的判定 —— 阈值、文案、证据口径与对局详情页完全一致,
+  //    不再维护第二份规则。旧版这里硬写了 4 条 (死亡≥8/补刀<5/伤害<18%/视野<10),
+  //    只要都不触发就走兜底, 而那局恰好打得还行, 于是三条建议一模一样。
+  let mode = 'rift';
+  try {
+    if (window.PoroMistakes) {
+      mode = window.PoroMistakes.classifyMode(latest) || 'rift';
+      const issues = window.PoroMistakes.detect(latest, me.puuid, { requireDuration: false }) || [];
+      for (const it of issues) {
+        const tip = window.PoroMistakes.tipOf(it.key, mode) || it.label;
+        push(it.evidence ? `${tip}（${it.evidence}）` : tip);
+      }
+    }
+  } catch (e) {}
+
+  // 2) 失误不足 3 条就补「这一局做对的地方」: 全部带本局真实数字, 所以每局都不一样。
+  if (out.length < 3 && mins >= 12) {
+    if (deaths <= 3) push(`本局只阵亡 ${deaths} 次：进退节奏稳，下一局保持这个容错。`);
+    if (mode === 'rift' && !isSupport && csm >= 6) push(`分均补刀 ${csm.toFixed(1)}（${cs} 刀 / ${Math.round(mins)} 分钟）：对线经济稳定，回城尽量压在 1100 金以上。`);
+    if (share != null && share >= 25) push(`伤害占比 ${share}%：团战输出位置找得对，继续保持这个站位。`);
+    if (kp != null && kp >= 60) push(`参团率 ${kp}%（全队 ${teamKills} 杀）：跟团节奏到位，继续保持。`);
+    if (mode === 'rift' && vision >= 25) push(`视野得分 ${vision}：关键区域有信息，这套眼位可以延续。`);
   }
-  if (Number(me.visionScore || 0) < 10 && durMin > 20) suggestions.push('视野分偏低：下局每次回城至少补一个控制守卫。');
-  while (suggestions.length < 3) suggestions.push('继续保持当前节奏，下一局重点观察死亡前的视野和资源交换。');
+
+  // 3) 还不够就用「下一局可量化目标」补齐 —— 目标值由本局数值推出来, 不是固定文案。
+  const goals = [];
+  if (mode === 'rift' && !isSupport) goals.push(`下局目标：分均补刀从 ${csm.toFixed(1)} 提到 ${(csm + 0.8).toFixed(1)}。`);
+  if (mode === 'rift') goals.push(`下局目标：视野得分从 ${vision} 提到 ${vision + 5}。`);
+  if (kp != null) goals.push(`下局目标：参团率从 ${kp}% 提到 ${Math.min(85, kp + 8)}%。`);
+  if (share != null) goals.push(`下局目标：伤害占比从 ${share}% 提到 ${Math.min(45, share + 3)}%。`);
+  if (mode === 'rift') goals.push(`下局目标：把阵亡压在 ${Math.max(2, deaths)} 次以内。`);
+  const generic = [
+    '下局目标：每次回城至少补一个控制守卫。',
+    '下局目标：主动报一次「对面打野在哪」，把信息换成节奏。',
+    '下局目标：团战前先确认队友大招是否就绪，不抢第一个先手。',
+    '下局目标：落后时优先补视野，不硬开团。',
+    '下局目标：把回城节奏固定在炮车线前后，不追第二波空转。'
+  ];
+  // 同一局稳定、不同局会换: 用 gameId 取模轮转, 而不是每次都从第一条开始
+  const seed = Math.abs(Number(latest.gid || latest.gameId || 0)) % generic.length;
+  for (let i = 0; i < generic.length; i++) goals.push(generic[(seed + i) % generic.length]);
+  for (const g of goals) { if (out.length >= 3) break; push(g); }
+
   const result = latest.win === true || me.win === true ? '胜局巩固' : '败局改进';
-  return `<section class="postgame-coach"><div class="postgame-coach-head"><b>最近一局复盘</b><span>${result} · ${escapeHtml(latest.mode || '对局')}</span></div><ol>${suggestions.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ol><small>基于最近一局可用数据生成，仅作训练提示。</small></section>`;
+  return `<section class="postgame-coach"><div class="postgame-coach-head"><b>最近一局复盘</b><span>${result} · ${escapeHtml(latest.mode || '对局')}</span></div><ol>${out.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ol><small>基于最近一局可用数据生成，仅作训练提示。</small></section>`;
 }
 
 async function loadHomeStats(force, opts) {
