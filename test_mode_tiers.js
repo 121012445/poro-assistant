@@ -196,11 +196,11 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
     assert.ok(/t\.loadedAt !== had/.test(live) && /updateLivePage\(window\._gameflowPhase\)/.test(live), '只在数据真的刚加载/刷新时重绘, 避免 renderLiveFromGameflow → 加载 → 重绘 → renderLiveFromGameflow 的循环');
     assert.ok(!/updateLivePlayerTiers/.test(live), '不得引用不存在的函数 (1.5.0 loadAramBalance 事故)');
   }
-  {   // 备战区
+  {   // 备战区 (1.6.x 起英雄按钮列表改为浮窗, 不再逐按钮渲染强度角标; 保留加载+重绘键)
     const bench = read('renderer/js/bench.js');
     assert.ok(/const benchTierMode = tierModeFor\(hexRecommendContext\?\.queueId, ''\)/.test(bench));
-    assert.ok(/modeTierBadgeHtml\(benchTierMode, it\.id\)/.test(bench), '备战区按钮显示强度角标');
-    assert.ok(/const key = [^\n]*modeTiers\[benchTierMode\]\?\.loadedAt/.test(bench), '强度榜加载完成后按钮要能重绘 (加载时间在重绘键里)');
+    assert.ok(/loadModeTiers\(benchTierMode\)\.then/.test(bench), '强度榜仍会加载以便浮窗/重绘使用');
+    assert.ok(/const key = [^\n]*modeTiers\[benchTierMode\]\?\.loadedAt/.test(bench), '强度榜加载完成后浮窗要能重绘 (加载时间在重绘键里)');
     assert.ok(/_benchTierSeen\[benchTierMode\] = t\.loadedAt/.test(bench), '记录已据此重绘的版本, 避免反复重绘');
     assert.ok(/const _benchTierSeen = \{\}/.test(bench));
   }
@@ -211,5 +211,84 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
   const css = read('renderer/css/premium.css');
   for (const c of ['.lp-tier-top', '.lp-tier-mid', '.lp-tier-low']) assert.ok(css.includes(c), '缺少样式 ' + c);
 
-  console.log('英雄强度角标 (强度榜解析 / 缓存 / 渲染 / 接线) 测试通过');
+  // ---------- 7) 峡谷排位 T 级 (复用 opgg:champions, 1.6.6) ----------
+  {
+    // 解析: 用 total(average_stats) 而非分位置 tier, 非法值过滤
+    const raw = { data: [
+      { id: 1, average_stats: { tier_data: { tier: 1, rank: 3 } }, positions: [{ name: 'mid', stats: { tier_data: { tier: 5 } } }] },
+      { id: 2, average_stats: { tier_data: { tier: 0, rank: 1 } } },       // OP
+      { id: 3, average_stats: { tier_data: { tier: 9, rank: 1 } } },       // 超范围
+      { id: 4, average_stats: null },                                      // 缺字段
+      { id: 5, average_stats: { tier_data: { rank: 7 } } },                // 缺 tier
+      { id: 6, average_stats: { tier_data: { tier: '2', rank: '40' } } },   // 字符串数字
+      { id: 7, average_stats: { tier_data: { tier: 2, rank: -1 } } },       // 非法 rank → 0
+      { id: 0, average_stats: { tier_data: { tier: 1 } } },                // 非法 id
+      { id: 8, average_stats: { tier_data: { tier: 3 } } }
+    ] };
+    const { ctx } = load({ getOpgg: async () => J(raw) });
+    const norm = J(ctx.normalizeRankedTiers(J(raw)));
+    assert.deepStrictEqual(Object.keys(norm).sort((a, b) => a - b), ['1', '2', '6', '7', '8']);
+    assert.deepStrictEqual(norm[1], { tier: 1, rank: 3 }, '用 total tier, 不取分位置的 5');
+    assert.deepStrictEqual(norm[2], { tier: 0, rank: 1 }, 'OP(0) 保留');
+    assert.deepStrictEqual(norm[6], { tier: 2, rank: 40 }, '字符串数字合法');
+    assert.deepStrictEqual(norm[7], { tier: 2, rank: 0 }, '非法 rank 归零, 角标仍显示');
+    await ctx.loadRankedTiers();
+    assert.ok(ctx.modeTierBadgeHtml('ranked', 1).includes('召唤师峡谷排位强度 1 阶'), '悬停写清是峡谷排位强度');
+    assert.ok(/lp-tier-top"[^>]*>T1</.test(ctx.modeTierBadgeHtml('ranked', 1)));
+    assert.ok(ctx.modeTierBadgeHtml('ranked', 2).includes('>OP<'));
+    assert.strictEqual(ctx.modeTierBadgeHtml('ranked', 3), '', '榜单外的英雄不显示');
+    assert.strictEqual(ctx.modeTierBadgeHtml('ranked', 4), '', '无 tier 数据不显示');
+  }
+  {
+    // 缓存/并发/失败: 与主进程 10 分钟缓存配合, 失败不抛且保留旧数据
+    let calls = 0, fail = false;
+    const raw = { data: [{ id: 10, average_stats: { tier_data: { tier: 2, rank: 9 } } }] };
+    const { ctx, logs } = load({ getOpgg: async () => { calls++; await new Promise(r => setImmediate(r)); if (fail) throw new Error('HTTP 503'); return J(raw); } });
+    const [a, b] = await Promise.all([ctx.loadRankedTiers(), ctx.loadRankedTiers()]);
+    assert.strictEqual(calls, 1, '并发合并成一次请求');
+    assert.strictEqual(a, b);
+    await ctx.loadRankedTiers();
+    assert.strictEqual(calls, 1, 'TTL 内不重复请求');
+    await ctx.loadRankedTiers(true);
+    assert.strictEqual(calls, 2, 'force 重新请求');
+    fail = true;
+    await assert.doesNotReject(ctx.loadRankedTiers(true));
+    assert.ok(ctx.modeTierBadgeHtml('ranked', 10).includes('T2'), '刷新失败保留上一份');
+    assert.ok(logs.some(l => l.includes('[TIER] ranked 加载失败')));
+    const { ctx: c2 } = load({});
+    assert.strictEqual(await c2.loadRankedTiers(), null, 'preload 没有 getOpgg 时不抛');
+  }
+  {
+    // 实时页真实渲染: 峡谷显示排位 T 级, 斗魂/无模式家族不显示
+    const liveCtx = vm.createContext({
+      console, Date, Map, Set, escapeHtml, window: { _gameflowPhase: 'InProgress' }, performance: { now: () => 0 },
+      document: { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] },
+      lolAPI: { lcuStatus: async () => ({ summoner: { puuid: 'me' } }), getAramBalance: async () => ({ champions: {} }),
+        getModeTiers: async () => J(sample), getOpgg: async () => J({ data: [{ id: 1, average_stats: { tier_data: { tier: 1, rank: 3 } } }] }), debugLog: () => {},
+        lcuRequest: async () => null },
+      checkBlacklist: () => {}, isKnownPlayerName: () => false, addEncounter: () => {},
+      deriveRiskProfile: () => ({ level: 'steady', label: '稳定', confidence: 80, evidence: [] }),
+      getPlayerMarksHtml: () => '', encounterTagHtml: () => '', inlineArg: v => JSON.stringify(String(v)), poroIcon: () => '', nameCache: {},
+      champImg: () => '', placeholder: () => '', champIconAttrs: () => '', champNumMap: {}, allChampions: {}
+    });
+    liveCtx.window.lolAPI = liveCtx.lolAPI;
+    for (const f of ['renderer/js/balance.js', 'renderer/js/behavior-tags.js', 'renderer/js/live.js']) vm.runInContext(read(f), liveCtx, { filename: f });
+    await liveCtx.loadRankedTiers();
+    const body = { innerHTML: '' };
+    const data = [{ puuid: 'a', name: 'A', team: 100, championId: 1, recent: [] }];
+    vm.runInContext("liveTierMode = null; liveRankedTier = true", liveCtx);
+    await liveCtx.renderLiveTeams(body, data, null, null);
+    assert.ok(body.innerHTML.includes('lp-tier-top') && body.innerHTML.includes('召唤师峡谷排位强度'), '峡谷: 玩家卡显示排位 T 级');
+    vm.runInContext("liveRankedTier = false", liveCtx);
+    await liveCtx.renderLiveTeams(body, data, null, null);
+    assert.ok(!body.innerHTML.includes('lp-tier'), '斗魂/特殊模式: 不套峡谷 T 级');
+  }
+  {
+    const live = read('renderer/js/live.js');
+    assert.ok(/liveRankedTier = !liveTierMode && liveModeFamily === 'rift'/.test(live), '只对峡谷家族启用排位 T 级');
+    assert.ok(/loadRankedTiers\(\)\.then/.test(live) && /rankedTiers\.loadedAt/.test(live), '排位榜加载完触发一次重绘, 且比对加载时间防循环');
+    assert.ok(/modeTierBadgeHtml\('ranked', p\.championId\)/.test(live), '卡片渲染接线到 ranked 角标');
+  }
+
+  console.log('英雄强度角标 (强度榜解析 / 缓存 / 渲染 / 接线, 含峡谷排位) 测试通过');
 })().catch(e => { console.error(e); process.exitCode = 1; });

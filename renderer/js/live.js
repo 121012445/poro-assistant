@@ -91,6 +91,8 @@ let liveRenderToken = 0;
 let liveBalanceMode = false;
 // 当前对局的强度榜模式 (aram / aram_mayhem / urf / null), 用于英雄强度角标
 let liveTierMode = null;
+// 峡谷排位对局: 无专属强度榜, 用英雄库页那份排位 T 级 (balance.js 的 loadRankedTiers)
+let liveRankedTier = false;
 // 当前对局的模式家族 (rift/aram/arena/fun/other): 习惯卡的阵亡阈值要按模式走 ——
 // 大乱斗一场死 8~10 次很常见, 用峡谷阈值会全员误报 (2026-11 用户反馈)
 let liveModeFamily = "other";
@@ -467,11 +469,20 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   liveModeFamily = (typeof window !== "undefined" && window.PoroHabits)
     ? window.PoroHabits.modeFamilyOf(session?.gameData?.queue?.gameMode || session?.map?.gameMode, session?.gameData?.queue?.id)
     : "other";
+  // 峡谷排位/匹配: 没有专属模式榜, 用英雄库页那份 KR 排位强度。只认 rift 家族,
+  // arena(斗魂) 没有对应榜单, 不能套峡谷 T 级误导。
+  liveRankedTier = !liveTierMode && liveModeFamily === 'rift';
   if (liveTierMode) {
     // 强度榜加载完(首次或过期刷新)后重绘一次, 补上角标; 已加载时 loadModeTiers 直接命中缓存, 不会循环触发
     const tierMode = liveTierMode, had = modeTiers[tierMode]?.loadedAt || 0;
     loadModeTiers(tierMode).then(t => {
       if (t && t.loadedAt !== had && liveTierMode === tierMode && window._gameflowPhase) updateLivePage(window._gameflowPhase);
+    }).catch(() => {});
+  } else if (liveRankedTier) {
+    // 同上: 排位榜首次加载完重绘一次, 把 T 级补到已画好的玩家卡上 (缓存命中时不触发)
+    const had = rankedTiers.loadedAt || 0;
+    loadRankedTiers().then(t => {
+      if (t && t.loadedAt !== had && liveRankedTier && window._gameflowPhase) updateLivePage(window._gameflowPhase);
     }).catch(() => {});
   }
   let parts = ((session ?? {}).gameData && (session ?? {}).gameData.participants) || [];
@@ -1784,8 +1795,10 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
     const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}${encounterTagHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
-    // 大乱斗/海斗: 英雄平衡性调整徽标 (balance.js; 1.5.0 的半成品已补全)
-    const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + (liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId) : '');
+    // 大乱斗/海斗: 英雄平衡性调整徽标 + 当前模式强度角标; 峡谷排位: 英雄库页那份 KR 排位 T 级
+    const tierBadge = liveTierMode ? modeTierBadgeHtml(liveTierMode, p.championId)
+      : liveRankedTier ? modeTierBadgeHtml('ranked', p.championId) : '';
+    const balanceHtml = (liveBalanceMode ? balanceBadgeHtml(p.championId) : '') + tierBadge;
     // 1.5.146: 标签行构建抽成 buildLivePills, 首次渲染与局部刷新 (updateLivePlayerRow)
     // 共用同一结构 —— 之前局部刷新只更新战绩区不更新标签, 标签要等全量重绘才出现。
     const pills = buildLivePills(p, premadeGroupId);

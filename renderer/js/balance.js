@@ -103,18 +103,68 @@ async function loadModeTiers(mode, force) {
   return _modeTierLoading[mode];
 }
 
+// ============ 峡谷排位强度榜 (复用英雄库页那份 opgg:champions, 主进程已缓存 10 分钟) ============
+// 之前实时卡只有大乱斗/海斗/无限火力显示 T 级 —— tierModeFor 对峡谷队列返回 null,
+// 于是排位对局里玩家卡既没有 T 级也没有增强/削弱, 看着像"功能没做"。实际上排位强度数据
+// 英雄库页一直在用 (opggMap.average_stats.tier_data)。这里把它归一化成和 modeTiers 一致的
+// { tier, rank }, 让 modeTierBadgeHtml('ranked', id) 直接复用同一套角标样式。
+// 不直接读 renderer 全局 opggMap: 那份是 app.js 启动异步填的, 没有"加载完成"信号可供实时页重绘;
+// 走 IPC 有 Promise + TTL, 主进程 10 分钟缓存兜底, 首帧加载完能主动触发一次重绘。
+const rankedTiers = { champions: {}, loadedAt: 0, stale: false };
+let _rankedTierLoading = null;
+
+// OP.GG 排位榜: { data: [{ id, average_stats: { tier_data: { tier, rank } }, positions: [...] }] }
+// 用 total (average_stats) 而非分位置 tier —— 实时卡不知道玩家本局位置, 分位置会张冠李戴。
+function normalizeRankedTiers(raw) {
+  const out = {};
+  for (const c of (raw && Array.isArray(raw.data) ? raw.data : [])) {
+    const id = Number(c && c.id);
+    const td = c && c.average_stats && c.average_stats.tier_data;
+    if (!Number.isInteger(id) || id <= 0 || id > 10000) continue;
+    // Number(null/''/undefined)=0 会被当成 OP, 必须先排除空值再转 (与主进程 strictNumber 同口径)
+    if (!td || td.tier == null || td.tier === '') continue;
+    const t = Number(td.tier);
+    if (!Object.prototype.hasOwnProperty.call(TIER_LABELS, t)) continue;
+    const r = Number(td.rank);
+    out[id] = { tier: t, rank: Number.isInteger(r) && r > 0 ? r : 0 };
+  }
+  return out;
+}
+
+async function loadRankedTiers(force) {
+  if (!window.lolAPI?.getOpgg) return null;
+  if (!force && rankedTiers.loadedAt && Date.now() - rankedTiers.loadedAt < TIER_TTL_MS) return rankedTiers;
+  if (_rankedTierLoading) return _rankedTierLoading;
+  _rankedTierLoading = (async () => {
+    try {
+      const r = await lolAPI.getOpgg();
+      if (!r || r.__error || !Array.isArray(r.data)) throw new Error(r?.__error || '数据为空');
+      const champs = normalizeRankedTiers(r);
+      if (!Object.keys(champs).length) throw new Error('排位强度榜为空');
+      rankedTiers.champions = champs;
+      rankedTiers.loadedAt = Date.now();
+    } catch (e) {
+      try { lolAPI.debugLog?.('[TIER] ranked 加载失败: ' + (e?.message || e)); } catch (x) {}
+    } finally { _rankedTierLoading = null; }
+    return rankedTiers.loadedAt ? rankedTiers : null;
+  })();
+  return _rankedTierLoading;
+}
+
 function modeTierOf(mode, championId) {
-  const row = modeTiers[mode]?.champions?.[String(Number(championId))];
+  const source = mode === 'ranked' ? rankedTiers : modeTiers[mode];
+  const row = source?.champions?.[String(Number(championId))];
   return row && Object.prototype.hasOwnProperty.call(TIER_LABELS, row.tier) ? row : null;
 }
 
 // 角标: 1 阶最强。OP 和 1 用强调色, 4/5 用弱化色, 其余中性; 悬停写清楚模式、排名、来源
-const TIER_MODE_NAMES = { aram: '大乱斗', aram_mayhem: '海克斯大乱斗', urf: '无限火力' };
+const TIER_MODE_NAMES = { aram: '大乱斗', aram_mayhem: '海克斯大乱斗', urf: '无限火力', ranked: '召唤师峡谷排位' };
 function modeTierBadgeHtml(mode, championId) {
   const row = modeTierOf(mode, championId);
   if (!row) return '';
   const cls = row.tier <= 1 ? 'top' : row.tier >= 4 ? 'low' : 'mid';
-  const title = `${TIER_MODE_NAMES[mode] || mode}强度 ${TIER_LABELS[row.tier]} 阶` + (row.rank ? ` · 排名 ${row.rank}` : '') + ' (OP.GG' + (modeTiers[mode]?.stale ? ', 数据可能过期' : '') + ')';
+  const source = mode === 'ranked' ? rankedTiers : modeTiers[mode];
+  const title = `${TIER_MODE_NAMES[mode] || mode}强度 ${TIER_LABELS[row.tier]} 阶` + (row.rank ? ` · 排名 ${row.rank}` : '') + ' (OP.GG' + (source?.stale ? ', 数据可能过期' : '') + ')';
   const text = row.tier === 0 ? 'OP' : 'T' + TIER_LABELS[row.tier];     // OP 不加 T 前缀, 否则读成 "TOP"
   return `<span class="lp-tier lp-tier-${cls}" title="${escapeHtml(title)}">${text}</span>`;
 }
