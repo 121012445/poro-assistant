@@ -108,25 +108,31 @@ function teamShareOf(participants, me, k, a, keys) {
   const K = keys || { dmg: 'totalDamageDealtToChampions', tank: 'totalDamageTaken', gold: 'goldEarned', kills: 'kills', vision: 'visionScore' };
   const mates = (participants || []).filter(x => x && x.teamId === me.teamId);
   if (!mates.length) return {};
+  // 1.6.11: 日服/外服走 LCU 兜底, 客户端战绩接口只返回自己 1 人 (队友数据 Riot 不提供)。
+  // 此时"我的值 / 同队总和"恒等于 100% (参团 k+a 除以自己的击杀甚至会 >100%),
+  // 是一排彻底失真的假占比。占比类字段一律置 null 让渲染层整排跳过,
+  // 但保留 dmgGold/vision 这类只靠自己数据就能算的真实指标 (伤转/视野不该跟着一起丢)。
+  const soloOnly = mates.length < 2;
   const num = (o, key) => Number(o && o[key]) || 0;
   const total = key => mates.reduce((n, x) => n + num(x, key), 0);
   const pct = (v, all) => (all > 0 ? Math.round((v / all) * 100) : null);
   const dmg = num(me, K.dmg), gold = num(me, K.gold);
   const dmgAll = total(K.dmg);
-  const dmgPct = pct(dmg, dmgAll);
-  if (dmgPct == null) return {};
+  const dmgPct = soloOnly ? null : pct(dmg, dmgAll);
+  if (!soloOnly && dmgPct == null) return {};
   const teamKills = total(K.kills);
   // 1.5.139: 击杀伤害效率 (Akari 同款公式) = 击杀占比 ÷ 伤害占比。
   // 1.0 = 我的击杀份额和伤害份额持平; >1 说明拿头效率高于输出贡献 (收头型),
   // <1 说明输出打了不少但人头被队友收走 (工具人/补伤位)。纯 summary 可算, 零额外请求。
-  const kde = teamKills > 0 && dmg > 0 && dmgAll > 0
+  // 同样依赖队友, 单人时置 null。
+  const kde = !soloOnly && teamKills > 0 && dmg > 0 && dmgAll > 0
     ? Math.round(((k / teamKills) / (dmg / dmgAll)) * 100) / 100
     : null;
   return {
     dmgPct,
-    tankPct: pct(num(me, K.tank), total(K.tank)),
-    goldPct: pct(gold, total(K.gold)),
-    kp: teamKills > 0 ? Math.round(((k + a) / teamKills) * 100) : null,
+    tankPct: soloOnly ? null : pct(num(me, K.tank), total(K.tank)),
+    goldPct: soloOnly ? null : pct(gold, total(K.gold)),
+    kp: !soloOnly && teamKills > 0 ? Math.round(((k + a) / teamKills) * 100) : null,
     // 伤转率 = 伤害 / 经济。同样是 20% 经济占比, 打出 180% 伤转和 90% 伤转是两种人。
     dmgGold: gold > 0 ? Math.round((dmg / gold) * 100) : null,
     vision: num(me, K.vision) || null,
@@ -1438,7 +1444,13 @@ function liveStreak(recent) {
 }
 
 function liveMetricPills(recent, reservedSlots = 0) {
-  const rs = (recent || []).filter(r => r && r.dmgPct != null);
+  // 1.6.11: 入口不再只看 dmgPct。日服/外服单人或缺队友数据时 dmgPct 为 null,
+  // 但伤转(dmgGold)/视野/分均CS 仍是真实值, 应继续显示。占比类标签由下面
+  // items 的 `it[2] != null` 自动跳过 (avg 全 null -> 不渲染)。
+  const rs = (recent || []).filter(r => r && (
+    r.dmgPct != null || r.dmgGold != null || r.vision != null ||
+    (Number(r.cs) > 0 && Number(r.dur) > 0)
+  ));
   if (!rs.length) return '';
   const avg = f => {
     const v = rs.filter(r => r[f] != null);
