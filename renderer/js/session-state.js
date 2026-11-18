@@ -17,6 +17,9 @@ class PoroSessionState {
     if (nextPuuid && this.state.accountPuuid && nextPuuid !== this.state.accountPuuid) {
       this._bump();
       this.state.gameId = ''; this.state.rosterKey = ''; this.state.championId = 0;
+      // 换账号可能同时换了客户端/区服(国服↔外服), 上一个账号的大区必须丢掉,
+      // 否则 newPlatform 为空时会把旧值一直带下去, 账号作用域键跟着串号。
+      this.state.platformId = '';
     }
     if (nextPuuid) this.state.accountPuuid = nextPuuid;
     if (nextPlatform) this.state.platformId = nextPlatform;

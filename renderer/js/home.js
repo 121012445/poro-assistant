@@ -114,6 +114,24 @@ let homeStatsLoaded = false;
 let homeStatsLoading = false;
 let homeStatsToken = 0;
 let cachedPlatformId = null;
+// 1.6.17: 平台缓存必须与"是哪个账号"绑定。此前只按进程生命周期缓存, 切账号
+// (尤其国服↔外服, 或同一客户端里换登录账号) 后仍沿用上一个账号的 platformId,
+// 首页会显示成上一个账号的大区, 并且会把国服账号误判成外服走 LCU 分支;
+// 连带 currentAccountScope() 也会用错平台, 给国服账号套上外服作用域键。
+let cachedPlatformIdPuuid = null;
+// 平台缓存作废: puuid 与缓存记录不一致说明换号了。
+function syncPlatformCacheAccount(puuid) {
+  const p = String(puuid || '');
+  if (!cachedPlatformId) { cachedPlatformIdPuuid = null; return; }
+  if (!cachedPlatformIdPuuid) { cachedPlatformIdPuuid = p || null; return; }
+  if (p && cachedPlatformIdPuuid !== p) { cachedPlatformId = null; cachedPlatformIdPuuid = null; }
+}
+// 记录平台与其归属账号, 保证后续换号时能被 syncPlatformCacheAccount 判定出来。
+function rememberPlatformId(platformId, puuid) {
+  cachedPlatformId = platformId || null;
+  const p = String(puuid || '');
+  if (p) cachedPlatformIdPuuid = p;
+}
 let cachedSummonerName = null;
 let cachedSummoner = null;
 // 首页档案查看目标: null=自己, 否则为其他玩家 {puuid, name}
@@ -887,7 +905,7 @@ async function homeAliasResolveMetas(puuids, opts) {
   }
   let current = (needProbe && map[mine]) ? map[mine].platformId : homeCurrentRegion();
   if (!current) current = await getPlatformId().catch(() => '');
-  if (current && current !== cachedPlatformId) cachedPlatformId = current;
+  if (current && current !== cachedPlatformId) rememberPlatformId(current, mine);
   const metas = {};
   const allRegions = (typeof SGP_PLATFORM_IDS !== 'undefined') ? SGP_PLATFORM_IDS.length : 8;
   for (const id of ids) {
@@ -1496,12 +1514,16 @@ function normalizePlatformId(raw) {
   return (RIOT_PLATFORM_IDS.includes(key) || SGP_PLATFORM_IDS.includes(key)) ? key : '';
 }
 async function getPlatformId() {
-  if (cachedPlatformId) return cachedPlatformId;
+  // 1.6.17: 先确认"当前是哪个账号", 再决定能不能复用上次的大区。
+  // lcuStatus 在主进程有 1 秒缓存, 这里是本地 IPC, 不会增加网络开销。
   const st = await lolAPI.lcuStatus();
+  const selfPuuid = st?.summoner?.puuid || '';
+  syncPlatformCacheAccount(selfPuuid);
+  if (cachedPlatformId) return cachedPlatformId;
   // 只接受能归一化成已知平台的值。未知值（如国服的 "TENCENT"）不能直接当平台用,
   // 否则会被 isTencentPlatform 判成外服, 把国服玩家路由到不可用的 LCU 战绩接口。
   const direct = normalizePlatformId(st?.summoner?.platformId || st?.summoner?.currentPlatformId);
-  if (direct) { cachedPlatformId = direct; return cachedPlatformId; }
+  if (direct) { rememberPlatformId(direct, selfPuuid); return cachedPlatformId; }
   // 只取 1 场拿 platformId；国服与 Riot 外服的历史对象都带该字段。
   // 日服(Riot 新 ID)下 puuid 路径返回 400, 先试 current-summoner 再回退 puuid。
   let hist = await lolAPI.lcuRequest("GET", '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=1');
@@ -1509,14 +1531,15 @@ async function getPlatformId() {
     hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${st.summoner.puuid}/matches?begIndex=0&endIndex=1`);
   }
   const fromHistory = normalizePlatformId(hist?.games?.games?.[0]?.platformId);
-  if (fromHistory) { cachedPlatformId = fromHistory; return cachedPlatformId; }
+  if (fromHistory) { rememberPlatformId(fromHistory, selfPuuid); return cachedPlatformId; }
   // 新账号没有历史时，从 Riot 客户端区域配置识别。不同版本返回 platformId/region/webRegion 之一。
   const platformCfg = await lolAPI.lcuRequest('GET', '/lol-platform-config/v1/namespaces/PlayerPlatformEdgeService').catch(() => null);
   const regionCfg = await lolAPI.lcuRequest('GET', '/riotclient/region-locale').catch(() => null);
   const raw = platformCfg?.platformId || platformCfg?.region || regionCfg?.region || regionCfg?.webRegion;
   // 三条路径都失败时按国服处理（本产品主要面向国服; 外服的 region 一定能被上面的
   // 映射表命中, 走到这里说明客户端状态异常, 默认国服比默认"外服"安全得多）。
-  cachedPlatformId = normalizePlatformId(raw) || 'HN1';
+  const fallbackPlatform = normalizePlatformId(raw) || 'HN1';
+  rememberPlatformId(fallbackPlatform, selfPuuid);
   if (!normalizePlatformId(raw)) {
     try { lolAPI.debugLog(`[HOME] 平台识别失败, 按国服处理 raw=${String(raw || '')}`); } catch (e) {}
   }
@@ -2738,6 +2761,9 @@ async function loadHomeStats(force, opts) {
     cachedSummonerName = (selfSummoner.gameName || selfSummoner.displayName || selfSummoner.name || '') + (selfSummoner.tagLine ? '#' + selfSummoner.tagLine : '');
     cachedSummoner = selfSummoner;
     window._myPuuid = selfSummoner.puuid;
+    // 1.6.17: 账号变了就先作废上一个账号的大区, 否则下面 setAccount 会把旧平台
+    // 又写回 session, 账号作用域键(currentAccountScope)跟着用错平台。
+    syncPlatformCacheAccount(selfSummoner.puuid);
     window.poroSession?.setAccount(selfSummoner.puuid, cachedPlatformId || '');
     if (st && st.summoner && !profileOverride) { try { localStorage.setItem('poro.selfPuuid', selfSummoner.puuid); } catch (e) {} }
     // 查看其他玩家: profileOverride 指定 puuid
@@ -2801,6 +2827,9 @@ async function loadHomeStats(force, opts) {
       const MAX_FETCH = isProfileQuery ? 150 : 500;
       try {
         const selfPlatformId = await getPlatformId();
+        // 识别结果回写 session: 上游那次 setAccount 可能发生在识别完成之前(平台还是空的),
+        // 账号作用域键依赖它, 必须补一次正确的值。
+        try { window.poroSession?.setAccount(selfSummoner.puuid, selfPlatformId || ''); } catch (e) {}
         if (stale()) return;
         if (!isTencentPlatform(selfPlatformId)) {
           // Riot 外服：名字解析本身由当前 LCU 完成，因此目标必定属于当前登录平台。

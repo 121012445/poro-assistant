@@ -658,6 +658,7 @@ function wireLcuEvents() {
       else if (uri === '/lol-summoner/v1/current-summoner' && data && data.puuid && data.puuid !== window._myPuuid) {
         // 切换账号也可能意味着切换 Riot 区服，不能沿用上一个客户端会话的平台缓存。
         cachedPlatformId = null;
+        try { cachedPlatformIdPuuid = null; } catch (e) {}
         homeStatsLoaded = false;
       }
     } catch (e) { console.error('lcu event error', e); }
