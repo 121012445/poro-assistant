@@ -47,20 +47,26 @@
     return { v: 1, ts: Number(now) || Date.now(), mode: fam, hints: out };
   }
 
+  // 账号作用域键: 浏览器里有 accountStoreKey 时按其隔离, Node 单测无此函数则回退原键。
+  function scopedKey() {
+    return (typeof accountStoreKey === 'function') ? accountStoreKey(STORE_KEY) : STORE_KEY;
+  }
+
   // 存：通过注入的 storeSet（默认取全局）。存的是字符串，与 persist.js 的 storeSet 一致。
   function save(payload, storeSet) {
     const setter = storeSet || (typeof storeSet === 'undefined' && typeof globalThis.storeSet === 'function' ? globalThis.storeSet : null);
     if (!setter) return false;
-    try { setter(STORE_KEY, JSON.stringify(payload)); return true; } catch (e) { return false; }
+    try { setter(scopedKey(), JSON.stringify(payload)); return true; } catch (e) { return false; }
   }
 
   // 读：兼容 storeGet（同步，persist.js）与 localStorage。
   function load(input, now) {
     let raw = null;
+    const key = scopedKey();
     try {
-      if (input && typeof input.get === 'function') raw = input.get(STORE_KEY);
-      else if (typeof storeGet === 'function') raw = storeGet(STORE_KEY);
-      else if (typeof localStorage !== 'undefined') raw = localStorage.getItem(STORE_KEY);
+      if (input && typeof input.get === 'function') raw = input.get(key);
+      else if (typeof storeGet === 'function') raw = storeGet(key);
+      else if (typeof localStorage !== 'undefined') raw = localStorage.getItem(key);
     } catch (e) { return null; }
     if (!raw) return null;
     let parsed = null;

@@ -577,10 +577,12 @@ async function saveAugmentOverlayLayout() {
 }
 
 // Local decision log: visual disappearance is not evidence of a selected augment.
+// 按账号作用域隔离: 国服走原键, 外服各账号独立, 不与国服强化日志串号。
+function augmentJournalKey() { return (typeof accountStoreKey === 'function') ? accountStoreKey('augmentJournal') : 'augmentJournal'; }
 let _augmentJournalPending = null;
 function readAugmentJournal() {
   try {
-    const rows = JSON.parse(typeof storeGet === 'function' ? storeGet('augmentJournal') || '[]' : '[]');
+    const rows = JSON.parse(typeof storeGet === 'function' ? storeGet(augmentJournalKey()) || '[]' : '[]');
     return Array.isArray(rows) ? rows.slice(0, 120) : [];
   } catch (_) { return []; }
 }
@@ -593,7 +595,7 @@ function recordAugmentJournal(championId, stage, rows, selectedIds) {
   };
   const journal = readAugmentJournal();
   journal.unshift(entry);
-  storeSet('augmentJournal', JSON.stringify(journal.slice(0, 120)));
+  storeSet(augmentJournalKey(), JSON.stringify(journal.slice(0, 120)));
   _augmentJournalPending = entry.at;
   renderAugmentJournal();
 }
@@ -607,7 +609,7 @@ function confirmAugmentJournal(selectedIds) {
   const name = hexAugMeta[added[0]]?.name;
   if (!name || !entry.choices.some(r => r.name === name)) return;
   entry.selected = name;
-  storeSet('augmentJournal', JSON.stringify(journal));
+  storeSet(augmentJournalKey(), JSON.stringify(journal));
   _augmentJournalPending = null;
   renderAugmentJournal();
 }

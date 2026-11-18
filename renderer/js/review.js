@@ -441,8 +441,14 @@ function setAiReviewStyle(v) {
   }
 }
 // 缓存按风格分开: 换风格后点开旧对局不会看到上一种口吻的旧文本。
+// 账号作用域插在 aiReview: 之后, 使成长页能用 accountKeyPrefix('aiReview') 精确扫描
+// 当前账号的复盘; 国服走原格式(读得到历史复盘), 外服各账号互不干扰。
 function aiReviewCacheKey(gameId, style) {
-  return 'aiReview:' + String(gameId || 'unknown') + '.t' + (style || currentAiReviewStyle()) + '.' + AI_PROMPT_VER;
+  const scope = (typeof currentAccountScope === 'function') ? currentAccountScope() : '';
+  // 与 growth.js 的 accountKeyPrefix('aiReview:') 拼接规则一致:
+  // 国服 scope='' -> 'aiReview:<gameId>...'(历史格式, 读得到旧复盘);
+  // 外服 -> 'aiReview:@JP1:xxx:<gameId>...'。
+  return 'aiReview:' + (scope ? scope + ':' : '') + String(gameId || 'unknown') + '.t' + (style || currentAiReviewStyle()) + '.' + AI_PROMPT_VER;
 }
 function readAiReviewCache(gameId, style) {
   try { const raw = storeGet(aiReviewCacheKey(gameId, style)); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }

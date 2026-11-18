@@ -262,11 +262,15 @@
   }
 
   // 本机台账 (storeGet/storeSet 来自 persist.js; Node 单测里不存在则退化为内存)
+  // 键按当前账号作用域: 国服走原键(保留历史), 外服各账号独立。
+  function scopedKey() {
+    return (typeof accountStoreKey === 'function') ? accountStoreKey(STORE_KEY) : STORE_KEY;
+  }
   let memoryLedger = [];
   function readLedger() {
     try {
       if (typeof storeGet === 'function') {
-        const raw = storeGet(STORE_KEY);
+        const raw = storeGet(scopedKey());
         const arr = raw ? JSON.parse(raw) : [];
         return Array.isArray(arr) ? arr : [];
       }
@@ -275,7 +279,7 @@
   }
   function writeLedger(rows) {
     memoryLedger = rows;
-    try { if (typeof storeSet === 'function') storeSet(STORE_KEY, JSON.stringify(rows)); } catch (e) {}
+    try { if (typeof storeSet === 'function') storeSet(scopedKey(), JSON.stringify(rows)); } catch (e) {}
   }
 
   // 批量记账 (首页每次加载战绩后调用): 只记自己的局, 已记过的 gid 覆盖但不重复计数

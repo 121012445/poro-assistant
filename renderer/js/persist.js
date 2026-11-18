@@ -7,6 +7,42 @@ let _store = {};
 let _storeTimer = null;
 let _storeWriteFailedNotified = false;
 function storePath() { return (window._userDataPath || '') + '/poro-config.json'; }
+
+// ---- 按账号隔离成长类数据的存储键 ----
+// 背景: gameLedger / aiReview / 玩家记忆等原本是全局单键, 切到日服账号后仍读到国服积累的
+// 历史数据。这里给"外服账号"的数据键加一个作用域后缀, 各账号互不干扰。
+// 国服(HN1)和"账号信息未知"时返回空后缀 —— 沿用原键, 让已有的国服历史(台账/标记/遭遇)
+// 原封不动保留在原键下, 无需迁移、零丢失风险。外服账号用 '@<平台>:<puuid前缀>' 隔离。
+function currentAccountScope() {
+  let puuid = '';
+  try { const s = (window.poroSession && window.poroSession.snapshot) ? window.poroSession.snapshot() : null; puuid = s && s.accountPuuid ? s.accountPuuid : ''; } catch (e) {}
+  puuid = puuid || window._myPuuid || '';
+  if (!puuid) return '';
+  // 平台判定: 优先用已识别的 cachedPlatformId(渲染时通常已就绪), 其次 poroSession,
+  // 再退到按 puuid 记忆的平台。任一来源判定为国服(HN1)即走原键。
+  let platform = '';
+  try { if (typeof cachedPlatformId === 'string') platform = cachedPlatformId; } catch (e) {}
+  if (!platform) { try { const s = window.poroSession && window.poroSession.snapshot ? window.poroSession.snapshot() : null; platform = s && s.platformId ? s.platformId : ''; } catch (e) {} }
+  if (!platform) { try { const m = JSON.parse(localStorage.getItem('poro.playerPlatform.' + puuid) || 'null'); platform = m && m.platformId ? m.platformId : ''; } catch (e) {} }
+  platform = String(platform).toUpperCase();
+  if (!platform || platform === 'HN1') return '';
+  return '@' + platform + ':' + String(puuid).slice(0, 16);
+}
+function accountStoreKey(base) { return base + currentAccountScope(); }
+// 供成长页扫描 aiReview 前缀: 返回当前账号应扫描的键前缀。
+// base 自带结尾冒号(如 'aiReview:'); 国服无作用域时原样返回, 外服在作用域后补 ':' 分隔 gameId。
+function accountKeyPrefix(base) {
+  const scope = currentAccountScope();
+  return scope ? base + scope + ':' : base;
+}
+// 作用域变化时返回 true(首次调用也返回 true), 供页面在进入时判断是否要重载账号相关数据。
+let _lastAccountScope = null;
+function accountScopeChanged() {
+  const cur = currentAccountScope();
+  if (cur === _lastAccountScope) return false;
+  _lastAccountScope = cur;
+  return true;
+}
 async function loadStore() {
   let content = null;
   try { content = await lolAPI.readFile(storePath()); } catch (e) {}
@@ -99,9 +135,13 @@ async function importPoroBackup() {
     'commentaryEngine', 'commentaryVoice', 'commentaryStyle', 'liveTips', 'liveBoard',
     'gameTranslate', 'translateTarget', 'gtAutoMine'
   ]);
+  // 账号作用域键(如 gameLedger@JP1:87d257af... / aiReview:@JP1:xxx:...)也要能备份恢复,
+  // 否则外服账号的成长数据与玩家记忆在换机导入后会静默丢失。
+  const scopedDataPrefixes = ['gameLedger@', 'repeatMistakes@', 'poro.reviewBpHint@', 'augmentJournal@', 'playerMarks@', 'encounters@', 'aiReview:@'];
   const sanitized = {};
   for (const [key, value] of Object.entries(incoming)) {
-    if (!(allowed.has(key) || /^aiReview:[\w.-]{1,80}$/.test(key))) continue;
+    const isScoped = scopedDataPrefixes.some(p => key.indexOf(p) === 0) && /^[\w.:@-]{1,160}$/.test(key);
+    if (!(allowed.has(key) || /^aiReview:[\w.-]{1,80}$/.test(key) || isScoped)) continue;
     if (typeof value !== 'string' || value.length > 500000) continue;
     sanitized[key] = value;
   }
@@ -122,7 +162,7 @@ function saveConfig() {
     storeSet('autoRune', autoRuneEnabled ? '1' : '');
     storeSet('blacklist', JSON.stringify(blacklist));
     saveEncounters();
-    storeSet('playerMarks', JSON.stringify(playerMarks));
+    storeSet(accountStoreKey('playerMarks'), JSON.stringify(playerMarks));
   } catch (e) {}
 }
 function loadConfig() {
@@ -148,7 +188,7 @@ function loadConfig() {
     }
     blacklist = safeParseStore('blacklist', blacklist, Array.isArray);
     // 遭遇记录由 loadEncounters 统一迁移和校验，避免这里先按旧格式重复载入。
-    const parsedMarks = safeParseStore('playerMarks', null, v => v && typeof v === 'object' && !Array.isArray(v));
+    const parsedMarks = safeParseStore(accountStoreKey('playerMarks'), null, v => v && typeof v === 'object' && !Array.isArray(v));
     if (parsedMarks) {
       playerMarks = Object.fromEntries(Object.entries(parsedMarks).map(([puuid, value]) => [puuid, normalizePlayerMemory(value)]));
     }

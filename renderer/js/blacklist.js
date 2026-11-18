@@ -59,6 +59,13 @@ function addBlacklistFromPage() {
 function renderBlacklistPage() {
   const el = document.getElementById('blPageList');
   if (!el) return;
+  // 账号作用域变了(冷启动首次 / 切账号)时, 先按当前账号重载玩家记忆内存再渲染,
+  // 否则会显示上一个账号的标记与遭遇记录。
+  try {
+    if (typeof accountScopeChanged === 'function' && accountScopeChanged()) {
+      if (typeof reloadAccountScopedMemory === 'function') reloadAccountScopedMemory();
+    }
+  } catch (e) {}
   const ids = new Set([
     ...Object.keys(typeof playerMarks === 'object' && playerMarks ? playerMarks : {}),
     ...Object.keys(typeof encounterMap === 'object' && encounterMap ? encounterMap : {})

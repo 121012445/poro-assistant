@@ -144,7 +144,7 @@ function getPlayerMemory(puuid, name) {
 }
 
 function savePlayerMemory() {
-  try { storeSet('playerMarks', JSON.stringify(playerMarks)); } catch (e) {}
+  try { storeSet(accountStoreKey('playerMarks'), JSON.stringify(playerMarks)); } catch (e) {}
 }
 
 function markPlayer(puuid, name, tag) {
@@ -353,9 +353,10 @@ function migrateEncounterGameKeys(map) {
   return merged;
 }
 
+function encountersKey() { return (typeof accountStoreKey === 'function') ? accountStoreKey('encounters') : 'encounters'; }
 function loadEncounters() {
   try {
-    const data = storeGet('encounters');
+    const data = storeGet(encountersKey());
     if (!data) return;
     const parsed = JSON.parse(data);
     const source = parsed?.map || parsed || {};
@@ -370,7 +371,35 @@ function loadEncounters() {
   } catch (e) {}
 }
 function saveEncounters() {
-  try { storeSet('encounters', JSON.stringify({ __v: ENCOUNTERS_VER, map: encounterMap })); } catch (e) {}
+  try { storeSet(encountersKey(), JSON.stringify({ __v: ENCOUNTERS_VER, map: encounterMap })); } catch (e) {}
+}
+
+// 切换账号后重载"玩家记忆"内存: playerMarks + encounterMap 都是启动读一次进内存的全局量,
+// 不清空就重新 load 会把上一个账号的标记/遭遇带进新账号。这里先清空再按当前作用域读取。
+// 注意 loadEncounters 在键不存在时直接 return(不清空), 所以必须先手动重置 encounterMap。
+function reloadAccountScopedMemory() {
+  // 消费作用域变化标记(本函数重载完即为最新), 避免末尾 renderBlacklistPage 再次触发重载导致递归。
+  try { if (typeof accountScopeChanged === 'function') accountScopeChanged(); } catch (e) {}
+  try {
+    const marksRaw = (typeof accountStoreKey === 'function') ? accountStoreKey('playerMarks') : 'playerMarks';
+    const parsed = safeParseStore(marksRaw, null, v => v && typeof v === 'object' && !Array.isArray(v));
+    playerMarks = parsed ? Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, normalizePlayerMemory(v)])) : {};
+  } catch (e) { playerMarks = {}; }
+  encounterMap = {};
+  try {
+    const key = (typeof accountStoreKey === 'function') ? accountStoreKey('encounters') : 'encounters';
+    const data = storeGet(key);
+    if (data) {
+      const parsed = JSON.parse(data);
+      const source = parsed?.map || parsed || {};
+      const ver = Number(parsed?.__v) || 0;
+      encounterMap = Object.fromEntries(Object.entries(source)
+        .filter(([puuid, value]) => puuid && value && typeof value === 'object')
+        .map(([puuid, value]) => [puuid, normalizeEncounterEntry(value, ver < 4)]));
+      if (ver === 4) migrateEncounterGameKeys(encounterMap);
+    }
+  } catch (e) { encounterMap = {}; }
+  try { if (document.getElementById('page-blacklist')?.classList.contains('active')) renderBlacklistPage(); } catch (e) {}
 }
 
 let _encounterHydrateBusy = false;

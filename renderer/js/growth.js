@@ -5,7 +5,10 @@
 // 统计口径见 growth-model.js。
 function growthReadReviews() {
   const out = new Map();     // gameId -> { gameId, text, at }
-  const prefix = 'aiReview:';
+  // 只扫当前账号作用域的复盘缓存; 国服走原前缀, 外服走 'aiReview:@平台:puuid:'。
+  // 不能扫全部 aiReview: —— 那会把国服账号的复盘算进日服的训练计划。
+  const prefix = (typeof accountKeyPrefix === 'function') ? accountKeyPrefix('aiReview:') : 'aiReview:';
+  // prefix 形如 'aiReview:' 或 'aiReview:@JP1:xxx:'; rest 为 '<gameId>.t<style>.<ver>'
   let keys = [];
   try { keys = (typeof storeKeys === 'function') ? storeKeys() : []; } catch (e) { keys = []; }
   for (const k of keys) {
@@ -33,14 +36,14 @@ function growthReadReviews() {
 
 function growthLedger() {
   try {
-    const raw = storeGet('gameLedger');
+    const raw = storeGet((typeof accountStoreKey === 'function') ? accountStoreKey('gameLedger') : 'gameLedger');
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
   } catch (e) { return []; }
 }
 
 function growthSaveLedger(rows) {
-  try { storeSet('gameLedger', JSON.stringify(rows)); } catch (e) {}
+  try { storeSet((typeof accountStoreKey === 'function') ? accountStoreKey('gameLedger') : 'gameLedger', JSON.stringify(rows)); } catch (e) {}
 }
 
 // 首页每次加载战绩后调用：把新对局增量记进台账（只记自己的）。

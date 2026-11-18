@@ -3083,6 +3083,9 @@ async function loadHomeStats(force, opts) {
     // 成长页的长期趋势全靠这里逐局累积 —— SGP 一次只给最近 50 局，
     // 不落本地账本的话，"90 天胜率"永远只能算出这 50 局覆盖的那几天。
     if (homeGamesOwnerIsSelf && typeof growthRecordGames === 'function') {
+      // 账号作用域此时已就绪(puuid + platform 均已识别): 先按当前账号重载玩家记忆内存,
+      // 再落账, 避免切账号后 playerMarks/encounterMap 还是上一个账号的数据。
+      if (typeof reloadAccountScopedMemory === 'function') reloadAccountScopedMemory();
       growthRecordGames(games, s.puuid);
       if (typeof refreshGrowthPageIfMounted === 'function') refreshGrowthPageIfMounted();
     }
