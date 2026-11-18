@@ -1878,10 +1878,31 @@ function writePendingEogGames(puuid, games) {
 function mergePendingEogGames(games, summoner, platformId) {
   const puuid = summoner?.puuid || '';
   if (!puuid) return games || [];
-  const officialIds = new Set((games || []).map(g => String(g.gid)));
-  const pending = readPendingEogGames(puuid).filter(g => !officialIds.has(String(g.gid)) && findProfileParticipant(g, summoner));
-  writePendingEogGames(puuid, pending);
-  return pending.concat(games || []);
+  const list = games || [];
+  const byGid = new Map(list.map(g => [String(g.gid), g]));
+  const pending = readPendingEogGames(puuid).filter(g => findProfileParticipant(g, summoner));
+  const keep = [];
+  for (const p of pending) {
+    const official = byGid.get(String(p.gid));
+    if (!official) { keep.push(p); continue; }
+    // 1.6.15: 外服(日服) LCU 战绩详情只返回自己 1 人, 而 EOG 块里有全部 10 人。
+    // 官方条目缺人时用 EOG 的队友补齐 —— 只 append 官方没有的 puuid, 绝不覆盖自己
+    // 那条(LCU 才有的装备栏 stats.item0..6 会丢)。补齐后队内占比也能真正算出来。
+    const have = new Set((official.participants || []).map(x => x && x.puuid).filter(Boolean));
+    const offN = (official.participants || []).length;
+    if (offN < 2 && (p.participants || []).length >= 2) {
+      const extra = (p.participants || []).filter(x => x && x.puuid && !have.has(x.puuid));
+      if (extra.length) {
+        official.participants = (official.participants || []).concat(extra);
+        if (official.teamsObj && !Object.keys(official.teamsObj).length && p.teamsObj) official.teamsObj = p.teamsObj;
+      }
+    }
+    // 保留这条 pending: 官方数据下次启动可能仍只有自己一人, 还需要它继续补。
+    keep.push(p);
+  }
+  writePendingEogGames(puuid, keep);
+  // 官方已收录的 gid 不再重复 concat, 只把"官方完全没有"的补到最前面。
+  return keep.filter(p => !byGid.has(String(p.gid))).concat(list);
 }
 function capturePendingEogGame(block) {
   const puuid = window._myPuuid || cachedSummoner?.puuid || block?.localPlayer?.puuid || '';
@@ -1891,7 +1912,12 @@ function capturePendingEogGame(block) {
   rows.unshift(Object.assign({}, game, { savedAt: Date.now() }));
   writePendingEogGames(puuid, rows);
   if (!profileOverride && homeGamesOwner === puuid && Array.isArray(homeGamesData)) {
-    homeGamesData = [game].concat(homeGamesData.filter(g => String(g.gid) !== String(game.gid)));
+    // 1.6.15: 刚打完的对局直接插到列表最前, 此前不看训练/自定义 —— 训练局打完就立刻
+    // 出现在战绩卡上, 而且下一秒被写进 pendingEog 后每次加载都会复发。这里同口径过滤。
+    const eogIncludePractice = (typeof storeGet === 'function' ? storeGet('includePractice') : '') === '1';
+    const eogHidden = !eogIncludePractice && typeof isExcludedGame === 'function' && isExcludedGame(game);
+    homeGamesData = homeGamesData.filter(g => String(g.gid) !== String(game.gid));
+    if (!eogHidden) homeGamesData = [game].concat(homeGamesData);
     if (typeof growthRecordGames === 'function' && puuid) growthRecordGames([game], puuid);
     // 1.5.136: 刚打完的这局也是一次相遇, 回写结果 (EOG 落账即知道胜负)
     if (typeof recordEncounterResults === 'function') {
@@ -2920,7 +2946,14 @@ async function loadHomeStats(force, opts) {
     }
     if (stale()) return;
     // 只统计确实包含目标玩家的对局；匹配不到时不能拿第一名参赛者冒充目标。
-    games = mergePendingEogGames(games || [], s, targetPlatformId).filter(g => !!findProfileParticipant(g, s));
+    // 1.6.15: EOG 待补记录 (localStorage poro.pendingEog.*) 是 normalizeEogGame 的直接
+    // 产物, mode 就是 block.gameMode (训练局为 PRACTICETOOL), 以前从不过滤, 每次加载都
+    // 被 concat 回列表最前面 —— 这才是"改了 isExcludedGame 却依然有训练局"的真正来源。
+    // 这里是 cache / 网络 / EOG 三条路径的统一出口, 在此按统一口径收口。
+    const mergedWithPending = mergePendingEogGames(games || [], s, targetPlatformId);
+    games = (includePractice ? mergedWithPending
+      : mergedWithPending.filter(g => typeof isExcludedGame === 'function' ? !isExcludedGame(g) : true))
+      .filter(g => !!findProfileParticipant(g, s));
     for (const game of games) if (!game.platformId && targetPlatformId) game.platformId = targetPlatformId;
     const server = SERVER_NAMES[targetPlatformId] || targetPlatformId || "";
     if(profileBackground && homeGamesOwner===s.puuid && games.length===homeGamesData.length &&
