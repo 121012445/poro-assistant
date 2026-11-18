@@ -1681,6 +1681,9 @@ function normalizeGame(g, isSgp) {
         wardsPlaced: p.stats?.wardsPlaced || 0, wardsKilled: p.stats?.wardsKilled || 0,
         penta: p.stats?.pentaKills || 0, fb: !!p.stats?.firstBloodKill,
         profileIconId: p.stats?.profileIcon || 0,
+        // 1.6.12: LCU-match-v5 的装备在 stats.item0..item6 (SGP SUMMARY 在顶层 item0..6)。
+        // 这条分支此前完全没读 items -> 日服/外服战绩卡装备栏整排空。
+        items: [0, 1, 2, 3, 4, 5, 6].map(i => p.stats?.['item' + i]).filter(id => +id > 0),
         // 这条分支以前漏了强化, 走它渲染的对局强化整排是空的 (SGP 回来后才补上)
         augmentIds: augmentIdsOf(p),
         spells: [
