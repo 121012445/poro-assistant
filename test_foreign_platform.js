@@ -54,4 +54,20 @@ assert(live.includes('function recentProfileFor') && live.includes('isTencentPla
 assert(chat.includes('recentProfileFor(platformId'), 'KDA briefing does not use platform routing');
 assert(lcu.includes('Riot Games\\\\League of Legends'), 'standard Riot install root is not scanned');
 
+// ---------- 日服(Riot 新 ID 体系)战绩接口修复 ----------
+// 实测: 日服 /lol-match-history/v1/products/lol/{puuid}/matches 返回 400
+// "match history plugin: could not find summoner info"; 而 /products/lol/current-summoner/matches
+// 返回 200 + 完整战绩(platformId=JP1)。查自己时必须优先走 current-summoner, 失败再回退 puuid。
+const currentSummonerPath = '/lol-match-history/v1/products/lol/current-summoner/matches';
+assert(home.includes(currentSummonerPath), '外服 branches 必须使用 current-summoner 战绩端点(日服 puuid 路径 400)');
+// 两处调用点都应改为"先 current-summoner 再回退 puuid": getPlatformId 与外服战绩分支。
+const currentHits = home.split(currentSummonerPath).length - 1;
+assert(currentHits >= 2, `current-summoner 端点应出现在 >=2 处(平台识别 + 外服战绩), 实际 ${currentHits}`);
+// 回退路径必须保留, 否则其它外服/国服客户端不支持 current-summoner 时会彻底拿不到战绩。
+assert(/products\/lol\/\$\{encodeURIComponent\(s\.puuid\)\}\/matches/.test(home), '外服战绩分支必须保留 puuid 回退路径');
+assert(/products\/lol\/\$\{st\.summoner\.puuid\}\/matches/.test(home), '平台识别分支必须保留 puuid 回退路径');
+// isSelf 门控: 只有查自己才用 current-summoner (该端点恒返回当前登录账号, 查他人会串号)。
+const histBlock = home.slice(home.indexOf('let hist = null'), home.indexOf('if (stale()) return;', home.indexOf('let hist = null')));
+assert(/if \(isSelf\)/.test(histBlock), 'current-summoner 端点必须受 isSelf 门控, 避免查他人时串成自己的战绩');
+
 console.log('foreign platform routing tests passed');

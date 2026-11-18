@@ -1503,7 +1503,11 @@ async function getPlatformId() {
   const direct = normalizePlatformId(st?.summoner?.platformId || st?.summoner?.currentPlatformId);
   if (direct) { cachedPlatformId = direct; return cachedPlatformId; }
   // 只取 1 场拿 platformId；国服与 Riot 外服的历史对象都带该字段。
-  const hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${st.summoner.puuid}/matches?begIndex=0&endIndex=1`);
+  // 日服(Riot 新 ID)下 puuid 路径返回 400, 先试 current-summoner 再回退 puuid。
+  let hist = await lolAPI.lcuRequest("GET", '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=1');
+  if (!hist || hist.__error || !hist?.games?.games?.length) {
+    hist = await lolAPI.lcuRequest("GET", `/lol-match-history/v1/products/lol/${st.summoner.puuid}/matches?begIndex=0&endIndex=1`);
+  }
   const fromHistory = normalizePlatformId(hist?.games?.games?.[0]?.platformId);
   if (fromHistory) { cachedPlatformId = fromHistory; return cachedPlatformId; }
   // 新账号没有历史时，从 Riot 客户端区域配置识别。不同版本返回 platformId/region/webRegion 之一。
@@ -2738,7 +2742,18 @@ async function loadHomeStats(force, opts) {
           // （HTTP 500 "Error getting match list for summoner, begin 0, end: N"）。
           // 原先这里把 MAX_FETCH（自己 500 / 他人 150）当 endIndex 传，外服查询必然
           // 失败；而本分支最终也只准备前 100 场（见下方 foreignTarget）。
-          const hist = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/products/lol/${encodeURIComponent(s.puuid)}/matches?begIndex=0&endIndex=100`);
+          // 日服(Riot 新 ID 体系)下, /products/lol/{puuid}/matches 会返回 400
+          // "match history plugin: could not find summoner info" —— puuid 路径在该体系失效,
+          // 但 /products/lol/current-summoner/matches 正常(实测 200, 数据完整)。
+          // 查自己时优先走 current-summoner; 失败或无数据再回退 puuid 路径(兼容其它外服)。
+          let hist = null;
+          if (isSelf) {
+            const byCurrent = await lolAPI.lcuRequest('GET', '/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=100');
+            if (byCurrent && !byCurrent.__error && byCurrent?.games?.games?.length) hist = byCurrent;
+          }
+          if (!hist) {
+            hist = await lolAPI.lcuRequest('GET', `/lol-match-history/v1/products/lol/${encodeURIComponent(s.puuid)}/matches?begIndex=0&endIndex=100`);
+          }
           if (stale()) return;
           if (!hist || hist.__error) throw new Error(hist?.__error || '外服客户端未返回战绩');
           const raw = hist?.games?.games || [];
