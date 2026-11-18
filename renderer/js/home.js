@@ -2706,7 +2706,11 @@ async function loadHomeStats(force, opts) {
       if (profileOverride?.summoner?.puuid === s.puuid) s = mergeSummonerProfile(s, profileOverride.summoner);
       // 旧缓存里可能已经把「未知玩家」存下来了；每次读缓存都用查询时的 Riot ID 纠正一次
       if (profileOverride && typeof fillSummonerName === 'function') s = fillSummonerName(s, profileOverride.name);
-      games = cached.games; ranked = cached.ranked || null;
+      // 1.6.14: 旧缓存是在过滤规则还不认识 PRACTICETOOL 时写进去的, 训练局被存进了
+      // games。缓存命中必须与网络路径同口径过滤, 否则修了 isExcludedGame 也白修
+      // (界面照旧从缓存里把训练局渲染出来)。过滤后的数据会在下方写回, 缓存自动自愈。
+      games = includePractice ? cached.games : (cached.games || []).filter(g => !isExcludedGame(g));
+      ranked = cached.ranked || null;
       rawGameCount = cached.rawGameCount || cached.games.length;
       dataSource = cached.dataSource || 'SGP';
       targetPlatformId = cached.platformId || cachedPlatformId || '';
