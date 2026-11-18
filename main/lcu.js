@@ -272,18 +272,30 @@ function reset() { cached = null; lastProbe = 0; _regPathsCache = null; _connFil
 // 供 WebSocket 模块读取当前凭证 (未连接时返回 null)
 function getCached() { return cached; }
 
-async function getGameConfigDir() {
-  const candidates = await getLCU();
-  const ordered = cached ? [cached, ...candidates.filter(candidate => candidate !== cached)] : candidates;
+// 从候选客户端解析游戏 Config 目录。兼容两种客户端目录结构:
+//   - 国服 WeGame: exe 在 <游戏根>\LeagueClient\ 子目录, Config 在 dirname(clientDir)\Config
+//   - 官方/外服(含日服): exe 直接在 <游戏根>\ 下, Config 就在 clientDir 同层
+// 顺序: 父级优先(保持国服既有行为完全不变), 父级找不到再补试同层。
+// 以 PersistedSettings.json 实际存在为判定, 不依赖平台/路径硬编码。
+function resolveGameConfigDir(candidates, cachedCandidate, exists) {
+  const ordered = cachedCandidate ? [cachedCandidate, ...candidates.filter(c => c !== cachedCandidate)] : candidates;
   for (const candidate of ordered) {
-    if (!candidate.clientDir) continue;
-    const gameRoot = path.dirname(candidate.clientDir);
-    const configDirs = [path.join(gameRoot, 'Config'), path.join(gameRoot, 'Game', 'Config')];
-    for (const configDir of configDirs) {
-      if (fs.existsSync(path.join(configDir, 'PersistedSettings.json'))) return configDir;
+    if (!candidate || !candidate.clientDir) continue;
+    const gameRoots = [path.dirname(candidate.clientDir), candidate.clientDir];
+    for (const gameRoot of gameRoots) {
+      for (const configDir of [path.join(gameRoot, 'Config'), path.join(gameRoot, 'Game', 'Config')]) {
+        if (exists(path.join(configDir, 'PersistedSettings.json'))) return configDir;
+      }
     }
   }
-  throw new Error('未找到当前英雄联盟的 Config 目录');
+  return null;
+}
+
+async function getGameConfigDir() {
+  const candidates = await getLCU();
+  const dir = resolveGameConfigDir(candidates, cached, p => fs.existsSync(p));
+  if (!dir) throw new Error('未找到当前英雄联盟的 Config 目录');
+  return dir;
 }
 
 function rawRequest(conn, method, urlPath, body) {
@@ -410,7 +422,7 @@ module.exports = {
   // 仅供测试
   _internals: {
     parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK,
-    knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS, probe, fromProcess,
+    knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS, probe, fromProcess, resolveGameConfigDir,
     setDriveLister: fn => { _listFixedDrives = fn || defaultListFixedDrives; _driveCache = null; }
   }
 };
