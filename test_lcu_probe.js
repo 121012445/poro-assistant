@@ -189,9 +189,31 @@ const logLines = bytes => LOG_LINE.repeat(Math.ceil(bytes / LOG_LINE.length));
   assert.deepStrictEqual(fixedDrives(), [], '获取盘符失败时退回原有清单, 不抛异常');
   setDriveLister(null);
   const lcuSrc = fs.readFileSync('main/lcu.js', 'utf8');
-  assert.ok(lcuSrc.includes('await collectCandidates(knownClientDirs(fixedDrives()))'), '快速扫描应包含其他固定磁盘');
+  assert.ok(lcuSrc.includes('knownClientDirs(fixedDrives())'), '扫描目录应包含其他固定磁盘');
   assert.ok(/GetDriveTypeW\(letter \+ ':\\\\'\) === DRIVE_FIXED/.test(lcuSrc), '只扫描本地固定磁盘 (断开的网络盘会让 fs 调用挂起)');
 
+  // ---------- 9) probe: 进程命令行凭证优先, 不被旧日志短路 (日服/外服非清单路径回归) ----------
+  // 场景: 进程命令行给出真实活跃凭证, 同时 knownClientDirs 清单里存在旧日志的过期凭证。
+  // 旧实现 fast 命中旧日志就 return, 真实凭证被短路 -> "未连接客户端"。新实现必须让进程凭证排第一。
+  const { probe } = lcu._internals;
+  lcu.reset();
+  const LIVE_TOKEN = 'LIVEtoken_51651_active';
+  execStdout = Buffer.from(CMD(51651, LIVE_TOKEN));   // fromProcess 从此命令行解析出真实 conn + exeDir=C:\x
+  execCalls = 0;
+  // 关闭固定磁盘扫描噪音, 让结果完全由 mock 的 execStdout 决定
+  setDriveLister(() => []);
+  const probed = await probe();
+  assert.ok(probed.length >= 1, 'probe 应至少返回进程命令行的活跃凭证');
+  assert.strictEqual(probed[0].port, 51651, '进程命令行的真实凭证必须排第一 (不能被旧日志短路)');
+  assert.strictEqual(probed[0].token, LIVE_TOKEN, '真实凭证的 token 必须保留');
+  const exeDirFromCmd = path.dirname('C:\\x\\LeagueClientUx.exe');
+  assert.strictEqual(probed[0].clientDir, exeDirFromCmd, '进程安装目录应作为候选的 clientDir 带入');
+  // 静态防回归: probe 必须以进程 conn 作为 collectCandidates 的 initial 参数, 且 fromProcess 不可再被短路
+  assert.ok(/const \{ conn, exeDir \} = await fromProcess\(\)/.test(lcuSrc), 'probe 必须先取进程命令行凭证');
+  assert.ok(/collectCandidates\(dirs, conn \?/.test(lcuSrc), '进程凭证必须作为最高优先级初始候选');
+  assert.ok(!/if \(fast\.length\) return fast/.test(lcuSrc), '不得再用旧日志 fast 短路掉真实凭证');
+  setDriveLister(null);
+
   fs.promises.open = realOpen;
-  console.log('LCU 连接探测 (异步分块读取 / 缓存 / 顺序) 测试通过');
+  console.log('LCU 连接探测 (异步分块读取 / 缓存 / 顺序 / 进程凭证优先) 测试通过');
 })().catch(error => { console.error(error); process.exitCode = 1; });

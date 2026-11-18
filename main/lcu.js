@@ -236,13 +236,23 @@ async function collectCandidates(dirs, initial) {
 }
 
 async function probe() {
-  // 国服通常以管理员权限运行，进程命令行不可读；先直接扫常见目录的最新日志，避免每次启动等待 PowerShell/注册表。
-  const fast = await collectCandidates(knownClientDirs(fixedDrives()));
-  if (fast.length) return fast;
-
+  // 进程命令行是当前运行客户端最权威的凭证来源: 端口/token 必然属于正开着的那个客户端。
+  // 必须优先用它, 并把它的安装目录(exeDir)纳入扫描 —— 日服/外服常装在非清单路径
+  // (如 D:\lol\Riot Games\League of Legends), 只扫 knownClientDirs 会漏掉。
+  //
+  // 旧实现先扫 knownClientDirs 的日志, 一旦命中就 return。但那些是历史日志: 客户端关掉后
+  // 端口失效, 日志仍在磁盘上 —— 结果 fast 命中的全是过期凭证, fromProcess 永远不被调用,
+  // 真正活着的客户端反而连不上, 表现为"未连接客户端"。现在改为: 进程命令行优先取权威 conn,
+  // 再叠加各目录 lockfile/日志作兜底; 国服以管理员运行时命令行读不到(conn 为空), 行为回退到
+  // 原来的目录扫描 + 注册表, 不受影响。
   const { conn, exeDir } = await fromProcess();
-  const dirs = exeDir ? [exeDir] : [];
-  for (const p of await regInstallPaths()) dirs.push(p, path.join(p, 'LeagueClient'));
+
+  const dirs = [];
+  if (exeDir) dirs.push(exeDir);
+  for (const d of knownClientDirs(fixedDrives())) if (d !== exeDir) dirs.push(d);
+  for (const p of await regInstallPaths()) {
+    for (const d of [p, path.join(p, 'LeagueClient')]) if (!dirs.includes(d)) dirs.push(d);
+  }
   return collectCandidates(dirs, conn ? [{ ...conn, clientDir: exeDir }] : []);
 }
 
@@ -400,7 +410,7 @@ module.exports = {
   // 仅供测试
   _internals: {
     parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK,
-    knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS,
+    knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS, probe, fromProcess,
     setDriveLister: fn => { _listFixedDrives = fn || defaultListFixedDrives; _driveCache = null; }
   }
 };
