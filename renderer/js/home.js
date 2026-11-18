@@ -1904,6 +1904,32 @@ function mergePendingEogGames(games, summoner, platformId) {
   // 官方已收录的 gid 不再重复 concat, 只把"官方完全没有"的补到最前面。
   return keep.filter(p => !byGid.has(String(p.gid))).concat(list);
 }
+// 1.6.16: 外服(日服) LCU 的 `products/.../matches` **列表接口**每场只带自己 1 个
+// participant, 而 `/lol-match-history/v1/games/<gid>` **详情接口**是完整 10 人。
+// 之前只吃列表接口, 于是: ①战绩卡只显示自己(用户报"没显示所有人") ②队内占比
+// 分母只有自己 -> 恒 100%, 上一轮只能置成「—」。这里对缺人的对局按详情接口补齐,
+// 补全后占比能真正算出来, 队友也能显示。只在 participants<2 时发请求, 限最近几场。
+async function hydrateLcuParticipants(games, limit) {
+  const api = (typeof lolAPI !== 'undefined' && lolAPI) ? lolAPI : null;
+  if (!api || typeof api.lcuRequest !== 'function') return false;
+  const targets = (games || []).filter(g => ((g.participants || []).length) < 2).slice(0, limit || 3);
+  let changed = false;
+  for (const g of targets) {
+    try {
+      const d = await api.lcuRequest('GET', `/lol-match-history/v1/games/${g.gid}`);
+      if (!d || d.__error) continue;
+      const norm = normalizeGame(d, false);
+      const ps = (norm && norm.participants) || [];
+      if (ps.length > ((g.participants || []).length)) {
+        g.participants = ps;
+        g.teamsObj = (g.teamsObj && Object.keys(g.teamsObj).length) ? g.teamsObj : (norm.teamsObj || {});
+        changed = true;
+        try { api.debugLog && api.debugLog(`[HOME] hydrated participants gid=${g.gid} n=${ps.length}`); } catch (e) {}
+      }
+    } catch (e) { /* 单场失败不影响其它 */ }
+  }
+  return changed;
+}
 function capturePendingEogGame(block) {
   const puuid = window._myPuuid || cachedSummoner?.puuid || block?.localPlayer?.puuid || '';
   const game = normalizeEogGame(block, puuid, cachedPlatformId || '');
@@ -2737,6 +2763,9 @@ async function loadHomeStats(force, opts) {
       // (界面照旧从缓存里把训练局渲染出来)。过滤后的数据会在下方写回, 缓存自动自愈。
       games = includePractice ? cached.games : (cached.games || []).filter(g => !isExcludedGame(g));
       ranked = cached.ranked || null;
+      // 1.6.16: 旧缓存里的对局可能只有自己 1 人(列表接口留下的), 这里做一次内存补全,
+      // 让缓存命中也能看到队友/真实占比; 不重写缓存, 下次网络刷新会用完整数据落盘。
+      try { await hydrateLcuParticipants(games, 3); } catch (e) {}
       rawGameCount = cached.rawGameCount || cached.games.length;
       dataSource = cached.dataSource || 'SGP';
       targetPlatformId = cached.platformId || cachedPlatformId || '';
@@ -2926,6 +2955,9 @@ async function loadHomeStats(force, opts) {
       // 先验证网络结果再落盘。SGP/LCU 在客户端刚完成登录时可能短暂返回空历史；
       // 若本机已有同一账号的有效缓存，这属于刷新失败，不是“0 场战绩”。
       games = (games || []).filter(g => !!findProfileParticipant(g, s));
+      // 1.6.16: 列表接口每场只带自己 1 人(实测日服), 详情接口才有完整 10 人。
+      // 在写缓存之前补齐, 落盘即是完整数据, 不需要额外增加缓存写入点。
+      try { await hydrateLcuParticipants(games, 3); } catch (e) {}
       const fallbackIsSamePlayer = !!(durableSelfCache?.s?.puuid && s?.puuid && durableSelfCache.s.puuid === s.puuid);
       const fallbackHasGames = fallbackIsSamePlayer && Array.isArray(durableSelfCache.games) && durableSelfCache.games.length > 0;
       if (isSelf && games.length === 0 && fallbackHasGames) {
