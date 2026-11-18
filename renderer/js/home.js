@@ -599,7 +599,7 @@ function buildHomeTrendChart(games, summoner) {
     if (rows.length >= 20) break;
     const me = (g.participants || []).find(p => p.puuid === puuid);
     if (!me) continue;
-    if (typeof isExcludedGame === 'function' && isExcludedGame({ mode: g.mode, queueId: g.queueId, gameType: g.gameType })) continue;
+    if (typeof isExcludedGame === 'function' && isExcludedGame({ mode: g.mode, gameMode: g.gameMode, queueId: g.queueId, gameType: g.gameType })) continue;
     rows.push({ win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0, time: +g.time || 0, mode: g.mode });
   }
   if (rows.length < 4) return '';
@@ -2009,13 +2009,17 @@ function buildHomeGameCard(g, s) {
   const teams = {};
   for (const x of g.participants) (teams[x.teamId] = teams[x.teamId] || []).push(x);
   const myTeam = teams[p.teamId] || [];
+  // 1.6.13: 日服/外服走 LCU 兜底, 战绩详情只返回自己 1 人 (国服 SGP 才有完整 10 人)。
+  // 此时分母只剩自己, 占比恒 100% (参团甚至 >100%) —— 和 1.6.11 实时卡同一数据可得性问题。
+  // 处理口径一致: 占比类置 null 让渲染层显示「—」, 只保留靠自己就能算的真指标。
+  const soloOnly = myTeam.length < 2;
   const teamK = myTeam.reduce((sum, x) => sum + x.k, 0);
   const teamDmg = myTeam.reduce((sum, x) => sum + (x.dmg || 0), 0);
-  const kp = teamK ? Math.round((p.k + p.a) / teamK * 100) : 0;
-  const dmgShare = teamDmg ? Math.round((p.dmg || 0) / teamDmg * 100) : 0;
+  const kp = soloOnly ? null : (teamK ? Math.round((p.k + p.a) / teamK * 100) : null);
+  const dmgShare = soloOnly ? null : (teamDmg ? Math.round((p.dmg || 0) / teamDmg * 100) : null);
   // 承伤占比: 全队承伤分摊; 伤害转化率: 对英雄伤害 / 金币 (每金币打出的伤害)
   const teamTaken = myTeam.reduce((sum, x) => sum + (x.dmgTaken || 0), 0);
-  const takenShare = teamTaken ? Math.round((p.dmgTaken || 0) / teamTaken * 100) : 0;
+  const takenShare = soloOnly ? null : (teamTaken ? Math.round((p.dmgTaken || 0) / teamTaken * 100) : null);
   const goldRate = p.gold ? Math.round((p.dmg || 0) / p.gold * 100) : 0;
   const mins = g.dur > 0 ? g.dur / 60 : 1;
   const csMin = ((p.cs || 0) / mins).toFixed(1);
@@ -2079,7 +2083,12 @@ function buildHomeGameCard(g, s) {
       break;
     }
   }
-  const performanceTags = buildPerformanceTags(p, myTeam, kp, dmgShare, mins, g.mode);
+  // 单人局没有队友可比: 传空队伍让依赖队内均值的标签 (输出核心/承伤偏少/视野掌控等) 跳过,
+  // 只保留基于真 KDA 的判断; 假的 100% 占比不再喂给标签引擎。
+  const performanceTags = buildPerformanceTags(p, soloOnly ? [] : myTeam, kp || 0, dmgShare || 0, mins, g.mode);
+  // 占比不可算时显示破折号并说明原因, 不拿 100% 冒充真数据。
+  const shareTip = soloOnly ? ' title="该战绩接口只返回你自己, 队内占比无法计算"' : '';
+  const shareText = v => (v == null ? '<span class="ako-na"' + shareTip + '>—</span>' : v + '%');
   const pendingBadge = g.pendingSettlement ? '<span class="ako-tag ako-pendingtag">结算同步中</span>' : '';
   return `<div class="ako-card ${p.win ? 'ako-win' : 'ako-loss'}" onclick="expandOpggGame(this, '${g.gid}')" data-gid="${g.gid}" data-platform="${escapeHtml(g.platformId || '')}">
         <div class="ako-main">
@@ -2092,15 +2101,15 @@ function buildHomeGameCard(g, s) {
             ${runeHtml}
             <div class="ako-stat">
               <div class="ako-big"><span class="v-k">${p.k}</span> <i>/</i> <b class="v-d">${p.d}</b> <i>/</i> <span class="v-n">${p.a}</span></div>
-              <div class="ako-sub">${p.d === 0 && (p.k > 0 || p.a > 0) ? '<span class="v-g">完美</span>' : `<span class="${kdaClass(kda)}">${kda}</span>`} (${kp}%)</div>
+              <div class="ako-sub">${p.d === 0 && (p.k > 0 || p.a > 0) ? '<span class="v-g">完美</span>' : `<span class="${kdaClass(kda)}">${kda}</span>`} (${kp == null ? '<span class="ako-na"' + shareTip + '>—</span>' : kp + '%'})</div>
             </div>
             <div class="ako-stat">
-              <div class="ako-big">${dmgShare}%</div>
+              <div class="ako-big">${shareText(dmgShare)}</div>
               <div class="ako-sub">${fmtNumLocal(p.dmg)} 伤害</div>
               ${typeof damageCompositionBar === 'function' ? damageCompositionBar(p.dmg, p.physDmg, p.magicDmg, p.trueDmg) : ''}
             </div>
             <div class="ako-stat ako-stat-sm">
-              <div class="ako-big">${takenShare}%</div>
+              <div class="ako-big">${shareText(takenShare)}</div>
               <div class="ako-sub">${fmtNumLocal(p.dmgTaken)} 承伤</div>
             </div>
             <div class="ako-stat ako-stat-sm">

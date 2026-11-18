@@ -38,8 +38,15 @@ const QUEUE_MODE_MAP = { 0: { gameMode: "CLASSIC", mapId: 11 }, 420: { gameMode:
 const MODE_NAMES = { CLASSIC: "召唤师峡谷", KIWI: "极地大乱斗", ARAM: "极地大乱斗", JADE: "经典模式", URF: "无限火力", NEXUSBLITZ: "极限闪击", ONEFORALL: "克隆大作战", ASCENSION: "飞升", SKIRMISH: "斗魂竞技场", CHERRY: "斗魂竞技场", TUTORIAL: "新手教程", KIWI_JADE: "海克斯大乱斗", SWIFTPLAY: "快速对局", PRACTICETOOL: "训练工具" };
 function modeName(g) { return QUEUE_NAMES[g.queueId] || MODE_NAMES[g.gameMode] || g.gameMode || "其他"; }
 // 训练模式 (训练工具/新手教程) 和 自定义对局 不计入战绩卡片和模式统计
-const TRAINING_MODES = new Set(["训练工具", "新手教程", "TUTORIAL"]);
-function isTrainingGame(g) { return TRAINING_MODES.has(g.mode) || g.queueId === 1090 || g.gameMode === "TUTORIAL"; }
+// 1.6.13: 日服/外服 LCU 原始战绩里 gameMode 直接是 "PRACTICETOOL" (QUEUE_NAMES 也没这个
+// queueId), modeName() 兜底返回原串, 于是卡片上显示 "PRACTICETOOL" 却没被过滤掉 ——
+// 国服走 SGP, gameMode=TUTORIAL/queueId=1090, 所以此前只在日服暴露。这里补齐识别。
+const TRAINING_MODES = new Set(["训练工具", "新手教程", "TUTORIAL", "PRACTICETOOL"]);
+function isTrainingGame(g) {
+  if (!g) return false;
+  return TRAINING_MODES.has(g.mode) || TRAINING_MODES.has(g.gameMode)
+    || g.queueId === 1090 || TRAINING_MODES.has(g.gameType);
+}
 function isCustomGame(g) { return g.gameType === 'CUSTOM_GAME' || g.queueId === 0; }
 function isExcludedGame(g) { return isTrainingGame(g) || isCustomGame(g); }
 const SERVER_NAMES = {

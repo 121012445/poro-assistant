@@ -3410,3 +3410,13 @@ body.dark .gw-aug-icon.is-missing { border-color: rgba(255, 255, 255, .22); }
 @container (max-width: 1000px) {
   #page-live .lp-name-line { flex-wrap: wrap; row-gap: 2px; }
 }
+
+/* 1.6.13: 单人局 (日服/外服 LCU 只返回自己) 队内占比无法计算, 显示破折号而非假的 100%。
+   灰化 + 虚线下划提示"不是真数据"; title 里给出原因。 */
+#page-home .ako-na {
+  color: var(--muted, #8a94a6);
+  opacity: .7;
+  border-bottom: 1px dotted currentColor;
+  cursor: help;
+  font-weight: 400;
+}

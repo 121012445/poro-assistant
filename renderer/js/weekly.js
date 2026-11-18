@@ -16,7 +16,7 @@ function weeklySum(games, begin, end, ownerPuuid) {
     if (!t || t < begin || t >= end) continue;
     const me = (g.participants || []).find(p => p.puuid && p.puuid === ownerPuuid);
     if (!me) continue;
-    if (typeof isExcludedGame === 'function' && isExcludedGame({ mode: g.mode, queueId: g.queueId, gameType: g.gameType })) continue;
+    if (typeof isExcludedGame === 'function' && isExcludedGame({ mode: g.mode, gameMode: g.gameMode, queueId: g.queueId, gameType: g.gameType })) continue;
     rows.push({ game: g, me });
   }
   return rows;
