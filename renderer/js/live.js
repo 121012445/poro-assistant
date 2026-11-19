@@ -102,6 +102,40 @@ let liveSelfPuuid = null;
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
 
+// 1.6.22: 小代标签不能只看胜率 —— 低段位里"个人碾压但队友拖后腿"的那种号,
+// 胜率可能只有五成出头, 数据却明显不是这个段位的人。
+// 判"队内最佳"用的是对局详情页同一套评分公式 (k + a*0.7 - d*0.5 + dmg/4000 + gold/6000),
+// 只求我方 5 人里的第一名, 不渲染、不请求额外接口。
+// 拿不到同队队友数据时返回 null (= 未知), 绝不返回 false —— 外服/LCU 单人返回的接口
+// 每个人都会变成"队内第一", 那会把所有外服玩家都标成小代。
+function championRatingOf(p) {
+  if (!p) return 0;
+  const s = (p.stats && typeof p.stats === 'object') ? p.stats : p;
+  const num = (...vals) => {
+    for (const v of vals) if (v != null && Number.isFinite(Number(v))) return Number(v);
+    return 0;
+  };
+  // SGP: kills/deaths/assists/totalDamageDealtToChampions/goldEarned (可能在 stats 里)
+  // LCU: normalizeGame 已压平成 k/d/a/dmg/gold
+  const k = num(s.kills, p.kills, p.k);
+  const d = num(s.deaths, p.deaths, p.d);
+  const a = num(s.assists, p.assists, p.a);
+  const dmg = num(s.totalDamageDealtToChampions, p.totalDamageDealtToChampions, p.dmg);
+  const gold = num(s.goldEarned, p.goldEarned, p.gold);
+  return k + a * 0.7 - d * 0.5 + dmg / 4000 + gold / 6000;
+}
+function teamBestFlag(participants, me) {
+  if (!me || !Array.isArray(participants)) return null;
+  const mates = participants.filter(x => x && x.teamId != null && x.teamId === me.teamId);
+  if (mates.length < 5) return null;             // 队友数据不全, 无法比较
+  const mine = championRatingOf(me);
+  for (const m of mates) {
+    if (m === me) continue;
+    if (me.puuid && m.puuid === me.puuid) continue;
+    if (championRatingOf(m) > mine) return false;
+  }
+  return true;
+}
 // 队内占比: 伤害 / 承伤 / 经济 / 参团。
 // 玩家卡上的彩色数据标签靠它 —— 只看胜率和 KDA 分不出"被带飞"和"carry 赢", 占比能。
 // 取不到字段时整块返回空对象 (而不是写 0), 渲染层据此整排不显示,
@@ -190,6 +224,9 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
             cs: (Number(stats.totalMinionsKilled) || 0) + (Number(stats.neutralMinionsKilled) || 0),
             dur: Number(gj.gameDuration) || 0,
             solo: soloRaw == null ? null : (Number(soloRaw) || 0),
+            // 1.6.22: 本局是否我方评分第一 (小代标签的"数据碾压"证据)。
+            // 队友数据不全时为 null, 由 smurf-tags.js 决定该场不参与比例计算。
+            best: teamBestFlag(gj.participants, me),
             // 习惯卡的"一血"用: 拿一血(含参与)。字段缺失记 null —— 不能把"没这个字段"当成"没拿到"。
             fb: (() => {
               const kill = stats.firstBloodKill ?? me.firstBloodKill;
@@ -234,11 +271,16 @@ async function lcuProfileFor(platformId, puuid, count = 30) {
       gameId: raw.gameId || raw.gameIdString || game.gameId || game.gid || 0,
       champId: me.championId, win: !!me.win, k: me.k || 0, d: me.d || 0, a: me.a || 0,
       mode: game.mode, ts: game.time || 0,
+      // 1.6.22: 补上队列号 —— 1.6.21 只给 SGP 路径加了, LCU 兜底路径缺这一项,
+      // 结果日服/外服样本会退回全量 (大乱斗战绩混进排位胜率)。
+      queueId: Number(game.queueId) || 0,
       position: me.position || me.teamPosition || me.individualPosition || me.lane || '',
       // 1.5.136: 分均CS 数据源 (normalizeGame 已把两债合并进 cs)
       cs: me.cs || 0, dur: game.dur || 0,
       // 1.5.139: LCU 战绩接口没有 soloKills 记录 (Akari 同款结论), 只有 challenges 才给
       solo: me.challenges?.soloKills != null ? (Number(me.challenges.soloKills) || 0) : null,
+      // 1.6.22: 本局是否我方评分第一 (LCU 路径同样用压平后的 participants)
+      best: teamBestFlag(game.participants, me),
       // 习惯卡的"一血"用。LCU 侧 normalizeGame 只映射了 firstBloodKill (没有 assist),
       // 所以这条在 LCU 兜底路径上偏保守: 只认"自己拿到一血", 不算参与。
       fb: typeof me.fb === 'boolean' ? me.fb : null,

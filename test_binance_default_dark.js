@@ -80,7 +80,8 @@ console.log('[D] 版本与缓存');
   const [maj, min, pat] = pkg.version.split('.').map(Number);
   ok(maj === 1 && (min > 5 || (min === 5 && pat >= 154)), `package.json 版本 ≥ 1.5.154 (实际 ${pkg.version})`);
   const html = fs.readFileSync(path.join(R, 'renderer/index.html'), 'utf8');
-  ok(/v4\.css\?v=2026111\d{3}/.test(html), 'v4.css 带缓存参数');
+  // 1.6.22: 原来写死 2026111\d{3}, 跨月/跨日后每次发版都要改测试 —— 改为校验日期格式本身
+  ok(/v4\.css\?v=2026\d{6}/.test(html), 'v4.css 带缓存参数');
   const appStamp = (html.match(/js\/app\.js\?v=(\d+)/) || [])[1];
   ok(appStamp && Number(appStamp) >= 2026111334, 'app.js 缓存参数 >= 1334');
 }
