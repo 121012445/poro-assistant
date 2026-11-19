@@ -96,6 +96,8 @@ let liveRankedTier = false;
 // 当前对局的模式家族 (rift/aram/arena/fun/other): 习惯卡的阵亡阈值要按模式走 ——
 // 大乱斗一场死 8~10 次很常见, 用峡谷阈值会全员误报 (2026-11 用户反馈)
 let liveModeFamily = "other";
+// 1.6.21: 当前对局本人 puuid —— 小代标签不对自己贴
+let liveSelfPuuid = null;
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
@@ -181,6 +183,8 @@ async function sgpProfileFor(platformId, puuid, count = 30) {
             gameId: gj.gameId || gj.gameID || gj.gameUuid || gj.gameUUID || 0,
             champId: normalizeChampId(me.championId || stats.championId), win, k, d, a,
             mode: gameMode, ts: gj.gameCreation || gj.gameEndTimestamp || 0,
+            // 1.6.21: 小代标签只统计当前排位队列, 战绩行必须带上队列号
+            queueId: Number(gj.queueId) || 0,
             position: me.teamPosition || me.individualPosition || me.position || me.lane || stats.teamPosition || stats.lane || '',
             // 1.5.136: 分均CS 数据源 (补刀含野怪)
             cs: (Number(stats.totalMinionsKilled) || 0) + (Number(stats.neutralMinionsKilled) || 0),
@@ -1748,12 +1752,39 @@ function enemyIntelHtml(data, selfPuuid) {
 // (updateLivePlayerRow) 共用同一结构, 否则刷新会把排版冲掉或标签迟迟不出。
 // 1.5.141: 组队标签按组号着色 (Akari 小队 A-G 各一色), 同组的人在两张卡上一眼对上;
 // 特色标签: 大腿 = 近 14 场以上胜率 ≥65%; 本命 = 同一个英雄玩了 ≥5 场。样本不够不贴。
+// 1.6.21: 小代标签要拿"当前排位队列"的段位 —— 单双排看单双, 灵活组排看灵活。
+// 直接用 p.tier 会串味: quickData 只塞了 RANKED_SOLO_5x5, 打灵活时拿单双段位去比,
+// 高段玩家打低段灵活会被误判。rankCache 里两个队列都在, 按队列号取即可。
+function liveRankedEntryOf(puuid, queueId) {
+  try {
+    if (!puuid || typeof rankCache === 'undefined' || !rankCache) return null;
+    const qm = rankCache[puuid];
+    if (!qm) return null;
+    const key = Number(queueId) === 440 ? 'RANKED_FLEX_SR' : 'RANKED_SOLO_5x5';
+    return qm[key] || null;
+  } catch (e) { return null; }
+}
+
 function buildLivePills(p, premadeGroupId) {
   const premadeTag = premadeGroupId ? `<span class="lp-premade lp-pg-${((premadeGroupId - 1) % 6) + 1}" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
+  // 1.6.21: 小代 (排位专属) —— 战绩与段位明显不符, 判定逻辑与阈值在 smurf-tags.js
+  const liveQueueId = Number(window._poroLiveModeContext && window._poroLiveModeContext.queueId) || 0;
+  const rankedEntry = liveRankedEntryOf(p.puuid, liveQueueId);
+  const smurfTag = typeof smurfTagHtml === 'function'
+    ? smurfTagHtml(p, {
+        queueId: liveQueueId,
+        isSelf: !!p.puuid && p.puuid === liveSelfPuuid,
+        tier: (rankedEntry && rankedEntry.tier) || p.tier || '',
+        division: (rankedEntry && rankedEntry.division) || ''
+      })
+    : '';
   const wins = p.recent.filter(r => r.win === true || r.win === "Win").length;
   const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
   const games = p.recent.length;
   const specialTags = [];
+  // 小代排在最前: 它是"这个人要注意"的信号, 比大腿/本命更需要第一眼看到。
+  // 放进 specialTags 而不是单开一段 —— 标签行的拼接顺序/占位约定只有一套, 不另起分支。
+  if (smurfTag) specialTags.push(smurfTag);
   if (winRate != null && winRate >= 65 && games >= 14) {
     specialTags.push(`<span class="lp-metric lp-tag-hiwr" title="近 ${games} 场 ${wins} 胜，胜率 ${winRate}% — 高胜率玩家，前期多照顾他一路">大腿</span>`);
   }
@@ -1778,6 +1809,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   let selfPuuid = null;
   try { const st = await lolAPI.lcuStatus(); selfPuuid = st.summoner?.puuid; } catch(e) {}
   if (expectedToken != null && expectedToken !== liveRenderToken) return;
+  liveSelfPuuid = selfPuuid || null;   // 1.6.21: 小代标签用, 不对自己贴
   window._poroLivePlayerMap = new Map(data.map(player => {
     player.premadeGroupId = premadeGroups && player.puuid ? premadeGroups[player.puuid] : null;
     // 习惯卡: 每次渲染按当前 recent 重算 (纯函数, 20 场循环, 可忽略)
