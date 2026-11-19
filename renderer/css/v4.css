@@ -2754,6 +2754,14 @@ body.dark {
   font-weight: 500;
   font-size: var(--fs-xs);
 }
+/* 1.6.30: 跨区玩家。LCU 的 ranked-stats 只认本区, 别的 shard 一律回空壳,
+   等多久都不会有段位 —— 与其留白, 直接标明"跨区"。 */
+#page-home .ogd-rank.is-cross {
+  color: var(--ink-3);
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  opacity: 0.85;
+}
 /* 段位来自灵活组排时行尾挂一个"灵"字标记, 免得被误当成单双排段位 */
 #page-home .ogd-rank .ogd-rank-q {
   font-style: normal;

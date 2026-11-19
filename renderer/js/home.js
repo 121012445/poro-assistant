@@ -1901,7 +1901,10 @@ function rankCacheStore(puuid, queueMap, ok, now = Date.now()) {
 const TIER_ICON = { IRON: poroIcon('rock'), BRONZE: poroIcon('medal'), SILVER: poroIcon('medal'), GOLD: poroIcon('medal'), PLATINUM: poroIcon('shield'), EMERALD: poroIcon('shield'), DIAMOND: poroIcon('gem'), MASTER: poroIcon('gem'), GRANDMASTER: poroIcon('crown'), CHALLENGER: poroIcon('crown') };
 async function resolveRanks(puuids) {
   const now = Date.now();
-  const missing = [...new Set(puuids)].filter(p => p && !rankCacheFresh(p, now));
+  // 跨区玩家直接跳过: LCU 对别的 shard 只会返回 tier 为空的空壳,
+  // 打一次请求除了浪费 10 次 IPC 之外没有任何产出（rankLineOf 会显示"跨区"）。
+  const missing = [...new Set(puuids)].filter(p => p && !rankCacheFresh(p, now)
+    && !(typeof playerCrossRegion === 'function' && playerCrossRegion(p)));
   if (!missing.length) return;
   await mapWithConcurrency(missing.slice(0, 10), 4, async puuid => {
     // 刷新期间旧值照常可读 (rankCache[puuid] 不先清空), 失败时也保留旧值而不是退化成空段位。
@@ -2177,10 +2180,22 @@ function buildHomeMmr(qm,modeStats,wr,s) {
 }
 // 当前档案是不是"其它大区"的人: 段位走的是 LCU 的 ranked 接口, 只认本区,
 // 跨区注定拿不到 —— 与其一直显示"段位同步中/暂未获取", 不如直接说清楚。
+// 某个 puuid 是不是"其它大区"的人。LCU 的 /lol-ranked/v1/ranked-stats/{puuid}
+// 只认本区，对其它 shard 的玩家一律返回结构完整但 tier 为空的空壳（实测整批对局
+// 里 CQ100/联盟三区 的 10 人全空）。所以跨区时"没段位"不是没加载完，是拿不到。
+function playerCrossRegion(puuid) {
+  const cur = (typeof cachedPlatformId === 'string') ? cachedPlatformId : '';
+  if (!cur || !puuid) return false;
+  const platform = (typeof getRememberedPlayerPlatform === 'function') ? getRememberedPlayerPlatform(puuid) : '';
+  return !!(platform && platform !== cur);
+}
 function homeProfileCrossRegion() {
   const p = (profileOverride && profileOverride.platformId) || '';
   const cur = (typeof cachedPlatformId === 'string') ? cachedPlatformId : '';
-  return !!(p && cur && p !== cur);
+  if (p && cur) return p !== cur;
+  // 搜索路径还没回写大区时，用这名玩家的平台缓存兜底，别把跨区当成"段位同步中"。
+  const target = (profileOverride && profileOverride.puuid) || '';
+  return target ? playerCrossRegion(target) : false;
 }
 function renderHomeMmr(chips, ranked, fromCache, pending, crossRegion) {
   const missing=['单双排','灵活组排'].filter(label=>!chips.some(c=>c[0]===label));
@@ -2189,7 +2204,14 @@ function renderHomeMmr(chips, ranked, fromCache, pending, crossRegion) {
 }
 function rankLineOf(p) {
   const qm = rankCache[p.puuid];
-  if (!qm) return '';
+  // 别区玩家: LCU 只会回空壳, 段位永远读不到 (见 playerCrossRegion 注释)。
+  const crossRegion = typeof playerCrossRegion === 'function' && playerCrossRegion(p.puuid);
+  if (!qm) {
+    // 没有缓存条目也可能是因为跨区被 resolveRanks 主动跳过。
+    return crossRegion
+      ? '<div class="ogd-rank is-cross" title="该玩家不在当前大区，客户端无法读取其它大区的段位">跨区</div>'
+      : '';
+  }
   // 单双排优先, 但它 tier 为空时不能拦住灵活 (见 rankedEntryOf 注释)
   const q = rankedEntryOf(qm);
   if (q) {
@@ -2199,6 +2221,11 @@ function rankLineOf(p) {
     const fromFlex = q === qm.RANKED_FLEX_SR;
     return `<div class="ogd-rank" data-tier="${q.tier}"${fromFlex ? ' data-queue="flex"' : ''}>${icon} ${rankTierCN(q.tier)}${div}${lp}`
       + (fromFlex ? '<i class="ogd-rank-q" title="灵活组排段位">灵</i>' : '') + '</div>';
+  }
+  // 跨区玩家: LCU 只会回空壳, 等多久都不会有段位。空壳里的"未定级 剩N场"
+  // 也是本区默认值, 拿它当结论同样是错的 —— 统一写"跨区"。
+  if (crossRegion) {
+    return '<div class="ogd-rank is-cross" title="该玩家不在当前大区，客户端无法读取其它大区的段位">跨区</div>';
   }
   const prov = rankedProvisionalOf(qm);
   if (prov) {
@@ -2655,6 +2682,10 @@ function buildHomeTemplate(v) {
   // 段位卡片
   const rankCard = (q, label) => {
     if (!q || !q.tier) {
+      // 跨区玩家: LCU 只会回空壳, 写"无排位"等于替对方造谣 (人家可能在别区是大师)。
+      if (homeProfileCrossRegion() || (typeof playerCrossRegion === 'function' && playerCrossRegion(s.puuid))) {
+        return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier is-unranked" title="段位接口只认当前登录大区">跨区</div><div class="rank-card-record">需在对应大区查看</div></div>`;
+      }
       const prov = q && (q.isProvisional || Number(q.provisionalGamesRemaining) > 0);
       const rem = prov ? (Number(q.provisionalGamesRemaining) || 0) : 0;
       const text = prov ? ('未定级' + (rem > 0 ? ` · 剩${rem}场` : '')) : '无排位';
@@ -2963,6 +2994,7 @@ async function loadHomeStats(force, opts) {
       rawGameCount = cached.rawGameCount || cached.games.length;
       dataSource = cached.dataSource || 'SGP';
       targetPlatformId = cached.platformId || cachedPlatformId || '';
+      if (profileOverride && cached.platformId) profileOverride.platformId = cached.platformId;
       rankFromCache=hasRankedQueueData(ranked);
       rankPending=true;
       rankedPromise=loadRankedStats(s.puuid,isSelf || (!!targetPlatformId && targetPlatformId===cachedPlatformId),isSelf,stale);
@@ -3047,6 +3079,12 @@ async function loadHomeStats(force, opts) {
             if (stale()) return;
             targetPlatformId = located.platformId;
             targetPlatformFound = located.found;
+            // 大区探测结果要回写到 profileOverride: 段位卡/MMR 行靠
+            // homeProfileCrossRegion() 读它来决定显示"跨区不显示"还是"同步中"。
+            // 不回写的话，搜索进来的跨区玩家大区一直是空的 → 界面永远停在"段位同步中"。
+            if (profileOverride && located.found && located.platformId) {
+              profileOverride.platformId = located.platformId;
+            }
             if (located.summoner) s = mergeSummonerProfile(s, located.summoner);
             // SGP 档案行只回 name(完整 Riot ID) 或干脆 name:""+unnamed:true，
             // 都过一遍 fillSummonerName，名字和 Tag 才不会各缺一半。
@@ -3104,6 +3142,7 @@ async function loadHomeStats(force, opts) {
         if (e.platformId) {
           targetPlatformId = e.platformId;
           targetPlatformFound = true;
+          if (profileOverride) profileOverride.platformId = e.platformId;
           if (e.summoner) s = mergeSummonerProfile(s, e.summoner);
         }
 

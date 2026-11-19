@@ -1792,7 +1792,24 @@ async function searchPlayerByName(name) {
       homeSearchDraft = '';
       const input = document.getElementById('homeSearchInput');
       if (input) input.value = '';
-      searchPlayerByPuuid(sum.puuid, fullTag, sum);
+      // 关键一步: LCU 的 alias/lookup 对**别区**玩家同样会返回 puuid（它查的是账号
+      // 全局别名），但 LCU 档案/段位只认本区 —— 直接 searchPlayerByPuuid 会让后续
+      // 战绩按本区去查，结果 0 场、段位永远"同步中"。
+      // 实测 岛村之刃#24310 属于联盟三区(CQ100)，本区(HN1)网关查无此人。
+      // 所以这里先定位大区，把 platformId 一路带进档案页。
+      let hintPlatform = sum.platformId || '';
+      if (!hintPlatform && typeof getRememberedPlayerPlatform === 'function') {
+        hintPlatform = getRememberedPlayerPlatform(sum.puuid) || '';
+      }
+      if (!hintPlatform && typeof lolAPI.playerResolveRegions === 'function') {
+        const rg = await lolAPI.playerResolveRegions([sum.puuid], null).catch(() => null);
+        const meta = rg && rg.ok && rg.map ? rg.map[sum.puuid] : null;
+        if (meta && meta.platformId) {
+          hintPlatform = meta.platformId;
+          if (typeof rememberPlayerPlatform === 'function') rememberPlayerPlatform(sum.puuid, hintPlatform);
+        }
+      }
+      searchPlayerByPuuid(sum.puuid, fullTag, sum, hintPlatform ? { platformId: hintPlatform } : {});
     } else {
       // LCU 按名字查不到: 最常见的原因是这个人根本不在本区 (LCU 只认本区)。
       // 先按 Akari 的方式跨区定位 (别名 → puuid → 逐区探针, 不依赖索引),
