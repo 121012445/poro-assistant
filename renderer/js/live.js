@@ -657,15 +657,29 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
   const cachedProfileByPuuid = livePlayersCache.data && Array.isArray(livePlayersCache.data)
     ? new Map(livePlayersCache.data.filter(p => p && p.puuid).map(p => [p.puuid, p]))
     : null;
+  // 1.6.29: 打灵活组排的局里, 原来只取 RANKED_SOLO_5x5 —— 那些人单双排大多是空壳,
+  // 整排段位就全空。改为按本局队列优先、另一个队列兜底。
+  const liveQueueForRank = Number(window._poroLiveModeContext && window._poroLiveModeContext.queueId) || 0;
+  const pickRankEntry = qm => {
+    if (!qm) return null;
+    if (typeof rankedEntryOf === 'function') {
+      return rankedEntryOf(qm, liveQueueForRank === 440 ? 'RANKED_FLEX_SR' : '');
+    }
+    const solo = qm.RANKED_SOLO_5x5;
+    if (solo && solo.tier) return solo;
+    const flex = qm.RANKED_FLEX_SR;
+    return flex && flex.tier ? flex : null;
+  };
   const quickData = players.map(p => {
-    const solo = (rankCache[p.puuid] || {}).RANKED_SOLO_5x5;
-    const rank = solo && solo.tier ? `${rankTierCN(solo.tier)} ${solo.division || ''} ${solo.leaguePoints || 0}LP` : '';
+    const entry = pickRankEntry(rankCache[p.puuid]);
+    const div = entry && entry.division && !['NA', ''].includes(entry.division) ? ' ' + entry.division : '';
+    const rank = entry ? `${rankTierCN(entry.tier)}${div} ${entry.leaguePoints || 0}LP` : '';
     const c = p.puuid ? cachedProfileByPuuid?.get(p.puuid) : null;
     return {
       ...p,
       recent: c?.recent || [],
       rank,
-      tier: (solo && solo.tier) || '',
+      tier: (entry && entry.tier) || '',
       flashPreference: c?.flashPreference ?? null,
       behaviorSamples: c?.behaviorSamples || [],
       premadeTeamGames: c?.premadeTeamGames || [],

@@ -94,7 +94,13 @@ function rankPromoHtml(q) {
 function renderRankCards(queues) {
   return RANK_QUEUE_LABELS.map(([queueKey, label]) => {
     const q = queues ? queues[queueKey] : null;
-    if (!q || !q.tier) return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier">无排位</div></div>`;
+    if (!q || !q.tier) {
+      // 有队列结构但没 tier = 还没定级, 别一律写"无排位" (打完定级的人看到会很懵)
+      const prov = q && (q.isProvisional || Number(q.provisionalGamesRemaining) > 0);
+      const rem = prov ? (Number(q.provisionalGamesRemaining) || 0) : 0;
+      const text = prov ? ('未定级' + (rem > 0 ? ` · 剩${rem}场` : '')) : '无排位';
+      return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier is-unranked">${text}</div></div>`;
+    }
     const t = rankTierCN(q.tier);
     const lp = q.leaguePoints || 0;
     const total = (q.wins || 0) + (q.losses || 0);
@@ -1904,11 +1910,40 @@ async function resolveRanks(puuids) {
       const r = await lolAPI.lcuRequest("GET", `/lol-ranked/v1/ranked-stats/${encodeURIComponent(puuid)}`);
       // LCU 对 4xx/5xx 不抛异常而是返回带 __error 的对象, 不能把它当成"这个人没有段位"。
       if (!r || r.__error || typeof r !== 'object') throw new Error(r?.__error || '段位数据为空');
-      rankCacheStore(puuid, r.queueMap || {}, true);
+      // 全部是"空壳"(未定级 / 客户端数据还没就绪) 时按失败档存: 30 秒后就允许重查。
+      // 对方刚打完定级赛的话, 下一次渲染就能刷出段位, 不会被固化满 5 分钟。
+      rankCacheStore(puuid, r.queueMap || {}, !!rankedEntryOf(r.queueMap));
     } catch (e) {
       rankCacheStore(puuid, previous || {}, false);
     }
   });
+}
+// 1.6.29 段位取用: LCU 对"还没定级"的账号返回的是**结构完整但 tier 为空**的对象
+// (isProvisional:true / provisionalGamesRemaining:N / division:"NA")。
+// 所以 `qm.RANKED_SOLO_5x5 || qm.RANKED_FLEX_SR` 这种写法会拿到那个空壳直接返回,
+// 灵活明明有段位也被吞掉 —— 实测某人单双排空壳 + 灵活钻石 24LP, 详情页整行无段位。
+const RANK_DISPLAY_QUEUES = ['RANKED_SOLO_5x5', 'RANKED_FLEX_SR'];
+function rankedEntryOf(qm, preferQueue) {
+  if (!qm) return null;
+  const order = preferQueue === 'RANKED_FLEX_SR'
+    ? ['RANKED_FLEX_SR', 'RANKED_SOLO_5x5']
+    : RANK_DISPLAY_QUEUES;
+  for (const key of order) {
+    const q = qm[key];
+    if (q && q.tier) return q;
+  }
+  return null;
+}
+// 有排位结构但没有段位 = 还没定级。返回那个空壳, 调用方据此显示"未定级 · 剩N场",
+// 而不是像原来那样返回空字符串让人以为"段位没加载出来"。
+function rankedProvisionalOf(qm) {
+  if (!qm) return null;
+  for (const key of RANK_DISPLAY_QUEUES) {
+    const q = qm[key];
+    if (!q || q.tier) continue;
+    if (q.isProvisional || Number(q.provisionalGamesRemaining) > 0) return q;
+  }
+  return null;
 }
 function hasRankedQueueData(value) {
   return !!(value && value.queueMap && Object.values(value.queueMap).some(queue => queue && (queue.tier || queue.wins || queue.losses)));
@@ -2155,12 +2190,22 @@ function renderHomeMmr(chips, ranked, fromCache, pending, crossRegion) {
 function rankLineOf(p) {
   const qm = rankCache[p.puuid];
   if (!qm) return '';
-  const q = qm.RANKED_SOLO_5x5 || qm.RANKED_FLEX_SR;
-  if (!q || !q.tier) return '';
-  const icon = TIER_ICON[q.tier] || '';
-  const div = q.division && !['NA', ''].includes(q.division) ? ' ' + q.division : '';
-  const lp = q.leaguePoints != null ? ` ${q.leaguePoints}` : '';
-  return `<div class="ogd-rank" data-tier="${q.tier}">${icon} ${rankTierCN(q.tier)}${div}${lp}</div>`;
+  // 单双排优先, 但它 tier 为空时不能拦住灵活 (见 rankedEntryOf 注释)
+  const q = rankedEntryOf(qm);
+  if (q) {
+    const icon = TIER_ICON[q.tier] || '';
+    const div = q.division && !['NA', ''].includes(q.division) ? ' ' + q.division : '';
+    const lp = q.leaguePoints != null ? ` ${q.leaguePoints}` : '';
+    const fromFlex = q === qm.RANKED_FLEX_SR;
+    return `<div class="ogd-rank" data-tier="${q.tier}"${fromFlex ? ' data-queue="flex"' : ''}>${icon} ${rankTierCN(q.tier)}${div}${lp}`
+      + (fromFlex ? '<i class="ogd-rank-q" title="灵活组排段位">灵</i>' : '') + '</div>';
+  }
+  const prov = rankedProvisionalOf(qm);
+  if (prov) {
+    const rem = Number(prov.provisionalGamesRemaining) || 0;
+    return `<div class="ogd-rank is-unranked" title="排位尚未定级${rem > 0 ? `, 还剩 ${rem} 场` : ''}">未定级${rem > 0 ? ` 剩${rem}场` : ''}</div>`;
+  }
+  return '';
 }
 
 // 首页对局卡片 (模式筛选重渲染共用)
@@ -2609,7 +2654,12 @@ function buildHomeTemplate(v) {
   const flexQ = qm.RANKED_FLEX_SR;
   // 段位卡片
   const rankCard = (q, label) => {
-    if (!q || !q.tier) return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier">无排位</div></div>`;
+    if (!q || !q.tier) {
+      const prov = q && (q.isProvisional || Number(q.provisionalGamesRemaining) > 0);
+      const rem = prov ? (Number(q.provisionalGamesRemaining) || 0) : 0;
+      const text = prov ? ('未定级' + (rem > 0 ? ` · 剩${rem}场` : '')) : '无排位';
+      return `<div class="rank-card"><div class="rank-card-label">${label}</div><div class="rank-card-tier is-unranked">${text}</div></div>`;
+    }
     const t = rankTierCN(q.tier);
     const lp = q.leaguePoints || 0;
     const total = (q.wins || 0) + (q.losses || 0);

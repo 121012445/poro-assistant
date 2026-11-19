@@ -2747,6 +2747,29 @@ body.dark {
   height: 13px;
   flex-shrink: 0;
 }
+/* 1.6.29: 未定级。LCU 对"还没打完定级赛"的账号返回的是结构完整但 tier 为空的对象,
+   以前这种行干脆不渲染, 看着像段位丢了; 现在给一行中性灰说明。 */
+#page-home .ogd-rank.is-unranked {
+  color: var(--ink-3);
+  font-weight: 500;
+  font-size: var(--fs-xs);
+}
+/* 段位来自灵活组排时行尾挂一个"灵"字标记, 免得被误当成单双排段位 */
+#page-home .ogd-rank .ogd-rank-q {
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: var(--ink-3);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+#page-home .rank-card-tier.is-unranked {
+  color: var(--ink-3);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 
 /* 时长 / 场次: 中性信息蓝。同样声明一次压过 #page-home .stat-card-val 的字重规则 */
 #page-home .stat-card-val.v-n,

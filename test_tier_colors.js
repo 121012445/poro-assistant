@@ -54,9 +54,11 @@ ok(/<div class="rank-card-tier" data-tier="\$\{q\.tier\}">/.test(home), '段位�
 ok((home.match(/<div class="rank-card-tier" data-tier=/g) || []).length === 2, '两处段位卡渲染都改了');
 ok(/return \{ name: label \+ " \(当前赛段\)", n: total, w: r\.wins, rank, lp, tier: r\.tier/.test(home), 'rankRows 携带原始 tier');
 ok(/<td class="td-rank" data-tier="\$\{r\.tier \|\| ''\}">/.test(home), '模式表段位列带 data-tier');
-ok(/<div class="ogd-rank" data-tier="\$\{q\.tier\}">/.test(home), '对局卡玩家段位带 data-tier');
+// 1.6.29: 段位可能来自灵活, 行尾会追加 data-queue="flex", 所以不锚定结尾
+ok(/<div class="ogd-rank" data-tier="\$\{q\.tier\}"/.test(home), '对局卡玩家段位带 data-tier');
 ok(/lp-tier" data-tier="\$\{p\.tier \|\| ''\}"/.test(live), '实时页玩家行段位带 data-tier');
-ok(/tier: \(solo && solo\.tier\) \|\| ''/.test(live), '实时页 quickData 携带 tier');
+// 1.6.29: 单双排空壳时回退灵活, 携带的 tier 来自 pickRankEntry 的结果
+ok(/tier: \(entry && entry\.tier\) \|\| ''/.test(live), '实时页 quickData 携带 tier');
 
 console.log('\n[6] 时长 / 场次上色');
 ok(/<div class="stat-card-val v-n">\$\{totalDurH\}/.test(home), '总游戏时长上蓝');
@@ -77,12 +79,14 @@ ok(/white-space:\s*nowrap/.test(ogdRule), 'ogd-rank 长段位名不再从中间�
 ok(/#page-home \.ogd-rank \.pi \{[^}]*width:\s*13px/.test(cssNC), 'ogd-rank 图标尺寸受约束 (13px)');
 ok(/#page-home \.ogd-rank \.pi \{[^}]*flex-shrink:\s*0/.test(cssNC), 'ogd-rank 图标不被压缩');
 // 渲染层: 图标与段位名必须在同一个 div 内, 不能有 <br> 或独立容器
-ok(/<div class="ogd-rank" data-tier="\$\{q\.tier\}">\$\{icon\} \$\{rankTierCN/.test(home), 'ogd-rank 图标与段位名同容器同排');
+// 1.6.29 起 ogd-rank 还会带 data-queue="flex" (段位来自灵活组排时), 所以只锚定开头
+ok(/<div class="ogd-rank" data-tier="\$\{q\.tier\}"/.test(home), 'ogd-rank 图标与段位名同容器同排');
+ok(/\$\{icon\} \$\{rankTierCN\(q\.tier\)\}/.test(home), 'ogd-rank 内仍是图标 + 段位名同排');
 
 console.log('\n[8] 无遗留未上色段位 / 版本');
-// 裸 rank-card-tier 只允许是「无排位」占位 (它本来就该保持中性灰, 不该套段位色)
-const bare = home.match(/<div class="rank-card-tier">[^<]*</g) || [];
-ok(bare.length > 0 && bare.every(m => m.includes('无排位')), `裸 rank-card-tier 仅「无排位」占位 (${bare.length} 处)`);
+// 裸 rank-card-tier 只允许是「无排位 / 未定级」占位 (本来就该保持中性灰, 不该套段位色)
+const bare = home.match(/<div class="rank-card-tier(?: is-unranked)?">[^<]*</g) || [];
+ok(bare.length > 0 && bare.every(m => m.includes('无排位') || m.includes('未定级') || m.includes('${text}')), `裸 rank-card-tier 仅中性格位 (${bare.length} 处)`);
 const pkg = JSON.parse(fs.readFileSync(path.join(R, 'package.json'), 'utf8'));
 const v = pkg.version.split('.').map(Number);
 ok(atLeastVer(v, [1, 5, 159]), `version >= 1.5.159 (实际 ${pkg.version})`);
