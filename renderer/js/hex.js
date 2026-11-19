@@ -1118,6 +1118,15 @@ const ogdFmtDec = (v, d) => (Number(v) || 0).toFixed(d == null ? 1 : d);
 
 // 数据页: "指标 × 玩家" 矩阵。行按 基础/输出/生存/经济/视野 分组, 列是 10 名玩家。
 // 每行取最优值高亮 (死亡是越低越好), 只比非 0 值 —— 全 0 的一行不该有"最佳"。
+// 1.6.27: 整片黑字分不出重点, 给每组一个语义色 (沿用 --data-* 令牌, 亮/暗主题各有定义),
+// 死亡行单独标红 —— 它是"越低越好"的负面指标, 跟着基础组用蓝色会误导。
+const OGD_MX_GROUP_CLASS = {
+  '基础': 'mx-basic',
+  '输出': 'mx-out',
+  '生存': 'mx-survive',
+  '经济': 'mx-gold',
+  '视野': 'mx-vision'
+};
 function ogdMatrixHtml(norm, ctx) {
   const { teams, tids, rating } = ctx;
   const teamOf = p => teams[p.teamId] || [];
@@ -1175,10 +1184,11 @@ function ogdMatrixHtml(norm, ctx) {
       if (best != null && vals.filter(v => v === best).length === cols.length) best = null;
     }
     const groupRow = group !== lastGroup
-      ? `<tr class="ogd-mx-group"><td colspan="${cols.length + 1}">${group}</td></tr>` : '';
+      ? `<tr class="ogd-mx-group ${OGD_MX_GROUP_CLASS[group] || 'mx-basic'}"><td colspan="${cols.length + 1}">${group}</td></tr>` : '';
     lastGroup = group;
     const cells = cols.map((p, i) => `<td class="ogd-mx-cell${best != null && vals[i] === best ? ' is-top' : ''}">${fmt(vals[i])}</td>`).join('');
-    return groupRow + `<tr><td class="ogd-mx-label">${label}</td>${cells}</tr>`;
+    const rowCls = 'ogd-mx-row ' + (OGD_MX_GROUP_CLASS[group] || 'mx-basic') + (label === '死亡' ? ' mx-death' : '');
+    return groupRow + `<tr class="${rowCls}"><td class="ogd-mx-label">${label}</td>${cells}</tr>`;
   }).join('');
   return `<div class="ogd-mx-wrap"><table class="ogd-matrix">
     <thead><tr><th class="ogd-mx-label">指标</th>${head}</tr></thead>

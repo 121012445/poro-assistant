@@ -742,7 +742,40 @@ body {
 .ogd-mx-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-left: 2px; vertical-align: middle; }
 .ogd-mx-dot.t-blue { background: #4a86d8; }
 .ogd-mx-dot.t-red { background: #d85858; }
-.ogd-mx-cell.is-top { color: var(--accent); font-weight: 700; }
+/* 1.6.27: 数据页整片黑字分不出重点 —— 按指标组上色。
+   用 --cat-* 分类色环 (v4.css 里同饱和同明度的 6 个色相, 亮/暗各一套),
+   不用 --data-*: 那 5 个令牌已被刻意收敛成「1 强调 + 3 语义」, 浅色下
+   --data-violet 就等于 --data-blue, 视野组会跟基础组撞成同一个蓝。
+   分类色环原文只许用在细条/圆点上, 这里是全站唯一「类别 × 数值」的密集表格,
+   按类上色正是它的用途, 所以只在这一页破例 —— 别扩散到别处。
+   对比度实测 (白底/暗卡底): 蓝 5.69/7.04 · 玫 5.03/6.33 · 紫 5.51/6.50 · 红 5.10/5.16;
+   青 3.47 与琥珀 3.42 在浅色下不过 AA, 与正文色混 22% 后 4.96/4.91 才达标。 */
+.ogd-matrix tr.mx-basic .ogd-mx-cell, .ogd-matrix tr.mx-basic .ogd-mx-label { color: var(--cat-blue); }
+.ogd-matrix tr.mx-out .ogd-mx-cell, .ogd-matrix tr.mx-out .ogd-mx-label { color: var(--cat-rose); }
+.ogd-matrix tr.mx-survive .ogd-mx-cell, .ogd-matrix tr.mx-survive .ogd-mx-label {
+  color: color-mix(in srgb, var(--cat-teal) 78%, var(--text-primary));
+}
+.ogd-matrix tr.mx-gold .ogd-mx-cell, .ogd-matrix tr.mx-gold .ogd-mx-label {
+  color: color-mix(in srgb, var(--cat-amber) 78%, var(--text-primary));
+}
+.ogd-matrix tr.mx-vision .ogd-mx-cell, .ogd-matrix tr.mx-vision .ogd-mx-label { color: var(--cat-violet); }
+/* 死亡: 越低越好的负面指标, 用 danger 红, 不跟基础组共用蓝色 */
+.ogd-matrix tr.mx-death .ogd-mx-cell, .ogd-matrix tr.mx-death .ogd-mx-label {
+  color: color-mix(in srgb, var(--negative) 86%, var(--text-primary));
+}
+/* 分组抬头跟着分组走同一色, 标题和内容才对得上号 (只有两个字, 当图例用) */
+.ogd-matrix tr.ogd-mx-group td { color: var(--text-secondary); }
+.ogd-matrix tr.ogd-mx-group.mx-basic td { color: var(--cat-blue); }
+.ogd-matrix tr.ogd-mx-group.mx-out td { color: var(--cat-rose); }
+.ogd-matrix tr.ogd-mx-group.mx-survive td { color: color-mix(in srgb, var(--cat-teal) 78%, var(--text-primary)); }
+.ogd-matrix tr.ogd-mx-group.mx-gold td { color: color-mix(in srgb, var(--cat-amber) 78%, var(--text-primary)); }
+.ogd-matrix tr.ogd-mx-group.mx-vision td { color: var(--cat-violet); }
+/* 每行最优: 加粗 + 用自身色淡底, 颜色不再统一改成 accent —— 一组一个色更好扫 */
+.ogd-mx-cell.is-top {
+  font-weight: 800;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  border-radius: 3px;
+}
 .ogd-mx-group td { text-align: left; padding: 3px 6px; font-size: var(--fs-2xs); letter-spacing: .04em; color: var(--text-muted); background: color-mix(in srgb, var(--bg-card) 82%, var(--accent) 10%); }
 /* 符文页: 10 人完整符文卡 */
 .ogd-rune-team { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); overflow: hidden; }
@@ -970,6 +1003,13 @@ body {
 .hs-title { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: var(--fs-xs); color: var(--text-secondary); }
 .hs-title + .hs-row + .hs-title { margin-top: 8px; }
 .hs-count { font-size: var(--fs-2xs); opacity: .65; }
+/* 清空搜索记录: 贴到标题行右侧, 不做成主按钮, 免得抢"点一条直接查"的注意力 */
+.hs-title .hs-clear {
+  margin-left: auto; padding: 0 6px; height: 18px; line-height: 18px;
+  font-size: var(--fs-2xs); color: var(--text-muted); background: transparent;
+  border: 1px solid var(--border); border-radius: var(--radius-xs); cursor: pointer;
+}
+.hs-title .hs-clear:hover { color: var(--negative); border-color: color-mix(in srgb, var(--negative) 55%, var(--border)); }
 .hs-row { display: flex; flex-wrap: wrap; gap: 8px; }
 /* 候选多时改单列: 每个 ID 独占一行, 区名/等级靠右对齐, 20 多个同名也不会糊成一片 */
 .hs-row.hs-list { display: block; }

@@ -136,10 +136,56 @@ let cachedSummonerName = null;
 let cachedSummoner = null;
 // 首页档案查看目标: null=自己, 否则为其他玩家 {puuid, name}
 let profileOverride = null;
-// 首页搜索历史仅保存在当前进程内：退出程序后自动清空。
+// 首页搜索历史：1.6.27 起落盘到 poro-config.json。
+// 之前只存在内存里（注释写着"退出程序后自动清空"），结果每次重启下拉都是空的 ——
+// 用户连着提过两次"以前就要搜索记录，现在还是没有"。搜索记录本来就是复用上次结果，
+// 每次重开都清空等于没有这个功能。
 const HOME_SEARCH_HISTORY_LIMIT = 10;
+const HOME_SEARCH_HISTORY_STORE = 'homeSearchHistory.v1';
 let homeSearchHistory = [];
+let homeSearchHistoryLoaded = false;
 let homeSearchDraft = '';
+
+// 从配置里恢复搜索记录。只认「非空字符串数组」：一条脏数据不该把整个下拉打成空表，
+// 所以逐条过滤 + 去重 + 截断，坏 JSON 直接当没存过。
+function loadHomeSearchHistory() {
+  if (homeSearchHistoryLoaded) return homeSearchHistory;
+  homeSearchHistoryLoaded = true;
+  let raw = null;
+  try { raw = (typeof storeGet === 'function') ? storeGet(HOME_SEARCH_HISTORY_STORE) : null; } catch (e) { raw = null; }
+  if (!raw) return homeSearchHistory;
+  let list = null;
+  try { list = JSON.parse(raw); } catch (e) { list = null; }
+  if (!Array.isArray(list)) return homeSearchHistory;
+  const seen = new Set();
+  const clean = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const v = item.trim();
+    if (!v) continue;
+    const key = v.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(v);
+    if (clean.length >= HOME_SEARCH_HISTORY_LIMIT) break;
+  }
+  homeSearchHistory = clean;
+  return homeSearchHistory;
+}
+function saveHomeSearchHistory() {
+  try {
+    if (typeof storeSet === 'function') storeSet(HOME_SEARCH_HISTORY_STORE, JSON.stringify(homeSearchHistory));
+  } catch (e) { /* 落盘失败不该挡住搜索 */ }
+}
+// 清空: 用户手动删掉全部记录, 立刻落盘 (否则下次打开又回来)
+function clearHomeSearchHistory() {
+  homeSearchHistory = [];
+  homeSearchHistoryLoaded = true;
+  saveHomeSearchHistory();
+  renderHomeSearchCards(true);
+  const input = document.getElementById('homeSearchInput');
+  if (input) input.focus();
+}
 
 // ---------- 战绩服务故障退避 ----------
 // 国服 SGP 战绩网关 (HN1 等) 在深夜偶发持续 5xx（实测 2026-10-09/10 的 23:00~00:3x 连续
@@ -1111,6 +1157,7 @@ function homeRegionName(platformId) {
 }
 
 function homeSearchCardHtml() {
+  loadHomeSearchHistory();
   // 以输入框里真正显示的内容为准: draft 可能还停在输入法的拼音上
   const raw = String(homeSearchLiveValue() || '').trim();
   const q = raw;
@@ -1130,7 +1177,20 @@ function homeSearchCardHtml() {
     .slice(0, 6);
   // "名字#" 末尾刚好一个井号: 提示可以继续输数字筛 Tag
   const tagOpen = /[#＃]$/.test(raw);
+  // 搜索记录块。1.6.27: 输入框为空时(刚点开下拉)要排在最上面 —— 那正是用户想复用的东西。
+  // 之前固定排在候选后面, 空输入时本地索引几十条候选压在上面, 记录被挤到最底下,
+  // 等于"看不到 = 没有"。有输入时才留在候选后面当补充。
+  // 清空用 mousedown + preventDefault: 输入框不能失焦, 失焦会让下拉 120ms 后自己收起。
+  const histTitleHtml = '<div class="hs-title">最近查询'
+    + `<span class="hs-count">${homeSearchHistory.length} 条 · 点一下直接查</span>`
+    + '<button class="hs-clear" type="button" onmousedown="event.preventDefault();clearHomeSearchHistory()" title="清空搜索记录">清空</button></div>';
+  const histListHtml = '<div class="hs-row">' + hist.map(value => `<div class="home-search-record-card" data-hs-kind="hist" data-hs-pick="${escapeHtml(value)}" onmousedown="event.preventDefault();selectHomeSearchHistory(${inlineArg(value)})" title="${escapeHtml('查询 ' + value)}">
+      <span class="home-search-record-icon">↺</span>
+      <span>${escapeHtml(value)}</span>
+    </div>`).join('') + '</div>';
+  const histHtml = hist.length ? histTitleHtml + histListHtml : '';
   let html = '';
+  if (!q) html += histHtml;
   if (cands.length) {
     const srcText = c => c.src === 'friend' ? '好友' : c.src === 'match' ? '对局' : c.src === 'alias' ? '同名' : c.src === 'search' ? '查过' : '';
     // 标题写明"正在哪个区找": 选定大区时只查这一个区, 不标清楚会让人以为
@@ -1195,13 +1255,7 @@ function homeSearchCardHtml() {
     else if (candPack.total > cands.length) html += `<div class="hs-hint">命中 ${candPack.total} 个，已显示前 ${cands.length} 个：输入 # 可按 Tag 筛选</div>`;
     else if (cands.length >= 12) html += '<div class="hs-hint">候选较多，可滚动查看；输入 # 后跟数字可筛 Tag</div>';
   }
-  if (hist.length) {
-    html += '<div class="hs-title">最近查询</div>';
-    html += '<div class="hs-row">' + hist.map(value => `<div class="home-search-record-card" data-hs-kind="hist" data-hs-pick="${escapeHtml(value)}" onmousedown="event.preventDefault();selectHomeSearchHistory(${inlineArg(value)})" title="${escapeHtml('查询 ' + value)}">
-      <span class="home-search-record-icon">↺</span>
-      <span>${escapeHtml(value)}</span>
-    </div>`).join('') + '</div>';
-  }
+  if (q) html += histHtml;
   if (!html) {
     const total = playerIndexSize();
     const scope = homeRegionPickRegion();
@@ -1478,9 +1532,11 @@ function selectHomeSearchHistory(value) {
 function rememberHomeSearch(value) {
   const normalized = String(value || '').trim().replace(/＃/g, '#');
   if (!normalized) return;
+  loadHomeSearchHistory();
   homeSearchHistory = homeSearchHistory.filter(x => x.toLocaleLowerCase() !== normalized.toLocaleLowerCase());
   homeSearchHistory.unshift(normalized);
   if (homeSearchHistory.length > HOME_SEARCH_HISTORY_LIMIT) homeSearchHistory.length = HOME_SEARCH_HISTORY_LIMIT;
+  saveHomeSearchHistory();
   // 顺手进本地索引: 查过的人下次可以只输名字
   if (typeof playerIndexUpsert === 'function') {
     const sp = piSplitName(normalized);

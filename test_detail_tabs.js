@@ -86,6 +86,8 @@ const buildNorm = () => {
   return { norm: { participants, dur: 1800, teamsObj: {} }, teams, tids: ['100', '200'] };
 };
 const rating = () => 5;
+// 1.6.27 起行上带分组 class (<tr class="ogd-mx-row mx-basic">), 不能再用 '<tr>' 硬切
+const rowOf = (html, label) => html.split(/<tr[^>]*>/).find(r => r.includes('>' + label + '<'));
 
 ok('矩阵列出 10 个玩家列 + 五组指标', () => {
   const { norm, teams, tids } = buildNorm();
@@ -100,7 +102,7 @@ ok('矩阵列出 10 个玩家列 + 五组指标', () => {
 ok('死亡行按"越低越好"标最优', () => {
   const { norm, teams, tids } = buildNorm();
   const html = mctx.ogdMatrixHtml(norm, { teams, tids, rating });
-  const row = html.split('<tr>').find(r => r.includes('>死亡<'));
+  const row = rowOf(html, '死亡');
   assert.ok(row, '应能找到死亡行');
   const cells = row.match(/<td class="ogd-mx-cell[^"]*">\d+<\/td>/g);
   assert.ok(cells, '死亡行应有单元格');
@@ -116,7 +118,7 @@ ok('全 0 的行不标最优 (没有"0 排眼最佳")', () => {
   for (const p of norm.participants) p.wardsKilled = 0;
   htmlless: {
     const html = mctx.ogdMatrixHtml(norm, { teams, tids, rating });
-    const row = html.split('<tr>').find(r => r.includes('>排眼<'));
+    const row = rowOf(html, '排眼');
     assert.ok(!row.includes('is-top'), '全 0 行不应有最优标记');
   }
 });
@@ -125,7 +127,7 @@ ok('参团率按本队击杀数算', () => {
   const { norm, teams, tids } = buildNorm();
   const html = mctx.ogdMatrixHtml(norm, { teams, tids, rating });
   // 蓝队击杀 5+3+9+7+1=25, 中单 9+4=13 → 52%
-  const row = html.split('<tr>').find(r => r.includes('>参团率<'));
+  const row = rowOf(html, '参团率');
   assert.ok(row.includes('52%'), '中单参团率应为 52%, 行内容: ' + row.slice(0, 200));
 });
 
@@ -205,7 +207,46 @@ ok('CSS 补齐了标签/矩阵/符文/事件四组样式', () => {
   }
 });
 
-// 1.6.26: 一队 5 人必须排成一行。auto-fill + minmax 在 1200 宽窗口下会裂成 4+1,
+// 1.6.27: 数据页原来是整片黑字, 分不出重点。按指标组上色 (五个组各一个 --data-* 语义色),
+// 死亡行是"越低越好"的负面指标, 不跟基础组共用蓝色。
+ok('矩阵按指标组带色板 class, 死亡行单独标红', () => {
+  const { norm, teams, tids } = buildNorm();
+  const html = mctx.ogdMatrixHtml(norm, { teams, tids, rating });
+  for (const cls of ['mx-basic', 'mx-out', 'mx-survive', 'mx-gold', 'mx-vision']) {
+    assert.ok(html.includes(cls), '缺少分组色板 class: ' + cls);
+  }
+  const deathTag = html.match(/<tr class="([^"]*)">\s*<td class="ogd-mx-label">死亡<\/td>/);
+  assert.ok(deathTag, '应能找到死亡行');
+  assert.ok(deathTag[1].includes('mx-death'), '死亡行应带 mx-death, 实际 ' + deathTag[1]);
+  // 死亡行若同时带基础组色, 得靠 CSS 顺序压过 mx-basic (见下一条用例)
+  assert.ok(deathTag[1].includes('mx-basic'), '死亡仍属于基础组');
+  // 分组抬头也要跟着分组走色, 否则标题和内容对不上号
+  assert.ok(/<tr class="ogd-mx-group mx-out">/.test(html), '输出分组抬头应带 mx-out');
+});
+
+ok('五组颜色都取自分类色环令牌, 不新增硬编码色值', () => {
+  // 只截取 1.6.27 这段色板规则, 不然会把文件后面别的组件的 --data-* 用法一起算进来
+  const from = css.indexOf('1.6.27: 数据页整片黑字');
+  const to = css.indexOf('/* 符文页: 10 人完整符文卡');
+  assert.ok(from > 0 && to > from, '找不到 1.6.27 色板规则的边界');
+  const block = css.slice(from, to);
+  for (const g of ['mx-basic', 'mx-out', 'mx-survive', 'mx-gold', 'mx-vision', 'mx-death']) {
+    assert.ok(block.includes('tr.' + g + ' .ogd-mx-cell'), '缺少样式: ' + g);
+  }
+  // --cat-* 是 v4.css 里亮/暗两套的 6 色分类环; --data-violet 在浅色下等于 --data-blue,
+  // 用它会跟基础组撞色 (1.6.27 实测过一版才发现)
+  for (const token of ['var(--cat-blue)', 'var(--cat-rose)', 'var(--cat-teal)', 'var(--cat-amber)', 'var(--cat-violet)', 'var(--negative)']) {
+    assert.ok(block.includes(token), '应使用主题令牌: ' + token);
+  }
+  // 只查真正被用作颜色值的写法, 注释里解释"为什么不用它"不算违规
+  assert.ok(!/color:\s*var\(--data-violet\)/.test(block), '不该再用 --data-violet (浅色下与蓝色同值)');
+  // 顺序: mx-death 的规则必须排在 mx-basic 之后, 否则同样特异性下被蓝色盖掉
+  assert.ok(block.indexOf('tr.mx-death') > block.indexOf('tr.mx-basic'), 'mx-death 需排在 mx-basic 之后');
+  // is-top 不再把颜色统一改成 accent —— 组色要留着
+  const top = css.match(/\.ogd-mx-cell\.is-top\s*\{([^}]*)\}/);
+  assert.ok(top && !/var\(--accent\)/.test(top[1]), 'is-top 不该覆盖组色');
+  assert.ok(/font-weight:\s*800/.test(top[1]), '最优值应加粗');
+});
 // 所以符文网格改成固定 5 列; 窄窗口才退回自适应。
 ok('符文网格固定 5 列, 一队一行不折行', () => {
   const first = css.match(/\.ogd-rune-grid\s*\{([^}]*)\}/);
