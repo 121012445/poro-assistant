@@ -91,8 +91,26 @@
     if (anchor) listEl.insertBefore(el, anchor); else listEl.appendChild(el);
   }
 
+  // 浮窗空态提示 (1.6.18): 新用户最常见的困惑是"开了翻译, 浮窗里一直是空的"——
+  // 十有八九是游戏还在独占全屏, Windows 根本不合成这个窗口, 不是功能没生效。
+  // 所以没内容时底栏直接给排查方向; 读到第一条聊天后回归快捷键说明。
+  const HINT_READY = 'Ctrl+F10 输入并翻译发送';
+  const HINT_IDLE = '看不到内容？游戏画面要设成「无边框」';
+  let hintShown = '';
+  function syncHint() {
+    if (!hintEl) return;
+    const idle = lines.length === 0;
+    const text = idle ? HINT_IDLE : HINT_READY;
+    if (text === hintShown) return;
+    hintShown = text;
+    hintEl.textContent = text;
+    hintEl.classList.toggle('gt-hint-idle', idle);
+    hintEl.title = idle ? '游戏里按 ESC → 设置 → 画面 → 窗口模式 → 无边框' : '';
+  }
+
   function render(followLatest) {
     if (!listEl) return;
+    syncHint();
     const now = Date.now();
     // 历史不再按时间删除: 过期只变暗 (gt-old), 除非超出 MAX_LINES 被最老的挤掉。
     // 之前 16 秒直接删行, 聊天稍慢时屏幕上永远只剩最新一条 (1.5.38 用户反馈)。
@@ -201,5 +219,5 @@
   // OS 级窗口激活成功后, DOM 焦点可能还没落到输入框 (主进程 focus 与 IPC 推送的时序竞争),
   // 窗口一拿到前台就补聚焦一次, 保证呼出后可以直接打字, 不用再点输入框
   window.addEventListener('focus', () => { if (inputOn) { try { inputEl.focus(); } catch (e) {} } });
-  if (hintEl) hintEl.textContent = 'Ctrl+F10 输入并翻译发送';
+  syncHint();
 })();

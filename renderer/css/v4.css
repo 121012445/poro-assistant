@@ -3420,3 +3420,34 @@ body.dark .gw-aug-icon.is-missing { border-color: rgba(255, 255, 255, .22); }
   cursor: help;
   font-weight: 400;
 }
+
+/* ---- 外服聊天翻译: 前置条件提示 (1.6.18) ----
+   用户反馈: 新装的人不知道要先开「无边框」，进游戏发现浮窗什么都看不到，
+   以为功能坏了。这条提示常驻在翻译卡片最上方 —— 它是使用前置条件，不是
+   一次性通知，所以不做「知道了」关闭按钮。语义色用 warning (需注意)，
+   不占用 accent (可交互)。 */
+.gt-setup-tip {
+  display: block;
+  margin: 0 0 var(--s3);
+  padding: 9px 11px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--warning, #f39c12) 32%, transparent);
+  border-left: 3px solid var(--warning, #f39c12);
+  background: color-mix(in srgb, var(--warning, #f39c12) 7%, transparent);
+}
+.gt-setup-tip .gt-setup-head {
+  font-size: var(--fs-2xs);
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--warning, #f39c12);
+  margin-bottom: 4px;
+}
+.gt-setup-tip .gt-setup-body {
+  font-size: var(--fs-2xs);
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.gt-setup-tip .gt-setup-body b {
+  color: var(--ink-1);
+  font-weight: 650;
+}

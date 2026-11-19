@@ -120,6 +120,12 @@ function toggleGameTranslate(on) {
   storeSet('gameTranslate', on ? '1' : '');
   const state = document.getElementById('gameTranslateState');
   if (state) { state.textContent = on ? '已开启' : '已关闭'; state.style.color = on ? 'var(--positive)' : ''; }
+  // 首次开启弹一次前置条件提醒 (独占全屏 → 浮窗不可见)。只弹一次, 之后靠
+  // 卡片里的常驻提示和浮窗空态提示, 不反复打扰。
+  if (on && storeGet('gtBorderlessTip') !== '1') {
+    storeSet('gtBorderlessTip', '1');
+    if (typeof showToast === 'function') showToast('提示：游戏画面要设成「无边框」，翻译浮窗才会显示', 'info');
+  }
   gtSyncPolling();
 }
 

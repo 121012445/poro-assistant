@@ -26,6 +26,9 @@
   .gt-footer { display:flex; align-items:center; min-height:27px; border:1px solid var(--line); border-radius:0 0 7px 7px; background:rgba(13,17,23,.92); box-shadow:0 8px 24px rgba(0,0,0,.28); }
   .gt-hint { flex:1; min-width:0; padding:5px 9px; font-size:10px; color:rgba(215,222,228,.68); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .gt-hint::before { content:""; display:inline-block; width:5px; height:5px; margin:0 6px 1px 0; border-radius:50%; background:var(--accent); box-shadow:0 0 6px rgba(88,196,207,.45); }
+  /* 空态: 还没有任何聊天 → 底栏改成"要开无边框"的排查提示, 圆点转琥珀色 */
+  .gt-hint.gt-hint-idle { color:rgba(226,182,110,.88); }
+  .gt-hint.gt-hint-idle::before { background:#e2b66e; box-shadow:0 0 6px rgba(226,182,110,.4); }
   .gt-inputrow { display:none; flex:1; gap:6px; align-items:center; padding:5px 6px 5px 9px; box-sizing:border-box; }
   .gt-inputrow.gt-active { display:flex; }
   .gt-inputrow input { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--text); font-size:13px; font-weight:500; font-family:inherit; caret-color:var(--accent); }
@@ -59,6 +62,6 @@
     </div>
     <div class="gt-err" id="gtErr"></div>
   </div>
-  <script src="js/game-translate.js"></script>
+  <script src="js/game-translate.js?v=2026111901"></script>
 </body>
 </html>
