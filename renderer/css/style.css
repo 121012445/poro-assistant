@@ -750,7 +750,13 @@ body {
 .ogd-rune-team.is-win .ogd-rune-teamhead { background: rgba(52, 121, 209, .10); }
 .ogd-rune-team.is-loss .ogd-rune-teamhead { background: rgba(209, 58, 58, .08); }
 .ogd-rune-teamhead em { margin-left: auto; font-style: normal; color: var(--text-muted); font-size: var(--fs-2xs); }
-.ogd-rune-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); }
+/* 1.6.26: 一队 5 人必须排成一行 —— 固定 5 列, 不再用 auto-fill 裂成 4+1。
+   五列并排要求整页够宽, 所以主窗口默认宽同时提到 1440 (main/index.js)。
+   窄窗口/小屏下退回自适应: 宁可行数变多, 也不把符文文案挤成一条竖线。 */
+.ogd-rune-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1180px) {
+  .ogd-rune-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
 .ogd-rune-cell { padding: 8px 10px; border-top: 1px solid var(--border); min-width: 0; }
 .ogd-rune-cell.is-me { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .ogd-rune-cell .rune-pop-card { width: 100%; }

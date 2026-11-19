@@ -205,4 +205,29 @@ ok('CSS 补齐了标签/矩阵/符文/事件四组样式', () => {
   }
 });
 
+// 1.6.26: 一队 5 人必须排成一行。auto-fill + minmax 在 1200 宽窗口下会裂成 4+1,
+// 所以符文网格改成固定 5 列; 窄窗口才退回自适应。
+ok('符文网格固定 5 列, 一队一行不折行', () => {
+  const first = css.match(/\.ogd-rune-grid\s*\{([^}]*)\}/);
+  assert.ok(first, '缺少符文网格主规则');
+  assert.ok(/grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/.test(first[1]),
+    '符文网格应为固定 5 列');
+  assert.ok(!/auto-fill/.test(first[1]), '主规则里不该再留 auto-fill');
+});
+
+ok('窄窗口下符文网格退回自适应, 不把文案挤成竖线', () => {
+  const m = css.match(/@media\s*\(max-width:\s*1180px\)\s*\{[\s\S]{0,200}?\.ogd-rune-grid\s*\{[^}]*\}/);
+  assert.ok(m, '缺少窄窗口媒体查询');
+  assert.ok(/auto-fill/.test(m[0]), '窄窗口应允许折行');
+});
+
+// 五列并排需要整页够宽: 主窗口默认宽必须 ≥ 1400, 且要按屏幕工作区收窄, 不能撑出屏幕。
+ok('主窗口默认宽够 5 列并排, 且按屏幕工作区收窄', () => {
+  const mainSrc = fs.readFileSync('main/index.js', 'utf8');
+  assert.ok(/let defWinW = 1440/.test(mainSrc), '默认宽应为 1440');
+  assert.ok(/workAreaSize/.test(mainSrc), '应按工作区尺寸收窄');
+  assert.ok(/Math\.min\(1440,\s*Math\.max\(900,\s*wa\.width/.test(mainSrc), '宽度需 clamp 在 [900, 1440]');
+  assert.ok(/width:\s*defWinW,\s*height:\s*defWinH/.test(mainSrc), '窗口应使用算出来的尺寸');
+});
+
 console.log('\nPASS ' + pass + ' cases');

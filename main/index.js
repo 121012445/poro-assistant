@@ -311,8 +311,18 @@ function createWindow() {
   } else {
     logErr('[ICON] failed to load runtime icon');
   }
+  // 1.6.26: 详情「符文」页要一队 5 人排在一行不折行, 5 列符文卡至少需要 ~1160px 内容宽
+  // (200px 侧栏 + 左右各 26px 内边距 + 卡片内边距), 所以默认宽从 1200 提到 1440。
+  // 小屏不能撑出屏幕: 取工作区的宽高减 40px 再与默认值取小, 下限仍是 minWidth/minHeight 的 900/600。
+  // 主窗口尺寸没有落盘持久化, 重启即按新默认值打开。
+  let defWinW = 1440, defWinH = 900;
+  try {
+    const wa = electronScreen.getPrimaryDisplay().workAreaSize;
+    defWinW = Math.min(1440, Math.max(900, wa.width - 40));
+    defWinH = Math.min(900, Math.max(600, wa.height - 40));
+  } catch (e) {}
   mainWindow = new BrowserWindow({
-    width: 1200, height: 800, minWidth: 900, minHeight: 600,
+    width: defWinW, height: defWinH, minWidth: 900, minHeight: 600,
     frame: false, backgroundColor: '#faf6ee', show: !process.env.PORO_TEST,
     icon: appIcon || APP_ICON_ICO,
     webPreferences: {
