@@ -32,9 +32,11 @@ ok('详情页渲染完整符文 + title', () => {
   assert.ok(hex.includes('legacyRune'), '老缓存只有 perkPrimary 时要能退回单图标');
 });
 
-ok('战绩卡 title 也写完整符文页', () => {
-  assert.ok(home.includes('const runeTip = typeof runePageText') && home.includes('ako-runecol"${runeTip'),
-    '战绩卡符文列应带 title');
+ok('战绩卡符文列带悬停卡片 (无卡片时才退回 title)', () => {
+  // 1.6.24: 从"只有 title"升级成"悬停展开完整符文页", title 退为兜底
+  assert.ok(home.includes('const runeCard = typeof runePageCardHtml') && home.includes('rune-pop">${runeCard}'),
+    '战绩卡符文列应内嵌符文卡片');
+  assert.ok(home.includes("runeCard ? '' : (runeTip ? ` title="), '没有卡片时仍用 title 兜底');
 });
 
 ok('符文名称表随图标一起加载', () => {

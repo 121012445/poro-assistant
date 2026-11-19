@@ -1622,17 +1622,34 @@ function perkPageOf(p) {
   const styles = Array.isArray(perks && perks.styles) ? perks.styles : [];
   const ids = [];
   const styleIds = [];
+  // 1.6.24: 除 id 外还要留下 var1/var2/var3 —— 客户端对每个符文的结算文案是模板,
+  // 例如 "总治疗量: @eogvar1@"、"额外伤害: @eogvar2@", 只有配上本局数值才有意义。
+  // 同时按样式分成主系/副系两组, 悬停卡片据此排版 (Akari 同款结构)。
+  const groups = [];
   for (const s of styles) {
     if (!s) continue;
-    if (s.style != null) styleIds.push(Number(s.style) || 0);
+    const styleId = s.style != null ? (Number(s.style) || 0) : 0;
+    if (styleId) styleIds.push(styleId);
+    const sels = [];
     for (const sel of (s.selections || [])) {
-      const id = Number(sel && typeof sel === 'object' ? (sel.perk != null ? sel.perk : sel.id) : sel);
-      if (Number.isInteger(id) && id > 0) ids.push(id);
+      const obj = (sel && typeof sel === 'object') ? sel : null;
+      const id = Number(obj ? (obj.perk != null ? obj.perk : obj.id) : sel);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      ids.push(id);
+      sels.push({
+        id,
+        v1: obj && Number.isFinite(Number(obj.var1)) ? Number(obj.var1) : null,
+        v2: obj && Number.isFinite(Number(obj.var2)) ? Number(obj.var2) : null,
+        v3: obj && Number.isFinite(Number(obj.var3)) ? Number(obj.var3) : null
+      });
     }
+    if (sels.length) groups.push({ styleId, sels });
   }
   const sp = (perks && perks.statPerks) || {};
   const statPerks = [sp.offense, sp.flex, sp.defense].map(Number).filter(v => Number.isInteger(v) && v > 0);
-  return { ids, styleIds, statPerks };
+  const main = groups[0] || null;
+  const sub = groups[1] || null;
+  return { ids, styleIds, statPerks, main, sub };
 }
 function perkPageFields(p) {
   const pg = perkPageOf(p);
@@ -1641,7 +1658,9 @@ function perkPageFields(p) {
     perkSub: pg.styleIds[1] || 0,
     perkIds: pg.ids,
     perkStyles: pg.styleIds,
-    statPerks: pg.statPerks
+    statPerks: pg.statPerks,
+    // 悬停卡片用的结构化符文页 (主系 4 + 副系 2 + 属性 3, 带本局数值)
+    perkPage: (pg.main || pg.sub) ? { main: pg.main, sub: pg.sub, stats: pg.statPerks } : null
   };
 }
 
@@ -2139,7 +2158,14 @@ function buildHomeGameCard(g, s) {
   const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
   // 1.6.23: 战绩卡空间只够两个图标, 完整符文页 (主4+副2+属性3) 放进 title
   const runeTip = typeof runePageText === 'function' ? runePageText(p) : '';
-  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol"${runeTip ? ` title="${escapeHtml(runeTip)}"` : ''}>${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}</div>` : '';
+  // 1.6.24: 悬停给出完整符文页 (图标 + 名称 + 本局数值), 与对局详情同一份卡片
+  const runeCard = typeof runePageCardHtml === 'function' ? runePageCardHtml(p) : '';
+  const runeHtml = (rk1 || rk2)
+    ? `<div class="ako-runecol${runeCard ? ' ak-rune-hoverable' : ''}"${runeCard ? '' : (runeTip ? ` title="${escapeHtml(runeTip)}"` : '')}>`
+      + `${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}`
+      + (runeCard ? `<div class="rune-pop">${runeCard}</div>` : '')
+      + '</div>'
+    : '';
   // 本局强化 (海斗/斗魂): 只出图标, 名称放 title —— 战绩行高度紧张, 文字会把它撑开
   const augHtml = (() => {
     const ids = Array.isArray(p.augmentIds) ? p.augmentIds : [];

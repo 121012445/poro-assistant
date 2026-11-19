@@ -323,6 +323,247 @@ function runePageText(p) {
   return parts.join(' · ');
 }
 
+// ========== 符文详情卡片 (1.6.24, 参照 LeagueAkari 的 PerkDisplay/RunesTab) ==========
+// Akari 的符文页是三层的: 图标 + 名称 + "本局结算"那句话 (endOfGameStatDescs 里的
+// @eogvar1@ 用 selection.var1 替换, 例如"总治疗量: 1,234"), 而不是只给一个图标网格。
+//
+// 名称和描述只有客户端自己那份 perks.json 是中文 —— ddragon 的 runesReforged 只有
+// 名称和图标, 一句描述都没有; communitydragon 的 zh_cn 目录里 perks.json 实测没本地化
+// (name/longDesc 全是英文)。所以以 LCU 为主源, 拉不到就退到"中文名 + 图标", 描述留空,
+// 不编造英文文案糊在中文界面上。
+const STAT_PERK_ICONS = {
+  5001: 'StatModsHealthScalingIcon', 5002: 'StatModsArmorIcon', 5003: 'StatModsMagicResIcon',
+  5005: 'StatModsAttackSpeedIcon', 5007: 'StatModsCDRScalingIcon', 5008: 'StatModsAdaptiveForceIcon',
+  5010: 'StatModsMovementSpeedIcon', 5011: 'StatModsHealthIcon', 5013: 'StatModsTenacityIcon'
+};
+const STAT_PERK_FALLBACK_NAME = { 5001: '生命值成长', 5003: '魔法抗性', 5007: '技能急速', 5010: '移动速度' };
+const RUNE_META = { perks: {}, styles: {}, ready: false };
+const RUNE_META_CACHE_KEY = 'poro.runeMeta.v1';
+
+// 客户端 longDesc/shortDesc 里混着 <lol-uikit-tooltipped-keyword> 之类的界面标签,
+// 直接塞进浮层会变成一行行尖括号。这里只去标签、保留文字和数字。
+function stripLolTags(html) {
+  if (typeof html !== 'string' || !html) return '';
+  return html
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function loadRuneMeta() {
+  try {
+    const cached = localStorage.getItem(RUNE_META_CACHE_KEY);
+    if (cached) {
+      const o = JSON.parse(cached);
+      RUNE_META.perks = (o && o.perks) || {};
+      RUNE_META.styles = (o && o.styles) || {};
+      RUNE_META.ready = Object.keys(RUNE_META.perks).length > 0;
+    }
+  } catch (e) { /* 缓存损坏就走网络 */ }
+
+  try {
+    const api = (typeof window !== 'undefined' && window.lolAPI) ? window.lolAPI : null;
+    if (!api || typeof api.lcuRequest !== 'function') return false;
+    const [rawPerks, rawStyles] = await Promise.all([
+      api.lcuRequest('GET', '/lol-game-data/assets/v1/perks.json'),
+      api.lcuRequest('GET', '/lol-game-data/assets/v1/perkstyles.json')
+    ]);
+    const perkList = Array.isArray(rawPerks) ? rawPerks : (rawPerks && Array.isArray(rawPerks.perks) ? rawPerks.perks : null);
+    if (!perkList || !perkList.length) return false;
+    const perks = {};
+    for (const item of perkList) {
+      const id = Number(item && item.id);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      const eog = Array.isArray(item.endOfGameStatDescs) ? item.endOfGameStatDescs.map(stripLolTags).filter(Boolean) : [];
+      perks[id] = {
+        name: stripLolTags(item.name || ''),
+        desc: stripLolTags(item.shortDesc || '') || stripLolTags(item.longDesc || ''),
+        eog
+      };
+    }
+    const styles = {};
+    const styleList = rawStyles && Array.isArray(rawStyles.styles) ? rawStyles.styles : (Array.isArray(rawStyles) ? rawStyles : []);
+    for (const st of styleList) {
+      const id = Number(st && st.id);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      styles[id] = { name: stripLolTags(st.name || ''), tip: stripLolTags(st.tooltip || '') };
+    }
+    if (!Object.keys(perks).length) return false;
+    RUNE_META.perks = perks;
+    RUNE_META.styles = styles;
+    RUNE_META.ready = true;
+    try { localStorage.setItem(RUNE_META_CACHE_KEY, JSON.stringify({ perks, styles })); } catch (e) { /* 配额满不影响使用 */ }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function runeMetaName(id) {
+  const m = RUNE_META.perks[id];
+  return (m && m.name) || (STAT_PERK_FALLBACK_NAME[id] || '') || runeNameOf(id);
+}
+function runeStyleMetaName(id) {
+  const m = RUNE_META.styles[id];
+  return (m && m.name) || runeStyleNameOf(id) || '';
+}
+function runeIconUrl(id) {
+  try {
+    const p = (typeof perkIconMap !== 'undefined' && perkIconMap) ? perkIconMap[id] : null;
+    if (p) return `https://ddragon.leagueoflegends.com/cdn/img/${p}`;
+  } catch (e) { /* TDZ */ }
+  return '';
+}
+function statPerkIconUrl(id) {
+  const name = STAT_PERK_ICONS[id];
+  return name ? `https://ddragon.leagueoflegends.com/cdn/img/perk-images/StatMods/${name}.png` : '';
+}
+function statPerkName(id) {
+  return STAT_PERK_NAMES[id] || STAT_PERK_FALLBACK_NAME[id] || ('属性 ' + id);
+}
+// 本局结算文案: 客户端给的是模板 (含 @eogvar1@), 数值来自该局的 selection.var1..3。
+// 没有 EOG 模板的符文退回一句话描述 —— 两者都没有就返回 '', 卡片只显示名称。
+function runeDescOf(perkId, sel) {
+  const meta = RUNE_META.perks[perkId];
+  if (!meta) return '';
+  const vals = [sel && sel.v1, sel && sel.v2, sel && sel.v3];
+  const hasAny = vals.some(v => v != null && Number.isFinite(Number(v)));
+  // 老缓存战绩行没有 var1..3: 没有"本局"可言, 显示通用描述比一排"—"有用
+  if (!hasAny) return meta.desc || '';
+  const out = [];
+  for (const tpl of (meta.eog || [])) {
+    const text = tpl.replace(/@eogvar(\d+)@/gi, (whole, n) => {
+      const v = vals[Number(n) - 1];
+      if (v == null || !Number.isFinite(Number(v))) return '—';
+      return Number(v).toLocaleString('en-US');
+    });
+    if (text) out.push(text);
+  }
+  if (out.length) return out.join(' · ');
+  return meta.desc || '';
+}
+
+// 悬停卡片: 主系 4 个 (图标 + 名称 + 本局文案) + 副系 2 个 + 属性 3 个。
+// 数据不全时返回 '' —— 调用方据此不给 hover, 而不是弹一个空卡片。
+function runePageCardHtml(p) {
+  const page = (p && p.perkPage) || null;
+  const ids = (p && Array.isArray(p.perkIds)) ? p.perkIds.filter(x => Number(x) > 0) : [];
+  const styles = (p && Array.isArray(p.perkStyles)) ? p.perkStyles : [];
+  const stats = (p && Array.isArray(p.statPerks) && p.statPerks.length)
+    ? p.statPerks.filter(x => Number(x) > 0)
+    : ((page && Array.isArray(page.stats)) ? page.stats.filter(x => Number(x) > 0) : []);
+  const mainSels = (page && page.main && Array.isArray(page.main.sels) && page.main.sels.length)
+    ? page.main.sels
+    : ids.slice(0, 4).map(id => ({ id, v1: null, v2: null, v3: null }));
+  if (!mainSels.length && !stats.length) return '';
+  const mainStyleId = (page && page.main && page.main.styleId) || styles[0] || 0;
+  const subSels = (page && page.sub && Array.isArray(page.sub.sels) && page.sub.sels.length)
+    ? page.sub.sels
+    : ids.slice(4, 6).map(id => ({ id, v1: null, v2: null, v3: null }));
+  const subStyleId = (page && page.sub && page.sub.styleId) || styles[1] || 0;
+
+  const mainStyleName = runeStyleMetaName(mainStyleId);
+  const subStyleName = runeStyleMetaName(subStyleId);
+  const styleIcon = (id) => {
+    try {
+      const v = (typeof styleIconMap !== 'undefined' && styleIconMap) ? styleIconMap[id] : null;
+      return v ? `https://ddragon.leagueoflegends.com/cdn/img/${v}` : '';
+    } catch (e) { return ''; }
+  };
+
+  const itemHtml = (sel, cls) => {
+    const icon = runeIconUrl(sel.id);
+    const name = runeMetaName(sel.id);
+    const desc = runeDescOf(sel.id, sel);
+    if (!icon && !name) return '';
+    return `<div class="rune-pop-item ${cls}">`
+      + (icon ? `<img class="${cls === 'is-sub' ? 'rune-pop-ic-sm' : 'rune-pop-ic'}" src="${icon}" onerror="retryImg(this)">` : '<i class="rune-pop-ic rune-pop-ic-empty"></i>')
+      + `<div class="rune-pop-txt"><b>${escapeHtml(name)}</b>`
+      + (desc ? `<em>${escapeHtml(desc)}</em>` : '')
+      + '</div></div>';
+  };
+
+  const head = `<div class="rune-pop-head">`
+    + (styleIcon(mainStyleId) ? `<img class="rune-pop-style-ic" src="${styleIcon(mainStyleId)}" onerror="retryImg(this)">` : '')
+    + `<b>${escapeHtml(mainStyleName || '主系')}</b>`
+    + (subStyleName ? `<span class="rune-pop-substyle">副系 ${escapeHtml(subStyleName)}</span>` : '')
+    + '</div>';
+
+  const body = mainSels.map(s => itemHtml(s, 'is-main')).join('')
+    + (subSels.length ? `<div class="rune-pop-sep"></div>` + subSels.map(s => itemHtml(s, 'is-sub')).join('') : '');
+
+  const statHtml = stats.length
+    ? `<div class="rune-pop-stats">${stats.map(id => {
+      const ic = statPerkIconUrl(id);
+      return `<span title="${escapeHtml(STAT_PERK_NAMES[id] || statPerkName(id))}">`
+        + (ic ? `<img src="${ic}" onerror="retryImg(this)">` : '')
+        + escapeHtml(statPerkName(id)) + '</span>';
+    }).join('')}</div>`
+    : '';
+
+  return `<div class="rune-pop-card">${head}<div class="rune-pop-body">${body}</div>${statHtml}</div>`;
+}
+
+// 悬停卡片的事件绑定: 全局委托一次 (详情页会反复重渲染, 逐个绑会越绑越多)。
+// 卡片内容内嵌在行里 (display:none), 悬停时**克隆**一份挂到 body 再定位 ——
+// 详情弹窗有 overflow/transform, 就地弹会被裁掉或算错坐标; 克隆也避免了
+// "挪走节点后原行再也弹不出卡片"的问题。鼠标移出后延迟 120ms 关闭。
+let _runeHoverBound = false;
+function runeHoverBind() {
+  if (_runeHoverBound || typeof document === 'undefined') return;
+  _runeHoverBound = true;
+  let hideTimer = null;
+  let active = null;
+  let activeWrap = null;
+  const closeActive = () => {
+    if (active) { active.remove(); active = null; }
+    activeWrap = null;
+  };
+  const open = (wrap, ev) => {
+    const src = wrap.querySelector('.rune-pop');
+    if (!src) return;
+    closeActive();
+    activeWrap = wrap;
+    const pop = src.cloneNode(true);
+    pop.classList.add('is-open');
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    document.body.appendChild(pop);
+    // 先落地才能量到真实尺寸, 再夹在视口内; 右侧放不下就翻到左边
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    let x = ev.clientX + 18;
+    let y = ev.clientY - h / 2;
+    if (x + w > window.innerWidth - 8) x = Math.max(8, ev.clientX - w - 18);
+    if (y < 8) y = 8;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, window.innerHeight - h - 8);
+    pop.style.left = x + 'px';
+    pop.style.top = y + 'px';
+    active = pop;
+  };
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target;
+    if (!t || typeof t.closest !== 'function') return;
+    clearTimeout(hideTimer);
+    const wrap = t.closest('.ak-rune-hoverable');
+    if (wrap) {
+      if (wrap === activeWrap) return;
+      open(wrap, e);
+      return;
+    }
+    if (active && active.contains(t)) return;
+    hideTimer = setTimeout(closeActive, 120);
+  });
+  // 滚动 / 点击 / 切换页面时立刻收起, 否则卡片会留在原地
+  window.addEventListener('scroll', closeActive, true);
+  document.addEventListener('click', closeActive, true);
+}
+
 // 图片一次性重试 (2026-09-28): 头像/装备/符文/技能图标都是 ddragon/communitydragon
 // 的直连 <img>, 首屏网络被游戏重连挤占时可能瞬时加载失败 —— 原先 onerror 直接
 // visibility='hidden', 之后哪怕网络恢复也不再有人重试 (要等下一次整块重渲染)。

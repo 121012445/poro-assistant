@@ -332,6 +332,17 @@ async function init() {
         ensureChampMap();
         // 符文图标映射 (参考 LeagueAkari: perk id -> icon path)
         await loadPerkIcons(version);
+        // 1.6.24: 符文悬停卡片的事件委托 (首页战绩卡与对局详情共用, 幂等)
+        if (typeof runeHoverBind === 'function') runeHoverBind();
+        // 1.6.24: 符文名称 + 一句话描述 + 本局结算模板。ddragon 的 runesReforged 只有
+        // 名称和图标, 所以描述从客户端自己的 perks.json 取; 客户端没开时静默失败,
+        // 卡片退化成"图标 + 名称"。缓存命中时这一步几乎是瞬时的。
+        loadRuneMeta().then(ok => {
+          if (ok && homeStatsLoaded && homeGamesData && homeGamesData.length
+            && (typeof isHomeGameDetailExpanded !== 'function' || !isHomeGameDetailExpanded())) {
+            renderHomeGameList();
+          }
+        });
         renderRoleFilters();
         renderChampionGrid();
         // 首页若已用空映射渲染过 (占位图标), 用真实数据重渲染列表

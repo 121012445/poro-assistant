@@ -1172,8 +1172,14 @@ function renderOpggGameDetail(norm, container) {
       return src ? `<img class="ak-rune" src="${src}" onerror="retryImg(this)">` : '';
     }).join('');
     const legacyRune = runeIcon(perkIconMap, p.perkPrimary);
+    // 1.6.24: 12px 图标认不出符文, 悬停展开 Akari 那样的符文页卡片 (图标 + 名称 + 本局数值)。
+    // 卡片内嵌在 .ak-runecol 里, 定位由 runeHoverBind 在 mouseenter 时按鼠标位置算。
+    const runeCard = (runeCells && typeof runePageCardHtml === 'function') ? runePageCardHtml(p) : '';
     const runeHtml = (runeCells || legacyRune)
-      ? `<div class="ak-runecol"${runeTip ? ` title="${escapeHtml(runeTip)}"` : ''}>${runeCells || `<img class="ak-rune" src="${legacyRune}" onerror="retryImg(this)">`}</div>`
+      ? `<div class="ak-runecol${runeCard ? ' ak-rune-hoverable' : ''}"${runeCard ? '' : (runeTip ? ` title="${escapeHtml(runeTip)}"` : '')}>`
+        + (runeCells || `<img class="ak-rune" src="${legacyRune}" onerror="retryImg(this)">`)
+        + (runeCard ? `<div class="rune-pop">${runeCard}</div>` : '')
+        + '</div>'
       : '';
     const itemHtml = (p.items || []).slice(0, 7).map((id, i) => `<img class="ak-item${i === (p.items || []).length - 1 ? ' ak-trinket' : ''}" src="${itemIcon(id)}" onerror="retryImg(this)">`).join('');
     const posText = hasRealPositions(norm) ? (POS_MAP[p.position] || '') : '';
@@ -1260,6 +1266,8 @@ function renderOpggGameDetail(norm, container) {
       ${teamBlock(tids[0])}
       ${tids[1] ? teamBlock(tids[1]) : ''}
     </div>`;
+  // 1.6.24: 符文悬停卡片的事件委托 (幂等, 只绑一次)
+  if (typeof runeHoverBind === 'function') runeHoverBind();
   // 战报卡: 交给 battle-card.js 拼 HTML + 主进程离屏截图。
   // 必须 stopPropagation —— 详情整体挂在卡片 onclick 上, 冒泡会让详情直接折叠。
   const bcBtn = container.querySelector('[data-battle-card]');
