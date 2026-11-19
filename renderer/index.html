@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026111902">
-<link rel="stylesheet" href="css/extras.css?v=2026111902">
-<link rel="stylesheet" href="css/dark.css?v=2026111902">
-<link rel="stylesheet" href="css/premium.css?v=2026111902">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026111902">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111902">
-<link rel="stylesheet" href="css/v4.css?v=2026111902">
+<link rel="stylesheet" href="css/style.css?v=2026111903">
+<link rel="stylesheet" href="css/extras.css?v=2026111903">
+<link rel="stylesheet" href="css/dark.css?v=2026111903">
+<link rel="stylesheet" href="css/premium.css?v=2026111903">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026111903">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026111903">
+<link rel="stylesheet" href="css/v4.css?v=2026111903">
 </head>
 <body>
 
@@ -541,10 +541,14 @@
         </div>
       </div>
       <div class="tool-card">
-        <h3>一键卸下勋章</h3>
-        <p>清空旗帜上的勋章与挑战代币，并把等级边框切到 22 档。注意：高等级号显示为无框，等级不够的号会变成另一款边框（客户端本身没有"不显示边框"这个选项）。第一次卸下前会自动记住你原来的边框，随时可以点「恢复原头像框」还原。</p>
+        <h3>头像框与勋章</h3>
+        <p>「卸下头像框」需要召唤师等级 525 级以上才生效——低于这个等级客户端不给关闭边框的权限，硬写只会把边框换成另一款（看起来像自己变了）。勋章与挑战代币和等级无关，任何账号都能清空。第一次卸下前会自动备份你原来的边框，随时可以点「恢复原头像框」还原。</p>
         <div class="tool-row">
-          <button class="btn-secondary" onclick="removeAllRegalia()">一键卸下</button>
+          <button class="btn-secondary" onclick="removePrestigeCrest()">卸下头像框</button>
+          <button class="btn-secondary" onclick="removeChallengeTokens()">清空勋章</button>
+        </div>
+        <div class="tool-row" style="margin-top:6px;">
+          <button class="btn-secondary" onclick="removeAllRegalia()">两个都做</button>
           <button class="btn-secondary" onclick="restoreRegalia()">恢复原头像框</button>
         </div>
       </div>
@@ -775,65 +779,65 @@
   </div>
 </div>
 
-<script src="js/utils.js?v=2026111902"></script>
-<script src="js/player-index.js?v=2026111902"></script>
-<script src="js/local-cache.js?v=2026111902"></script>
-<script src="js/icons.js?v=2026111902"></script>
-<script src="js/data-model.js?v=2026111902"></script>
-<script src="js/session-state.js?v=2026111902"></script>
-<script src="js/performance.js?v=2026111902"></script>
-<script src="js/diagnostics.js?v=2026111902"></script>
-<script src="js/balance.js?v=2026111902"></script>
-<script src="js/behavior-tags.js?v=2026111902"></script>
-<script src="js/bench.js?v=2026111902"></script>
-<script src="js/champions.js?v=2026111902"></script>
-<script src="js/progress-report.js?v=2026111902"></script>
-<script src="js/review-bp-bridge.js?v=2026111902"></script>
-<script src="js/home.js?v=2026111902"></script>
-<script src="js/automation-log.js?v=2026111902"></script>
-<script src="js/automation-matrix.js?v=2026111902"></script>
-<script src="js/home-status.js?v=2026111902"></script>
-<script src="js/ai-markdown.js?v=2026111902"></script>
-<script src="js/repeat-mistakes.js?v=2026111902"></script>
-<script src="js/review.js?v=2026111902"></script>
-<script src="js/theme.js?v=2026111902"></script>
+<script src="js/utils.js?v=2026111903"></script>
+<script src="js/player-index.js?v=2026111903"></script>
+<script src="js/local-cache.js?v=2026111903"></script>
+<script src="js/icons.js?v=2026111903"></script>
+<script src="js/data-model.js?v=2026111903"></script>
+<script src="js/session-state.js?v=2026111903"></script>
+<script src="js/performance.js?v=2026111903"></script>
+<script src="js/diagnostics.js?v=2026111903"></script>
+<script src="js/balance.js?v=2026111903"></script>
+<script src="js/behavior-tags.js?v=2026111903"></script>
+<script src="js/bench.js?v=2026111903"></script>
+<script src="js/champions.js?v=2026111903"></script>
+<script src="js/progress-report.js?v=2026111903"></script>
+<script src="js/review-bp-bridge.js?v=2026111903"></script>
+<script src="js/home.js?v=2026111903"></script>
+<script src="js/automation-log.js?v=2026111903"></script>
+<script src="js/automation-matrix.js?v=2026111903"></script>
+<script src="js/home-status.js?v=2026111903"></script>
+<script src="js/ai-markdown.js?v=2026111903"></script>
+<script src="js/repeat-mistakes.js?v=2026111903"></script>
+<script src="js/review.js?v=2026111903"></script>
+<script src="js/theme.js?v=2026111903"></script>
 <script src="assets/augments-meta.js?v=2026111604"></script>
-<script src="js/hex.js?v=2026111902"></script>
-<script src="js/history.js?v=2026111902"></script>
-<script src="js/enemy-intel.js?v=2026111902"></script>
-<script src="js/live-insights.js?v=2026111902"></script>
-<script src="js/draft-coach.js?v=2026111902"></script>
-<script src="js/bp-fusion.js?v=2026111902"></script>
-<script src="js/bp-advisor.js?v=2026111902"></script>
-<script src="js/growth-model.js?v=2026111902"></script>
-<script src="js/growth.js?v=2026111902"></script>
-<script src="js/battle-card.js?v=2026111902"></script>
-<script src="js/build-engine.js?v=2026111902"></script>
-<script src="js/player-habits.js?v=2026111902"></script>
-<script src="js/live.js?v=2026111902"></script>
-<script src="js/weekly.js?v=2026111902"></script>
-<script src="js/friends.js?v=2026111902"></script>
-<script src="js/compliance.js?v=2026111902"></script>
-<script src="js/blacklist.js?v=2026111902"></script>
-<script src="js/social.js?v=2026111902"></script>
-<script src="js/chat.js?v=2026111902"></script>
-<script src="js/translate.js?v=2026111902"></script>
-<script src="js/autobp.js?v=2026111902"></script>
-<script src="js/pick-guard.js?v=2026111902"></script>
-<script src="js/lcu-events.js?v=2026111902"></script>
-<script src="js/opgg-loadout.js?v=2026111902"></script>
-<script src="js/update.js?v=2026111902"></script>
-<script src="js/autoflow.js?v=2026111902"></script>
-<script src="js/chat-status.js?v=2026111902"></script>
-<script src="js/settings.js?v=2026111902"></script>
-<script src="js/persist.js?v=2026111902"></script>
-<script src="js/hotkeys.js?v=2026111902"></script>
-<script src="js/live-metrics.js?v=2026111902"></script>
-<script src="js/live-tips.js?v=2026111902"></script>
-<script src="js/autoreturn.js?v=2026111902"></script>
-<script src="js/sona-extra.js?v=2026111902"></script>
-<script src="js/tools-nav.js?v=2026111902"></script>
-<script src="js/tools-overview.js?v=2026111902"></script>
-<script src="js/app.js?v=2026111902"></script>
+<script src="js/hex.js?v=2026111903"></script>
+<script src="js/history.js?v=2026111903"></script>
+<script src="js/enemy-intel.js?v=2026111903"></script>
+<script src="js/live-insights.js?v=2026111903"></script>
+<script src="js/draft-coach.js?v=2026111903"></script>
+<script src="js/bp-fusion.js?v=2026111903"></script>
+<script src="js/bp-advisor.js?v=2026111903"></script>
+<script src="js/growth-model.js?v=2026111903"></script>
+<script src="js/growth.js?v=2026111903"></script>
+<script src="js/battle-card.js?v=2026111903"></script>
+<script src="js/build-engine.js?v=2026111903"></script>
+<script src="js/player-habits.js?v=2026111903"></script>
+<script src="js/live.js?v=2026111903"></script>
+<script src="js/weekly.js?v=2026111903"></script>
+<script src="js/friends.js?v=2026111903"></script>
+<script src="js/compliance.js?v=2026111903"></script>
+<script src="js/blacklist.js?v=2026111903"></script>
+<script src="js/social.js?v=2026111903"></script>
+<script src="js/chat.js?v=2026111903"></script>
+<script src="js/translate.js?v=2026111903"></script>
+<script src="js/autobp.js?v=2026111903"></script>
+<script src="js/pick-guard.js?v=2026111903"></script>
+<script src="js/lcu-events.js?v=2026111903"></script>
+<script src="js/opgg-loadout.js?v=2026111903"></script>
+<script src="js/update.js?v=2026111903"></script>
+<script src="js/autoflow.js?v=2026111903"></script>
+<script src="js/chat-status.js?v=2026111903"></script>
+<script src="js/settings.js?v=2026111903"></script>
+<script src="js/persist.js?v=2026111903"></script>
+<script src="js/hotkeys.js?v=2026111903"></script>
+<script src="js/live-metrics.js?v=2026111903"></script>
+<script src="js/live-tips.js?v=2026111903"></script>
+<script src="js/autoreturn.js?v=2026111903"></script>
+<script src="js/sona-extra.js?v=2026111903"></script>
+<script src="js/tools-nav.js?v=2026111903"></script>
+<script src="js/tools-overview.js?v=2026111903"></script>
+<script src="js/app.js?v=2026111903"></script>
 </body>
 </html>

@@ -306,19 +306,22 @@ async function setProfileBg() {
   }
 }
 
-// 卸下勋章/头像框/旗帜代币 (参考 Akari/Seraphine)
+// 头像框 / 勋章 / 挑战代币 (参考 LeagueAkari 与 Seraphine)
 //
-// 关于"头像框"这一半, 早期版本注释写的「22 为无边框」是错的, 2026-11-20 实测结论:
-//   1. preferredCrestType 只接受 prestige (ranked 接受但读回仍是 prestige),
-//      none / blank / default / challenges 全部 400 Invalid preferredCrestType —— 客户端
-//      本身没有"不显示边框"这个状态, 界面里也选不到"无"。
-//   2. selectedPrestigeCrest 写 22 之后 GET 读回不稳定(服务端有延迟/归一), 无法用读回判断
-//      是否真的生效。
-//   3. 同样是写 22: 2693 级的号边框消失, 161 级的号边框变成另一款(金红→青蓝)。
-//      说明 22 不是通用"无框值", 而是一个服务端按账号解析的档位, 落到低等级号上就是真边框。
-// 所以这里不再承诺"卸下头像框": 如实报告"已清勋章 + 已切 22 档", 并且第一次卸下前把原边框
-// 记到本地, 提供「恢复原头像框」把外观还原。
+// 早期注释写的「22 为无边框」不准确。2026-11-20 在本机实测 + 对照 Akari 源码后的结论:
+//   1. preferredCrestType 只接受 prestige; none/blank/default/challenges 全部 400
+//      Invalid preferredCrestType —— 客户端没有"不显示边框"这种状态可写。
+//   2. 真正决定成败的是召唤师等级。Akari 里写死
+//      MINIMUM_SUMMONER_LEVEL_FOR_PRESTIGE_CREST = 525, 等级不够时界面上直接标"需 525 级以上"。
+//      实测完全对得上: 2693 级写 22 = 边框消失; 161 级写 22 = 换成另一款边框(金红→青蓝)。
+//      所以 22 是"关闭等级边框"的开关值, 只有拿到权限的账号才认, 不是什么通用无框值。
+//   3. 写完立刻 GET 读回不可靠, 服务端有延迟(实测读回会滞后一拍), 要做延时校验。
+// 因此这里按 Akari 的做法加等级门槛: 低于 525 级的账号直接拒绝执行边框动作, 避免
+// "点了卸下结果自己换了"。勋章/挑战代币与头像框拆成两个独立动作, 另外第一次执行前备份
+// 原边框, 提供「恢复原头像框」还原。
 const REGALIA_BACKUP_PREFIX = 'regaliaBackup:';
+const FIXED_PRESTIGE_CREST = 22;                       // 对应 Akari 的 FIXED_PRESTIGE_CREST
+const MINIMUM_SUMMONER_LEVEL_FOR_PRESTIGE_CREST = 525; // 对应 Akari 的同名常量(等级门槛)
 
 function regaliaBackupKey(puuid) {
   return REGALIA_BACKUP_PREFIX + (puuid || 'anon');
@@ -337,62 +340,102 @@ function readRegaliaBackup(puuid) {
   }
 }
 
-// 卸下时用账号维度存备份: 换号后各账号互不覆盖
-async function removeAllRegalia() {
-  if (!guardWrite('卸下勋章')) return;
+async function readRegaliaState() {
   const reg = await lolAPI.lcuRequest('GET', '/lol-regalia/v2/current-summoner/regalia');
-  const me = await lolAPI.lcuRequest('GET', '/lol-chat/v1/me');
-  const safeReg = reg && !reg.__error ? reg : null;
-  const puuid = me && !me.__error ? (me.puuid || (me.summonerId != null ? String(me.summonerId) : '')) : '';
+  return reg && !reg.__error ? reg : null;
+}
 
-  // 只在第一次卸下前备份。二次点击时 regalia 已经是"卸下后"的样子, 不能拿它覆盖掉原边框。
-  if (safeReg && !readRegaliaBackup(puuid)) {
-    storeSet(regaliaBackupKey(puuid), JSON.stringify({
-      preferredCrestType: safeReg.preferredCrestType,
-      selectedPrestigeCrest: safeReg.selectedPrestigeCrest,
-      preferredBannerType: safeReg.preferredBannerType,
-      summonerLevel: safeReg.summonerLevel,
+// 账号维度: 换号后各自的边框备份互不覆盖
+async function readRegaliaAccount() {
+  const me = await lolAPI.lcuRequest('GET', '/lol-chat/v1/me');
+  if (!me || me.__error) return { id: '', me: null };
+  return { id: me.puuid || (me.summonerId != null ? String(me.summonerId) : ''), me };
+}
+
+function regaliaLine(ok, text) {
+  return (ok ? '<span style="color:var(--positive)">' : '<span style="color:var(--negative)">') + text + '</span>';
+}
+
+// 只卸头像框。返回 { ok, text }, 由调用方决定怎么展示。
+async function doRemovePrestigeCrest() {
+  const reg = await readRegaliaState();
+  if (!reg) return { ok: false, text: '读不到头像框状态，客户端可能没连上' };
+
+  const level = +reg.summonerLevel || 0;
+  if (level < MINIMUM_SUMMONER_LEVEL_FOR_PRESTIGE_CREST) {
+    return {
+      ok: false,
+      text: '当前 ' + (level || '未知') + ' 级，低于 ' + MINIMUM_SUMMONER_LEVEL_FOR_PRESTIGE_CREST +
+        ' 级：这个等级没有关闭等级边框的权限，硬写只会把边框换成另一款（不是卸下），已跳过。'
+    };
+  }
+
+  const { id } = await readRegaliaAccount();
+  // 只在第一次执行前备份。二次点击时 regalia 已经是卸下的样子, 不能覆盖原边框。
+  if (!readRegaliaBackup(id)) {
+    storeSet(regaliaBackupKey(id), JSON.stringify({
+      preferredCrestType: reg.preferredCrestType,
+      selectedPrestigeCrest: reg.selectedPrestigeCrest,
+      preferredBannerType: reg.preferredBannerType,
+      summonerLevel: reg.summonerLevel,
       savedAt: Date.now()
     }));
   }
 
-  const r1 = await lolAPI.lcuRequest('PUT', '/lol-regalia/v2/current-summoner/regalia', {
+  const r = await lolAPI.lcuRequest('PUT', '/lol-regalia/v2/current-summoner/regalia', {
     preferredCrestType: 'prestige',
-    preferredBannerType: safeReg ? safeReg.bannerType : null,
-    selectedPrestigeCrest: 22
+    preferredBannerType: reg.bannerType,
+    selectedPrestigeCrest: FIXED_PRESTIGE_CREST
   });
-  const r2 = await lolAPI.lcuRequest('POST', '/lol-challenges/v1/update-player-preferences/', {
-    challengeIds: [],
-    bannerAccent: me && !me.__error && me.lol ? me.lol.bannerIdSelected : undefined
-  });
-  const bad = (r1 && r1.__error) || (r2 && r2.__error);
-  if (bad) {
-    toolMsg('<span style="color:var(--negative)">卸下失败: ' + bad + '</span>');
-    return;
-  }
+  if (r && r.__error) return { ok: false, text: '头像框写入失败: ' + r.__error };
 
-  // 服务端写入有延迟, 等一拍再读, 用来区分"切过去了"和"根本没写进"
+  // 服务端有延迟, 等一拍再读回
   await new Promise((done) => setTimeout(done, 400));
-  const after = await lolAPI.lcuRequest('GET', '/lol-regalia/v2/current-summoner/regalia');
-  const lv = safeReg && safeReg.summonerLevel ? safeReg.summonerLevel : 0;
-  const applied = after && !after.__error && +after.selectedPrestigeCrest === 22;
-  const crestLine = applied
-    ? '等级边框已切到 22 档' + (lv ? '（本账号 ' + lv + ' 级）' : '') + '：高等级号会显示为无框，等级不够的号会变成另一款边框。'
-    : '等级边框没能写入 22 档，客户端拒绝了。';
-  toolMsg(
-    '<span style="color:var(--positive)">已清空勋章与挑战代币</span>' +
-    '<br><small>' + crestLine + '点「恢复原头像框」可以还原成卸下前的样子。</small>'
-  );
+  const after = await readRegaliaState();
+  const applied = after && +after.selectedPrestigeCrest === FIXED_PRESTIGE_CREST;
+  return applied
+    ? { ok: true, text: '头像框已卸下（' + level + ' 级，原边框已备份，可随时恢复）' }
+    : { ok: false, text: '写入成功但读回不是 ' + FIXED_PRESTIGE_CREST + ' 档，客户端可能没接受' };
+}
+
+// 只清勋章与挑战代币。这部分与等级无关, 任何账号都生效。
+async function doRemoveChallengeTokens() {
+  const { me } = await readRegaliaAccount();
+  const r = await lolAPI.lcuRequest('POST', '/lol-challenges/v1/update-player-preferences/', {
+    challengeIds: [],
+    bannerAccent: me && me.lol ? me.lol.bannerIdSelected : undefined
+  });
+  if (r && r.__error) return { ok: false, text: '清空勋章失败: ' + r.__error };
+  return { ok: true, text: '已清空勋章与挑战代币' };
+}
+
+async function removePrestigeCrest() {
+  if (!guardWrite('卸下头像框')) return;
+  const r = await doRemovePrestigeCrest();
+  toolMsg(regaliaLine(r.ok, r.text));
+}
+
+async function removeChallengeTokens() {
+  if (!guardWrite('清空勋章')) return;
+  const r = await doRemoveChallengeTokens();
+  toolMsg(regaliaLine(r.ok, r.text));
+}
+
+// 兼容旧的「一键卸下」入口: 两件事都做, 边框那半自己会挡等级
+async function removeAllRegalia() {
+  if (!guardWrite('卸下勋章')) return;
+  const crest = await doRemovePrestigeCrest();
+  const tokens = await doRemoveChallengeTokens();
+  toolMsg(regaliaLine(tokens.ok, tokens.text) + '<br><small>' + regaliaLine(crest.ok, crest.text) + '</small>');
 }
 
 // 把第一次卸下时记录的边框写回去。备份不删除, 方便来回切换。
 async function restoreRegalia() {
   if (!guardWrite('恢复头像框')) return;
-  const me = await lolAPI.lcuRequest('GET', '/lol-chat/v1/me');
-  const puuid = me && !me.__error ? (me.puuid || (me.summonerId != null ? String(me.summonerId) : '')) : '';
-  const bk = readRegaliaBackup(puuid);
+  const { id } = await readRegaliaAccount();
+  const bk = readRegaliaBackup(id);
   if (!bk) {
-    toolMsg('<span style="color:var(--text-muted)">这个账号还没有边框备份 —— 只在点过「一键卸下」之后才会记录。</span>');
+    toolMsg('<span style="color:var(--text-muted)">这个账号还没有边框备份 —— 只在点过「卸下头像框」之后才会记录。</span>');
     return;
   }
   const r = await lolAPI.lcuRequest('PUT', '/lol-regalia/v2/current-summoner/regalia', {
@@ -405,8 +448,8 @@ async function restoreRegalia() {
     return;
   }
   await new Promise((done) => setTimeout(done, 400));
-  const after = await lolAPI.lcuRequest('GET', '/lol-regalia/v2/current-summoner/regalia');
-  const now = after && !after.__error ? +after.selectedPrestigeCrest : NaN;
+  const after = await readRegaliaState();
+  const now = after ? +after.selectedPrestigeCrest : NaN;
   const ok = now === +bk.selectedPrestigeCrest;
   toolMsg(ok
     ? '<span style="color:var(--positive)">已恢复原头像框（' + bk.selectedPrestigeCrest + ' 档）</span>'
