@@ -1109,7 +1109,8 @@ function renderHexList(filter = "") {
 function filterHexList() { renderHexList(document.getElementById('hexSearch')?.value || ''); }
 
 function renderOpggGameDetail(norm, container) {
-  const rating = p => p.k + p.a * 0.7 - p.d * 0.5 + (p.dmg || 0) / 4000 + (p.gold || 0) / 6000;
+  // 1.6.23: 位置归一化评分, 与战绩卡/小代标签共用 utils.js 的同一套实现
+  const rating = p => championRatingOf(p, norm.participants.filter(x => x && x.teamId === p.teamId));
   const teams = {};
   for (const p of norm.participants) (teams[p.teamId] = teams[p.teamId] || []).push(p);
   const tids = Object.keys(teams);
@@ -1162,9 +1163,18 @@ function renderOpggGameDetail(norm, container) {
     const goldMin = ((p.gold || 0) / mins).toFixed(1);
     const spellHtml = (p.spells || []).map(id => `<img class="ak-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellMap[String(id)] || id).replace(/\.png$/, "")}.png" onerror="retryImg(this)">`).join('');
     const runeIcon = (map, id) => id && map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/${map[id]}` : null;
-    const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
-    const runesExist = p.perkPrimary || p.perkSub;
-    const runeHtml = runesExist ? `<div class="ak-runecol">${rk1 ? `<img class="ak-rune" src="${rk1}" onerror="retryImg(this)">` : ''}${rk2 ? `<img class="ak-rune" src="${rk2}" onerror="retryImg(this)">` : ''}</div>` : '';
+    // 1.6.23: 显示完整符文页 (主系 4 + 副系 2), 老缓存只有 perkPrimary 时退回单图标。
+    // 图标只有 12px, 认不出是哪个符文 —— 完整名称放进 title (runePageText)。
+    const runeIds = (Array.isArray(p.perkIds) && p.perkIds.length) ? p.perkIds.filter(id => Number(id) > 0) : [];
+    const runeTip = typeof runePageText === 'function' ? runePageText(p) : '';
+    const runeCells = runeIds.map(id => {
+      const src = runeIcon(perkIconMap, id);
+      return src ? `<img class="ak-rune" src="${src}" onerror="retryImg(this)">` : '';
+    }).join('');
+    const legacyRune = runeIcon(perkIconMap, p.perkPrimary);
+    const runeHtml = (runeCells || legacyRune)
+      ? `<div class="ak-runecol"${runeTip ? ` title="${escapeHtml(runeTip)}"` : ''}>${runeCells || `<img class="ak-rune" src="${legacyRune}" onerror="retryImg(this)">`}</div>`
+      : '';
     const itemHtml = (p.items || []).slice(0, 7).map((id, i) => `<img class="ak-item${i === (p.items || []).length - 1 ? ' ak-trinket' : ''}" src="${itemIcon(id)}" onerror="retryImg(this)">`).join('');
     const posText = hasRealPositions(norm) ? (POS_MAP[p.position] || '') : '';
     const score = rating(p).toFixed(1);

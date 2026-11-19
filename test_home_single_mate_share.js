@@ -47,6 +47,9 @@ assert.ok(home.includes('const takenShare = soloOnly ? null'), '单人时承伤�
 assert.ok(home.includes('shareText(dmgShare)') && home.includes('shareText(takenShare)'), '占比渲染应走 shareText');
 
 // 动态: 提取 buildHomeGameCard 并注入最小 stub
+// 1.6.23: 战绩卡的 MVP/ACE 判定改用 utils.js 的 championRatingOf, 这里注入真实实现
+const utilsCtx = vm.createContext({ console, localStorage: { getItem: () => null, setItem: () => {} }, window: {} });
+vm.runInContext(fs.readFileSync('renderer/js/utils.js', 'utf8'), utilsCtx, { filename: 'utils.js' });
 const stubCtx = vm.createContext({
   champNumMap: {},
   version: '14.1.1',
@@ -56,6 +59,7 @@ const stubCtx = vm.createContext({
   spellMap: {},
   perkIconMap: {},
   styleIconMap: {},
+  championRatingOf: utilsCtx.championRatingOf,
   findProfileParticipant: (g) => g.participants.find(p => p.isMe),
   derivePerformanceTags: () => [],
   escapeHtml: s => String(s == null ? '' : s),

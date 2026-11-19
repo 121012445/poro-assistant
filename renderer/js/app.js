@@ -6,6 +6,10 @@ let allSpells = {};
 let spellMap = {};
 let perkIconMap = {};
 let styleIconMap = {};
+// 1.6.23: 符文/副系的中文名 —— 对局详情要把"具体带了哪些符文"写进 title,
+// 只靠图标看不出是哪个符文。
+let perkNameMap = {};
+let styleNameMap = {};
 let currentRole = "all";
 let autoAcceptOn = false;
 let lcuConnected = false;
@@ -232,12 +236,14 @@ document.querySelectorAll(".nav-item").forEach(item => {
 // 符文图标映射 (参考 LeagueAkari: perk id -> icon path)
 // ddragon 在国内经常超时: 带重试, 并把上次成功的结果缓存到 localStorage 兜底
 async function loadPerkIcons(ver) {
-  const CACHE_KEY = 'poro.perkMaps.v1';
+  // v2: 除图标外还缓存符文/副系名称 (v1 只有图标, 老缓存没有 name 需要重新拉一次)
+  const CACHE_KEY = 'poro.perkMaps.v2';
   try {
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
       const o = JSON.parse(cached);
       perkIconMap = o.perk || {}; styleIconMap = o.style || {};
+      perkNameMap = o.perkName || {}; styleNameMap = o.styleName || {};
     }
   } catch (e) { /* 缓存缺失或损坏, 走网络加载 */ }
 
@@ -247,12 +253,16 @@ async function loadPerkIcons(ver) {
     try {
       const rr = await fetch(`https://ddragon.leagueoflegends.com/cdn/${ver}/data/zh_CN/runesReforged.json`, { signal: ctrl.signal }).then(r => r.json());
       if (!Array.isArray(rr) || !rr.length) throw new Error('符文数据为空');
-      perkIconMap = {}; styleIconMap = {};
+      perkIconMap = {}; styleIconMap = {}; perkNameMap = {}; styleNameMap = {};
       for (const style of rr) {
         styleIconMap[style.id] = style.icon;
-        for (const slot of (style.slots || [])) for (const rune of (slot.runes || [])) perkIconMap[rune.id] = rune.icon;
+        styleNameMap[style.id] = style.name || '';
+        for (const slot of (style.slots || [])) for (const rune of (slot.runes || [])) {
+          perkIconMap[rune.id] = rune.icon;
+          perkNameMap[rune.id] = rune.name || '';
+        }
       }
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ perk: perkIconMap, style: styleIconMap })); } catch (e) {}
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ perk: perkIconMap, style: styleIconMap, perkName: perkNameMap, styleName: styleNameMap })); } catch (e) {}
       return true;
     } catch (e) {
       if (attempt < 2) { await new Promise(r => setTimeout(r, 600)); continue; }

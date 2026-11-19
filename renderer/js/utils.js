@@ -233,6 +233,96 @@ function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') 
   return tags.slice(0, 3);
 }
 
+// ========== 对局评分 (1.6.23: 按位置归一化) ==========
+// 旧公式 k + a*0.7 - d*0.5 + dmg/4000 + gold/6000 完全偏向输出位:
+// 辅助把视野/参团/保护拉满也几乎不可能成为队内第一 (国服样本实测 0%)。
+// 现在每一项先除以"该位置的典型值"再乘权重 —— 各位置正常发挥都约等于同一分数,
+// 跨位置比较才公平; 位置缺失 (低段位/部分模式不分配位置) 时用全场平均基线,
+// 相当于退回"大家都用同一把尺"的老行为, 不会因缺字段崩掉。
+const CHAMPION_RATING_BASELINE = {
+  TOP:     { k: 5.5, a: 6.5,  d: 5.0, dmg: 19000, gold: 11000, vision: 22, taken: 24000, gain: 500,  kp: 0.55 },
+  JUNGLE:  { k: 6.0, a: 9.0,  d: 4.8, dmg: 16000, gold: 11000, vision: 26, taken: 22000, gain: 800,  kp: 0.62 },
+  MIDDLE:  { k: 6.5, a: 7.0,  d: 5.0, dmg: 23000, gold: 12000, vision: 26, taken: 18000, gain: 700,  kp: 0.60 },
+  BOTTOM:  { k: 7.5, a: 6.5,  d: 4.8, dmg: 25000, gold: 12500, vision: 24, taken: 16000, gain: 600,  kp: 0.60 },
+  UTILITY: { k: 2.5, a: 15.0, d: 5.5, dmg: 8000,  gold: 7500,  vision: 55, taken: 17000, gain: 6000, kp: 0.65 },
+  DEFAULT: { k: 6.0, a: 8.0,  d: 5.0, dmg: 20000, gold: 11500, vision: 27, taken: 21000, gain: 2500, kp: 0.60 }
+};
+function championRatingNum(...vals) {
+  for (const v of vals) if (v != null && Number.isFinite(Number(v))) return Number(v);
+  return 0;
+}
+// 兼容两种入参: normalizeGame 压平后的 (k/d/a/dmg/gold/dmgTaken/allyHeal/shielding)
+// 与 SGP 原始结构 (kills/deaths/assists/totalDamageDealtToChampions/goldEarned/…)。
+// mates 传同队参与者数组, 用来算参团率; 不传就只按个人数据算。
+function championRatingOf(p, mates) {
+  if (!p) return 0;
+  const s = (p.stats && typeof p.stats === 'object') ? p.stats : p;
+  const k = championRatingNum(s.kills, p.kills, p.k);
+  const d = championRatingNum(s.deaths, p.deaths, p.d);
+  const a = championRatingNum(s.assists, p.assists, p.a);
+  const dmg = championRatingNum(s.totalDamageDealtToChampions, p.totalDamageDealtToChampions, p.dmg);
+  const gold = championRatingNum(s.goldEarned, p.goldEarned, p.gold);
+  const vis = championRatingNum(s.visionScore, p.visionScore);
+  const taken = championRatingNum(s.totalDamageTaken, p.totalDamageTaken, p.dmgTaken);
+  // 团队增益只看"给到队友的": 队友治疗 + 护盾。自身回复不参与, 否则吸血装备会虚高。
+  const gain = championRatingNum(s.totalHealsOnTeammates, p.allyHeal)
+    + championRatingNum(s.totalDamageShieldedOnTeammates, p.shielding);
+  const team = Array.isArray(mates) && mates.length ? mates : [p];
+  const teamKills = team.reduce((n, x) => n + championRatingNum((x.stats || x).kills, x.kills, x.k), 0);
+  const kp = teamKills > 0 ? (k + a) / teamKills : 0;
+  // 位置字段三种来源: normalizeGame 的 p.position / SGP 原始的 teamPosition|individualPosition
+  const pos = String(p.position || p.teamPosition || p.individualPosition || '').toUpperCase();
+  const b = CHAMPION_RATING_BASELINE[pos] || CHAMPION_RATING_BASELINE.DEFAULT;
+  // 每项先除以基线, 再夹到 [0, 2.5] (死亡到 4): 防止单个异常值(比如带治疗装刷出的
+  // 超高团队治疗、超长局的补刀)把整行分数带跑偏 —— 评分要看全面, 不能被一项绑架。
+  const ratio = (v, base) => {
+    const r = base > 0 ? (Number(v) || 0) / base : 0;
+    return Math.max(0, Math.min(2.5, r));
+  };
+  return ratio(k, b.k) * 1.0
+    + ratio(a, b.a) * 1.2
+    - Math.min(4, (Number(d) || 0) / b.d) * 1.0
+    + ratio(dmg, b.dmg) * 1.2
+    + ratio(gold, b.gold) * 0.8
+    + ratio(vis, b.vision) * 0.6
+    + ratio(taken, b.taken) * 0.4
+    + ratio(gain, b.gain) * 0.4
+    + ratio(kp, b.kp) * 0.6;
+}
+
+// ========== 符文页文字 (1.6.23) ==========
+// 对局详情只有 12px 图标, 认不出是哪个符文; 完整名称放进 title。
+// 名称表来自 app.js 的 loadPerkIcons (ddragon runesReforged), 取不到就退回 #id。
+const STAT_PERK_NAMES = {
+  5001: '生命值成长', 5002: '护甲', 5003: '魔法抗性', 5005: '攻击速度',
+  5007: '技能急速', 5008: '自适应之力', 5011: '生命值', 5013: '韧性'
+};
+function runeNameOf(id) {
+  try { if (typeof perkNameMap !== 'undefined' && perkNameMap && perkNameMap[id]) return perkNameMap[id]; } catch (e) { /* TDZ / 未加载 */ }
+  return '#' + id;
+}
+function runeStyleNameOf(id) {
+  try { if (typeof styleNameMap !== 'undefined' && styleNameMap && styleNameMap[id]) return styleNameMap[id]; } catch (e) { /* TDZ / 未加载 */ }
+  return '';
+}
+// 返回 "精密：征服者 / 凯旋 / 传说：欢欣 / 致命一击 · 副系 坚决：坚定 / 骸骨镀层 · 属性 攻击速度 / 自适应之力 / 护甲"
+// 没有 perkIds 的老缓存返回 '' (调用方不给 title, 不显示半截信息)。
+function runePageText(p) {
+  const ids = (p && Array.isArray(p.perkIds)) ? p.perkIds.filter(x => Number(x) > 0) : [];
+  if (!ids.length) return '';
+  const styles = (p && Array.isArray(p.perkStyles)) ? p.perkStyles : [];
+  const main = ids.slice(0, 4);
+  const sub = ids.slice(4, 6);
+  const mainStyle = runeStyleNameOf(styles[0]);
+  const subStyle = runeStyleNameOf(styles[1]);
+  const parts = [];
+  parts.push((mainStyle ? mainStyle + '：' : '主系：') + main.map(runeNameOf).join(' / '));
+  if (sub.length) parts.push((subStyle ? '副系 ' + subStyle + '：' : '副系：') + sub.map(runeNameOf).join(' / '));
+  const stats = (p && Array.isArray(p.statPerks)) ? p.statPerks : [];
+  if (stats.length) parts.push('属性 ' + stats.map(id => STAT_PERK_NAMES[id] || ('#' + id)).join(' / '));
+  return parts.join(' · ');
+}
+
 // 图片一次性重试 (2026-09-28): 头像/装备/符文/技能图标都是 ddragon/communitydragon
 // 的直连 <img>, 首屏网络被游戏重连挤占时可能瞬时加载失败 —— 原先 onerror 直接
 // visibility='hidden', 之后哪怕网络恢复也不再有人重试 (要等下一次整块重渲染)。

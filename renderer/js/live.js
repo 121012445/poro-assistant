@@ -104,35 +104,19 @@ const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
 
 // 1.6.22: 小代标签不能只看胜率 —— 低段位里"个人碾压但队友拖后腿"的那种号,
 // 胜率可能只有五成出头, 数据却明显不是这个段位的人。
-// 判"队内最佳"用的是对局详情页同一套评分公式 (k + a*0.7 - d*0.5 + dmg/4000 + gold/6000),
+// 判"队内最佳"用 utils.js 的 championRatingOf (1.6.23 起按位置归一化, 辅助也能竞争),
 // 只求我方 5 人里的第一名, 不渲染、不请求额外接口。
 // 拿不到同队队友数据时返回 null (= 未知), 绝不返回 false —— 外服/LCU 单人返回的接口
 // 每个人都会变成"队内第一", 那会把所有外服玩家都标成小代。
-function championRatingOf(p) {
-  if (!p) return 0;
-  const s = (p.stats && typeof p.stats === 'object') ? p.stats : p;
-  const num = (...vals) => {
-    for (const v of vals) if (v != null && Number.isFinite(Number(v))) return Number(v);
-    return 0;
-  };
-  // SGP: kills/deaths/assists/totalDamageDealtToChampions/goldEarned (可能在 stats 里)
-  // LCU: normalizeGame 已压平成 k/d/a/dmg/gold
-  const k = num(s.kills, p.kills, p.k);
-  const d = num(s.deaths, p.deaths, p.d);
-  const a = num(s.assists, p.assists, p.a);
-  const dmg = num(s.totalDamageDealtToChampions, p.totalDamageDealtToChampions, p.dmg);
-  const gold = num(s.goldEarned, p.goldEarned, p.gold);
-  return k + a * 0.7 - d * 0.5 + dmg / 4000 + gold / 6000;
-}
 function teamBestFlag(participants, me) {
   if (!me || !Array.isArray(participants)) return null;
   const mates = participants.filter(x => x && x.teamId != null && x.teamId === me.teamId);
   if (mates.length < 5) return null;             // 队友数据不全, 无法比较
-  const mine = championRatingOf(me);
+  const mine = championRatingOf(me, mates);
   for (const m of mates) {
     if (m === me) continue;
     if (me.puuid && m.puuid === me.puuid) continue;
-    if (championRatingOf(m) > mine) return false;
+    if (championRatingOf(m, mates) > mine) return false;
   }
   return true;
 }

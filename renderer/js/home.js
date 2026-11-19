@@ -1614,6 +1614,37 @@ function augmentIdsOf(p) {
   return [...new Set(out)];
 }
 
+// 1.6.23: 完整符文页 —— 主系 4 个 + 副系 2 个 + 属性碎片 3 个。
+// 之前只留了"主系第一个符文 + 副系 id", 召唤师峡谷里等于看不出每个人到底带了什么符文。
+// SGP 的 perks 在参与者顶层, LCU match-v5 在 stats 下, 这里都兼容。
+function perkPageOf(p) {
+  const perks = (p && (p.perks || (p.stats && p.stats.perks))) || null;
+  const styles = Array.isArray(perks && perks.styles) ? perks.styles : [];
+  const ids = [];
+  const styleIds = [];
+  for (const s of styles) {
+    if (!s) continue;
+    if (s.style != null) styleIds.push(Number(s.style) || 0);
+    for (const sel of (s.selections || [])) {
+      const id = Number(sel && typeof sel === 'object' ? (sel.perk != null ? sel.perk : sel.id) : sel);
+      if (Number.isInteger(id) && id > 0) ids.push(id);
+    }
+  }
+  const sp = (perks && perks.statPerks) || {};
+  const statPerks = [sp.offense, sp.flex, sp.defense].map(Number).filter(v => Number.isInteger(v) && v > 0);
+  return { ids, styleIds, statPerks };
+}
+function perkPageFields(p) {
+  const pg = perkPageOf(p);
+  return {
+    perkPrimary: pg.ids[0] || 0,
+    perkSub: pg.styleIds[1] || 0,
+    perkIds: pg.ids,
+    perkStyles: pg.styleIds,
+    statPerks: pg.statPerks
+  };
+}
+
 function normalizeGame(g, isSgp) {
   if (isSgp) {
     const teamsObj = {};
@@ -1657,8 +1688,8 @@ function normalizeGame(g, isSgp) {
         visionScore: p.visionScore || 0,
         wardsPlaced: p.wardsPlaced || 0,
         wardsKilled: p.wardsKilled || 0,
-        perkPrimary: p.perks?.styles?.[0]?.selections?.[0]?.perk || 0,
-        perkSub: p.perks?.styles?.[1]?.style || 0,
+        // 1.6.23: 完整符文页 (主 4 + 副 2 + 属性 3), 详情页据此显示每个人的具体符文
+        ...perkPageFields(p),
         spells: [p.spell1Id ?? p.summoner1Id, p.spell2Id ?? p.summoner2Id].filter(Boolean),
         items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].filter(id => id && id > 0),
         profileIconId: p.profileIcon || p.profileIconId || 0,
@@ -1704,6 +1735,9 @@ function normalizeGame(g, isSgp) {
         wardsPlaced: p.stats?.wardsPlaced || 0, wardsKilled: p.stats?.wardsKilled || 0,
         penta: p.stats?.pentaKills || 0, fb: !!p.stats?.firstBloodKill,
         profileIconId: p.stats?.profileIcon || 0,
+        // 1.6.23: LCU 兜底路径此前一个符文字段都没映射 -> 日服/外服对局详情符文整列空白。
+        // match-v5 的符文在 stats.perks 下, perkPageFields 两种结构都认。
+        ...perkPageFields(p),
         // 1.6.12: LCU-match-v5 的装备在 stats.item0..item6 (SGP SUMMARY 在顶层 item0..6)。
         // 这条分支此前完全没读 items -> 日服/外服战绩卡装备栏整排空。
         items: [0, 1, 2, 3, 4, 5, 6].map(i => p.stats?.['item' + i]).filter(id => +id > 0),
@@ -2103,7 +2137,9 @@ function buildHomeGameCard(g, s) {
   const spellHtml = (p.spells || []).map(id => `<img class="ako-spell" src="https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${(spellName(id) || "").replace(/\.png$/, "")}.png" onerror="retryImg(this)" loading="lazy" decoding="async">`).join('');
   const runeIcon = (map, id) => id && map[id] ? `https://ddragon.leagueoflegends.com/cdn/img/${map[id]}` : null;
   const rk1 = runeIcon(perkIconMap, p.perkPrimary), rk2 = runeIcon(styleIconMap, p.perkSub);
-  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol">${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}</div>` : '';
+  // 1.6.23: 战绩卡空间只够两个图标, 完整符文页 (主4+副2+属性3) 放进 title
+  const runeTip = typeof runePageText === 'function' ? runePageText(p) : '';
+  const runeHtml = (rk1 || rk2) ? `<div class="ako-runecol"${runeTip ? ` title="${escapeHtml(runeTip)}"` : ''}>${rk1 ? `<img class="ako-rune" src="${rk1}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}${rk2 ? `<img class="ako-rune" src="${rk2}" onerror="retryImg(this)" loading="lazy" decoding="async">` : ''}</div>` : '';
   // 本局强化 (海斗/斗魂): 只出图标, 名称放 title —— 战绩行高度紧张, 文字会把它撑开
   const augHtml = (() => {
     const ids = Array.isArray(p.augmentIds) ? p.augmentIds : [];
@@ -2147,12 +2183,12 @@ function buildHomeGameCard(g, s) {
     </div>`;
   }).join('');
   const tids = Object.keys(teams);
-  const cardRating = x => x.k + x.a * 0.7 - x.d * 0.5 + (x.dmg || 0) / 4000 + (x.gold || 0) / 6000;
   let cardBadge = '';
   for (const tid of tids) {
     const tlist = teams[tid] || [];
     const twon = tlist.some(x => x.win);
-    const best = tlist.slice().sort((a, b) => cardRating(b) - cardRating(a))[0];
+    // 1.6.23: 位置归一化评分 —— 旧公式只看击杀/伤害/经济, 辅助把视野和参团拉满也拿不到 MVP
+    const best = tlist.slice().sort((a, b) => championRatingOf(b, tlist) - championRatingOf(a, tlist))[0];
     if (best && best.puuid === p.puuid) {
       cardBadge = twon ? '<span class="ako-tag ako-mvptag">MVP</span>' : '<span class="ako-tag ako-acetag">ACE</span>';
       break;

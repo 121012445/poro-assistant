@@ -12,14 +12,17 @@ const src = fs.readFileSync('renderer/js/home.js', 'utf8');
 assert.ok(src.includes("[0, 1, 2, 3, 4, 5, 6].map(i => p.stats?.['item' + i])"), 'LCU 分支应读 stats.item0..6');
 assert.ok(src.includes('items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6]'), 'SGP 分支顶层 item0..6 口径不应被破坏');
 
-// 用最小沙箱截取 augmentIdsOf + normalizeGame 两个纯函数
+// 用最小沙箱截取 augmentIdsOf + perkPageOf/perkPageFields + normalizeGame 这几个纯函数
+// (1.6.23 起 normalizeGame 会展开完整符文页, 缺这两个函数会在沙箱里 ReferenceError)
 const aof = src.match(/function augmentIdsOf\(p\) \{[\s\S]*?\n\}/)[0];
+const perk = src.match(/function perkPageOf\(p\) \{[\s\S]*?\n\}/)[0] + '\n'
+  + src.match(/function perkPageFields\(p\) \{[\s\S]*?\n\}/)[0];
 const ng = src.match(/function normalizeGame\(g, isSgp\) \{[\s\S]*?\n\}/)[0];
 const ctx = {
   normalizeChampId: id => (+id >= 60000 ? +id - 60000 : +id),
   modeName: g => g.gameMode || '其他'
 };
-vm.runInNewContext(aof + '\n' + ng + '\nthis.ng = normalizeGame;', ctx);
+vm.runInNewContext(aof + '\n' + perk + '\n' + ng + '\nthis.ng = normalizeGame;', ctx);
 
 // --- LCU-match-v5 形状 (日服实际): 装备在 stats.item0..6 ---
 const lcuGame = {

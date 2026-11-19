@@ -200,11 +200,13 @@ ok('队友数据缺失时退回战绩路径', () => {
 
 // 22) teamBestFlag: 只有我方 5 人齐才判定, 单人返回给 null
 ok('teamBestFlag 语义', () => {
+  // 1.6.23: 评分已抽到 utils.js 并改成按位置归一化, 这里把两段源码拼起来跑
+  const utilsSrc = fs.readFileSync('renderer/js/utils.js', 'utf8');
+  const ratingBlock = utilsSrc.slice(utilsSrc.indexOf('const CHAMPION_RATING_BASELINE'), utilsSrc.indexOf('// ========== 符文页文字'));
   const liveSrc = fs.readFileSync('renderer/js/live.js', 'utf8');
-  const fnSrc = liveSrc.match(/function championRatingOf\(p\) \{[\s\S]*?\n\}/)[0]
-    + '\n' + liveSrc.match(/function teamBestFlag\(participants, me\) \{[\s\S]*?\n\}/)[0];
+  const fnSrc = ratingBlock + '\n' + liveSrc.match(/function teamBestFlag\(participants, me\) \{[\s\S]*?\r?\n\}/)[0];
   const c = vm.createContext({});
-  vm.runInContext(fnSrc, c, { filename: 'live.rating.js' });
+  vm.runInContext(fnSrc, c, { filename: 'rating+teamBest.js' });
   const p = (k, d, a, dmg, gold) => ({ puuid: 'p' + k + d + a + dmg, teamId: 100, k, d, a, dmg, gold });
   const me = p(12, 2, 8, 30000, 15000);
   const mates = [me, p(2, 6, 3, 9000, 7000), p(4, 5, 6, 15000, 9000), p(1, 7, 2, 6000, 5000), p(3, 4, 5, 11000, 8000)];
