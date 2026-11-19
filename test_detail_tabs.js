@@ -271,4 +271,54 @@ ok('主窗口默认宽够 5 列并排, 且按屏幕工作区收窄', () => {
   assert.ok(/width:\s*defWinW,\s*height:\s*defWinH/.test(mainSrc), '窗口应使用算出来的尺寸');
 });
 
+// 1.6.28: 表格拉满 100% 宽时, table-layout:auto 会把剩余宽度全给没有定宽的"指标"列
+// (实测 1166px 里它独占 480px), 10 列数字被挤成右边一小条。改 fixed 布局才行。
+ok('矩阵改成 fixed 布局, 指标列定宽、玩家列均分', () => {
+  const rule = css.match(/\.ogd-matrix\s*\{([^}]*)\}/);
+  assert.ok(rule, '缺少 .ogd-matrix 主规则');
+  assert.ok(/table-layout:\s*fixed/.test(rule[1]), '必须用 fixed 布局, 否则指标列会吃掉全部余量');
+  assert.ok(/min-width:\s*760px/.test(rule[1]), '窄窗口应横向滚动而不是把列压到字都放不下');
+
+  const label = css.match(/\.ogd-mx-label\s*\{([^}]*)\}/);
+  assert.ok(label, '缺少 .ogd-mx-label 规则');
+  assert.ok(/width:\s*104px/.test(label[1]), '指标列应定宽');
+  assert.ok(/position:\s*sticky/.test(label[1]), '横向滚动时指标列要钉在左边');
+
+  // 玩家列不能再写死宽度 —— 写死 46px 正是"挤在右边"的直接原因
+  const col = css.match(/\.ogd-mx-col\s*\{([^}]*)\}/);
+  assert.ok(col, '缺少 .ogd-mx-col 规则');
+  assert.ok(/width:\s*auto/.test(col[1]), '玩家列应交由 fixed 布局均分');
+  assert.ok(!/\.ogd-mx-col\s*\{[^}]*46px/.test(css), '玩家列不该再写死 46px 宽');
+});
+
+ok('数据页按 蓝队/红队 分段, 队边界有分隔线', () => {
+  const { norm, teams, tids } = buildNorm();
+  const html = mctx.ogdMatrixHtml(norm, { teams, tids, rating });
+  const head = html.match(/<tr class="ogd-mx-team">[\s\S]*?<\/tr>/);
+  assert.ok(head, '缺少阵营抬头行');
+  assert.ok(head[0].includes('蓝队') && head[0].includes('红队'), '两队抬头都要有');
+  const spans = [...head[0].matchAll(/colspan="(\d+)"/g)].map(m => Number(m[1]));
+  const sizes = tids.map(t => (teams[t] || []).length);
+  assert.deepStrictEqual(spans, sizes, '抬头 colspan 应等于各队人数');
+  // 抬头要跨满整张表: 各队人数之和 = 玩家列数
+  assert.strictEqual(spans.reduce((a, b) => a + b, 0), 10, '抬头应覆盖全部 10 列');
+  // 第二队第一列的左边要竖一道分隔线, 否则 10 列糊成一片
+  assert.ok(/class="ogd-mx-col[^"]*is-team-start"/.test(html), '红队首列表头应带 is-team-start');
+  // 每个指标行都要恰好一个"队首"单元格, 否则分隔线断断续续
+  const metricRows = (html.match(/class="ogd-mx-row /g) || []).length;
+  const teamStartCells = (html.match(/class="ogd-mx-cell[^"]*is-team-start"/g) || []).length;
+  assert.ok(metricRows > 20, '指标行数异常: ' + metricRows);
+  assert.strictEqual(teamStartCells, metricRows, '每行应有一列作为队首');
+  assert.ok(css.includes('.ogd-matrix .is-team-start { border-left:'), '缺少队分隔线样式');
+});
+
+ok('阵营抬头按队色区分, 且不会把两队都认成蓝队', () => {
+  const { norm, teams, tids } = buildNorm();
+  const html = mctx.ogdMatrixHtml(norm, { teams, tids, rating });
+  // tids 是字符串 "100"/"200", 直接 === 200 会全落进蓝队分支 (1.6.28 首版实际踩到)
+  assert.ok(/class="ogd-mx-team-head t-blue/.test(html), '蓝队抬头应用蓝队色');
+  assert.ok(/class="ogd-mx-team-head t-red/.test(html), '红队抬头应用红队色');
+  assert.ok(css.includes('.ogd-mx-team-head.t-red { color: var(--cat-rose); }'), '红队抬头应有红队色样式');
+});
+
 console.log('\nPASS ' + pass + ' cases');

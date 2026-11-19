@@ -731,13 +731,29 @@ body {
 .ogd-empty { padding: 20px 10px; text-align: center; font-size: var(--fs-xs); color: var(--text-muted); }
 /* 数据页: 指标 × 玩家 矩阵 */
 .ogd-mx-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
-.ogd-matrix { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+/* 1.6.28: 原来是 table-layout: auto + 玩家列写死 46px —— 表格拉满 100% 宽时,
+   剩余宽度全被没有定宽的"指标"列吃掉 (实测它独占 480px, 占了一半),
+   10 列数字被挤在右边一小条里。改成 fixed 布局: 指标列定宽, 玩家列均分剩余宽度。 */
+.ogd-matrix { width: 100%; min-width: 760px; table-layout: fixed; border-collapse: collapse; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .ogd-matrix th, .ogd-matrix td { padding: 4px 6px; text-align: center; white-space: nowrap; }
 .ogd-matrix thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card); border-bottom: 1px solid var(--border); }
 .ogd-matrix tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
-.ogd-mx-label { text-align: left !important; color: var(--text-muted); font-weight: 500; }
-.ogd-mx-col { width: 46px; }
+/* 指标列: 定宽 + 横向滚时钉在左边, 不然滑到后面就不知道在看哪一行 */
+.ogd-mx-label {
+  text-align: left !important; color: var(--text-muted); font-weight: 500;
+  width: 104px; position: sticky; left: 0; z-index: 2; background: var(--bg-card);
+}
+.ogd-matrix thead th.ogd-mx-label { z-index: 3; }
+.ogd-matrix tbody tr:hover td.ogd-mx-label { background: color-mix(in srgb, var(--accent) 7%, var(--bg-card)); }
+/* 玩家列: 不再定宽, 由 fixed 布局均分 (11 列里减去指标列后的余量) */
+.ogd-mx-col { width: auto; }
 .ogd-mx-col.is-me { background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+/* 阵营抬头: 5v5 分成两块, 否则 10 列糊成一片分不清队友对手 */
+.ogd-mx-team th { height: 22px; padding: 2px 6px; font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .08em; }
+.ogd-mx-team-head.t-blue { color: var(--cat-blue); }
+.ogd-mx-team-head.t-red { color: var(--cat-rose); }
+/* 队分隔线: 红队第一列左边竖一道, 队伍边界一眼可见 */
+.ogd-matrix .is-team-start { border-left: 1px solid var(--border); }
 .ogd-mx-champ { width: 22px; height: 22px; border-radius: 50%; display: inline-block; vertical-align: middle; background: var(--bg-card); }
 .ogd-mx-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-left: 2px; vertical-align: middle; }
 .ogd-mx-dot.t-blue { background: #4a86d8; }

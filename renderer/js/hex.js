@@ -1165,15 +1165,38 @@ function ogdMatrixHtml(norm, ctx) {
   ];
   // 列序: 蓝队 → 红队, 队内按 上/野/中/下/辅
   const cols = [];
-  for (const tid of tids) for (const p of (teams[tid] || []).slice().sort(ogdPosSort)) cols.push(p);
+  const teamSpan = []; // 每队几列, 用来画"蓝队/红队"抬头与队分隔线
+  for (const tid of tids) {
+    const list = (teams[tid] || []).slice().sort(ogdPosSort);
+    teamSpan.push({ tid, n: list.length });
+    for (const p of list) cols.push(p);
+  }
+  // 第二队第一列的序号: 这一列左边加一条分隔线, 否则 10 列糊成一片分不清阵营
+  const teamStarts = new Set();
+  let acc = 0;
+  for (const t of teamSpan) { if (acc > 0) teamStarts.add(acc); acc += t.n; }
   const myPuuid = cachedSummoner && cachedSummoner.puuid;
-  const head = cols.map(p => {
+  const head = cols.map((p, i) => {
     const c = champNumMap[String(p.championId)];
     const cn = (c && c.name) || p.championName || String(p.championId || '');
-    return `<th class="ogd-mx-col${p.puuid && p.puuid === myPuuid ? ' is-me' : ''}" title="${escapeHtml(getName(p))} · ${escapeHtml(cn)}">`
+    const cls = 'ogd-mx-col'
+      + (p.puuid && p.puuid === myPuuid ? ' is-me' : '')
+      + (teamStarts.has(i) ? ' is-team-start' : '');
+    return `<th class="${cls}" title="${escapeHtml(getName(p))} · ${escapeHtml(cn)}">`
       + `<img class="ogd-mx-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">`
       + `<i class="ogd-mx-dot t-${p.teamId === 200 ? 'red' : 'blue'}"></i></th>`;
   }).join('');
+  // 阵营抬头: 每队一条横跨其全部列的子表头, 让 5v5 的左右分组有明确边界
+  // tids 可能是字符串 ("100"/"200"), 不能直接 === 200
+  const teamHead = teamSpan.length
+    ? `<tr class="ogd-mx-team"><th class="ogd-mx-label"></th>`
+      + teamSpan.map((t, i) => {
+        const isRed = Number(t.tid) === 200;
+        return `<th colspan="${t.n}" class="ogd-mx-team-head t-${isRed ? 'red' : 'blue'}${i > 0 ? ' is-team-start' : ''}">`
+          + `${isRed ? '红队' : '蓝队'}</th>`;
+      }).join('')
+      + `</tr>`
+    : '';
   let lastGroup = '';
   const body = rows.map(([group, label, get, fmt, better]) => {
     const vals = cols.map(p => { try { return Number(get(p)) || 0; } catch (e) { return 0; } });
@@ -1186,12 +1209,12 @@ function ogdMatrixHtml(norm, ctx) {
     const groupRow = group !== lastGroup
       ? `<tr class="ogd-mx-group ${OGD_MX_GROUP_CLASS[group] || 'mx-basic'}"><td colspan="${cols.length + 1}">${group}</td></tr>` : '';
     lastGroup = group;
-    const cells = cols.map((p, i) => `<td class="ogd-mx-cell${best != null && vals[i] === best ? ' is-top' : ''}">${fmt(vals[i])}</td>`).join('');
+    const cells = cols.map((p, i) => `<td class="ogd-mx-cell${best != null && vals[i] === best ? ' is-top' : ''}${teamStarts.has(i) ? ' is-team-start' : ''}">${fmt(vals[i])}</td>`).join('');
     const rowCls = 'ogd-mx-row ' + (OGD_MX_GROUP_CLASS[group] || 'mx-basic') + (label === '死亡' ? ' mx-death' : '');
     return groupRow + `<tr class="${rowCls}"><td class="ogd-mx-label">${label}</td>${cells}</tr>`;
   }).join('');
   return `<div class="ogd-mx-wrap"><table class="ogd-matrix">
-    <thead><tr><th class="ogd-mx-label">指标</th>${head}</tr></thead>
+    <thead>${teamHead}<tr><th class="ogd-mx-label">指标</th>${head}</tr></thead>
     <tbody>${body}</tbody></table></div>`;
 }
 
