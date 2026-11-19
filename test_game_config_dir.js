@@ -6,7 +6,7 @@ const childProcess = require('child_process');
 // regInstallPaths 会起 reg 子进程; 加载 lcu.js 前替换, 与 test_lcu_probe.js 同法
 childProcess.exec = (cmd, opts, cb) => { process.nextTick(() => cb(null, Buffer.from(''))); return {}; };
 const lcu = require('./main/lcu.js');
-const { resolveGameConfigDir } = lcu._internals;
+const { resolveGameConfigDir, exeDirFromCommandLine, resolveFallbackConfigDir } = lcu._internals;
 
 const P = (...parts) => parts.join('\\');
 let passed = 0;
@@ -73,6 +73,40 @@ ok('无 clientDir 的候选被跳过', () => {
   const cands = [{ port: 1, token: 'x' }, { port: 2, token: 'y', clientDir: P('E:', 'Game') }];
   const cfg = P('E:', 'Config', 'PersistedSettings.json');
   assert.strictEqual(resolveGameConfigDir(cands, null, existing(new Set([cfg]))), P('E:', 'Config'));
+});
+
+// ---- 2026-11-20 回归: "锁定游戏设置开启失败: 未找到 Config 目录" ----
+// Windows 只在路径含空格时给 exe 加引号。国服 WeGame 路径 D:\WeGameApps\英雄联盟 没有空格,
+// 旧解析只认 "..." 形式 → exeDir=null → conn 有值但没有 clientDir, 被当作权威候选缓存,
+// getLCU() 之后只返回它, 导致 config 目录永远找不到。
+ok('命令行无引号也要解析出安装目录 (国服 WeGame 路径无空格)', () => {
+  const line = 'D:\\WeGameApps\\英雄联盟\\LeagueClient\\LeagueClientUx.exe --app-port=51393 --remoting-auth-token=abc';
+  assert.strictEqual(exeDirFromCommandLine(line), P('D:', 'WeGameApps', '英雄联盟', 'LeagueClient'));
+});
+
+ok('命令行带引号仍能解析 (外服路径含空格)', () => {
+  const line = '"D:\\Riot Games\\League of Legends\\LeagueClientUx.exe" --app-port=51651 --remoting-auth-token=x';
+  assert.strictEqual(exeDirFromCommandLine(line), P('D:', 'Riot Games', 'League of Legends'));
+});
+
+ok('命令行里没有路径时返回 null, 交给兜底扫描', () => {
+  assert.strictEqual(exeDirFromCommandLine(''), null);
+  assert.strictEqual(exeDirFromCommandLine('   '), null);
+  assert.strictEqual(exeDirFromCommandLine('--app-port=1 --remoting-auth-token=x'), null);
+});
+
+ok('兜底: 候选没有安装目录时按已知目录清单找到 Config', () => {
+  const dirs = [P('C:', 'Riot Games', 'League of Legends'), P('D:', 'WeGameApps', '英雄联盟', 'LeagueClient')];
+  const cfg = P('D:', 'WeGameApps', '英雄联盟', 'Game', 'Config', 'PersistedSettings.json');
+  assert.strictEqual(
+    resolveFallbackConfigDir(dirs, existing(new Set([cfg]))),
+    P('D:', 'WeGameApps', '英雄联盟', 'Game', 'Config')
+  );
+});
+
+ok('兜底: 清单里都没有 Config 时返回 null', () => {
+  assert.strictEqual(resolveFallbackConfigDir([P('C:', 'x')], existing(new Set())), null);
+  assert.strictEqual(resolveFallbackConfigDir([], existing(new Set())), null);
 });
 
 console.log(`游戏设置 Config 目录解析测试通过 (${passed}/${passed})`);

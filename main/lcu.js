@@ -38,15 +38,26 @@ function parseConn(text) {
   return port && token ? { port: +port[1], token: token[1] } : null;
 }
 
+// Windows 只在路径含空格时才给 exe 加引号。旧实现只认 "..." 形式, 遇到
+// D:\WeGameApps\英雄联盟\LeagueClient\LeagueClientUx.exe 这种无空格路径会解析出
+// exeDir=null —— 于是 conn 有值却没有 clientDir, 它被当成权威候选缓存下来,
+// 之后 getLCU() 只返回它, resolveGameConfigDir 全跳过, 表现为
+// "锁定游戏设置开启失败: 未找到当前英雄联盟的 Config 目录"。
+function exeDirFromCommandLine(line) {
+  const text = String(line || '').trim();
+  if (!text) return null;
+  const quoted = text.match(/"([^"]+\.exe)"/i);
+  if (quoted) return path.dirname(quoted[1]);
+  const bare = text.match(/^([A-Za-z]:\\[^\s"]+\.exe)/i) || text.match(/([A-Za-z]:\\[^\s"]*LeagueClientUx\.exe)/i);
+  return bare ? path.dirname(bare[1]) : null;
+}
+
 // 策略1: LeagueClientUx.exe 进程命令行 (非提权环境可用)
 async function fromProcess() {
   const out = await execCmd(`"${POWERSHELL}" -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object Name -EQ 'LeagueClientUx.exe' | Select-Object -First 1 -ExpandProperty CommandLine"`);
   const line = out.trim();
   const conn = parseConn(line);
-  let exeDir = null;
-  const exeMatch = line.match(/^"([^"]+LeagueClientUx\.exe)"/i);
-  if (exeMatch) exeDir = path.dirname(exeMatch[1]);
-  return { conn, exeDir };
+  return { conn, exeDir: exeDirFromCommandLine(line) };
 }
 
 // 注册表查询 (输出为 GBK, 需转码; 兼容国服腾讯/外服 Riot 键)
@@ -291,10 +302,27 @@ function resolveGameConfigDir(candidates, cachedCandidate, exists) {
   return null;
 }
 
+// 候选连接都没带安装目录时的兜底: 直接按已知安装目录清单 + 注册表查
+// (命令行读不到 / exe 路径无引号解析失败 / 缓存的是另一个客户端, 都会走到这里)。
+// 只做 fs 存在性检查, 不依赖 LCU 连接。
+function resolveFallbackConfigDir(dirs, exists) {
+  const candidates = (dirs || []).filter(Boolean).map(d => ({ clientDir: d }));
+  return resolveGameConfigDir(candidates, null, exists);
+}
+
 async function getGameConfigDir() {
   const candidates = await getLCU();
-  const dir = resolveGameConfigDir(candidates, cached, p => fs.existsSync(p));
-  if (!dir) throw new Error('未找到当前英雄联盟的 Config 目录');
+  let dir = resolveGameConfigDir(candidates, cached, p => fs.existsSync(p));
+  let fallbackCount = 0;
+  if (!dir) {
+    const dirs = knownClientDirs(fixedDrives());
+    for (const p of await regInstallPaths()) {
+      dirs.push(p, path.join(p, 'LeagueClient'));
+    }
+    fallbackCount = dirs.length;
+    dir = resolveFallbackConfigDir(dirs, p => fs.existsSync(p));
+  }
+  if (!dir) throw new Error('未找到当前英雄联盟的 Config 目录（已检查 ' + fallbackCount + ' 个安装路径）');
   return dir;
 }
 
@@ -423,6 +451,7 @@ module.exports = {
   _internals: {
     parseConn, readConnFromFile, fromLogs, fromLockfile, collectCandidates, regInstallPaths, CONN_READ_CHUNK,
     knownClientDirs, fixedDrives, KNOWN_CLIENT_DIRS, probe, fromProcess, resolveGameConfigDir,
+    exeDirFromCommandLine, resolveFallbackConfigDir,
     setDriveLister: fn => { _listFixedDrives = fn || defaultListFixedDrives; _driveCache = null; }
   }
 };
