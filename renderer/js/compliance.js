@@ -306,14 +306,59 @@ async function setProfileBg() {
   }
 }
 
-// 卸下勋章/头像框/旗帜代币 (参考 Akari/Seraphine; 头像框 = regalia prestige crest, 22 为无边框)
+// 卸下勋章/头像框/旗帜代币 (参考 Akari/Seraphine)
+//
+// 关于"头像框"这一半, 早期版本注释写的「22 为无边框」是错的, 2026-11-20 实测结论:
+//   1. preferredCrestType 只接受 prestige (ranked 接受但读回仍是 prestige),
+//      none / blank / default / challenges 全部 400 Invalid preferredCrestType —— 客户端
+//      本身没有"不显示边框"这个状态, 界面里也选不到"无"。
+//   2. selectedPrestigeCrest 写 22 之后 GET 读回不稳定(服务端有延迟/归一), 无法用读回判断
+//      是否真的生效。
+//   3. 同样是写 22: 2693 级的号边框消失, 161 级的号边框变成另一款(金红→青蓝)。
+//      说明 22 不是通用"无框值", 而是一个服务端按账号解析的档位, 落到低等级号上就是真边框。
+// 所以这里不再承诺"卸下头像框": 如实报告"已清勋章 + 已切 22 档", 并且第一次卸下前把原边框
+// 记到本地, 提供「恢复原头像框」把外观还原。
+const REGALIA_BACKUP_PREFIX = 'regaliaBackup:';
+
+function regaliaBackupKey(puuid) {
+  return REGALIA_BACKUP_PREFIX + (puuid || 'anon');
+}
+
+function readRegaliaBackup(puuid) {
+  let raw = null;
+  try { raw = typeof storeGet === 'function' ? storeGet(regaliaBackupKey(puuid)) : null; } catch (e) { raw = null; }
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw);
+    if (!o || !Number.isFinite(+o.selectedPrestigeCrest)) return null;
+    return o;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 卸下时用账号维度存备份: 换号后各账号互不覆盖
 async function removeAllRegalia() {
   if (!guardWrite('卸下勋章')) return;
   const reg = await lolAPI.lcuRequest('GET', '/lol-regalia/v2/current-summoner/regalia');
   const me = await lolAPI.lcuRequest('GET', '/lol-chat/v1/me');
+  const safeReg = reg && !reg.__error ? reg : null;
+  const puuid = me && !me.__error ? (me.puuid || (me.summonerId != null ? String(me.summonerId) : '')) : '';
+
+  // 只在第一次卸下前备份。二次点击时 regalia 已经是"卸下后"的样子, 不能拿它覆盖掉原边框。
+  if (safeReg && !readRegaliaBackup(puuid)) {
+    storeSet(regaliaBackupKey(puuid), JSON.stringify({
+      preferredCrestType: safeReg.preferredCrestType,
+      selectedPrestigeCrest: safeReg.selectedPrestigeCrest,
+      preferredBannerType: safeReg.preferredBannerType,
+      summonerLevel: safeReg.summonerLevel,
+      savedAt: Date.now()
+    }));
+  }
+
   const r1 = await lolAPI.lcuRequest('PUT', '/lol-regalia/v2/current-summoner/regalia', {
     preferredCrestType: 'prestige',
-    preferredBannerType: reg && !reg.__error ? reg.bannerType : null,
+    preferredBannerType: safeReg ? safeReg.bannerType : null,
     selectedPrestigeCrest: 22
   });
   const r2 = await lolAPI.lcuRequest('POST', '/lol-challenges/v1/update-player-preferences/', {
@@ -321,7 +366,51 @@ async function removeAllRegalia() {
     bannerAccent: me && !me.__error && me.lol ? me.lol.bannerIdSelected : undefined
   });
   const bad = (r1 && r1.__error) || (r2 && r2.__error);
-  toolMsg(bad ? `<span style="color:var(--negative)">卸下失败: ${(r1 && r1.__error) || (r2 && r2.__error)}</span>` : '<span style="color:var(--positive)">已卸下勋章、头像框与旗帜代币</span>');
+  if (bad) {
+    toolMsg('<span style="color:var(--negative)">卸下失败: ' + bad + '</span>');
+    return;
+  }
+
+  // 服务端写入有延迟, 等一拍再读, 用来区分"切过去了"和"根本没写进"
+  await new Promise((done) => setTimeout(done, 400));
+  const after = await lolAPI.lcuRequest('GET', '/lol-regalia/v2/current-summoner/regalia');
+  const lv = safeReg && safeReg.summonerLevel ? safeReg.summonerLevel : 0;
+  const applied = after && !after.__error && +after.selectedPrestigeCrest === 22;
+  const crestLine = applied
+    ? '等级边框已切到 22 档' + (lv ? '（本账号 ' + lv + ' 级）' : '') + '：高等级号会显示为无框，等级不够的号会变成另一款边框。'
+    : '等级边框没能写入 22 档，客户端拒绝了。';
+  toolMsg(
+    '<span style="color:var(--positive)">已清空勋章与挑战代币</span>' +
+    '<br><small>' + crestLine + '点「恢复原头像框」可以还原成卸下前的样子。</small>'
+  );
+}
+
+// 把第一次卸下时记录的边框写回去。备份不删除, 方便来回切换。
+async function restoreRegalia() {
+  if (!guardWrite('恢复头像框')) return;
+  const me = await lolAPI.lcuRequest('GET', '/lol-chat/v1/me');
+  const puuid = me && !me.__error ? (me.puuid || (me.summonerId != null ? String(me.summonerId) : '')) : '';
+  const bk = readRegaliaBackup(puuid);
+  if (!bk) {
+    toolMsg('<span style="color:var(--text-muted)">这个账号还没有边框备份 —— 只在点过「一键卸下」之后才会记录。</span>');
+    return;
+  }
+  const r = await lolAPI.lcuRequest('PUT', '/lol-regalia/v2/current-summoner/regalia', {
+    preferredCrestType: bk.preferredCrestType || 'prestige',
+    preferredBannerType: bk.preferredBannerType || 'blank',
+    selectedPrestigeCrest: +bk.selectedPrestigeCrest
+  });
+  if (r && r.__error) {
+    toolMsg('<span style="color:var(--negative)">恢复失败: ' + r.__error + '</span>');
+    return;
+  }
+  await new Promise((done) => setTimeout(done, 400));
+  const after = await lolAPI.lcuRequest('GET', '/lol-regalia/v2/current-summoner/regalia');
+  const now = after && !after.__error ? +after.selectedPrestigeCrest : NaN;
+  const ok = now === +bk.selectedPrestigeCrest;
+  toolMsg(ok
+    ? '<span style="color:var(--positive)">已恢复原头像框（' + bk.selectedPrestigeCrest + ' 档）</span>'
+    : '<span style="color:var(--negative)">恢复请求已发出，但读回是 ' + (Number.isFinite(now) ? now : '未知') + ' 档，客户端可能需要按 F5 刷新</span>');
 }
 // 一键领取网页活动奖励 (事件通行证 + 任务), 参考 Akari claim-tools
 // 计数采用"领取前后差值"自验证: 接口返回错误或数量无变化都不计入, 避免虚报
