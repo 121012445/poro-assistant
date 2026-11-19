@@ -3379,7 +3379,7 @@ async function expandOpggGame(el, gameId) {
   }
   await resolveRanks(allPuuids);
   try {
-    renderOpggGameDetail(norm, detail);
+    renderOpggGameDetail(norm, detail, { withTimeline: true });
     applyMatchPremadeBadges(detail, resolveMatchPremadeGroups(norm.participants, [], 3), true);
   } catch (e) {
     console.error("渲染详情失败:", e);

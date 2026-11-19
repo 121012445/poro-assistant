@@ -1108,7 +1108,117 @@ function renderHexList(filter = "") {
 }
 function filterHexList() { renderHexList(document.getElementById('hexSearch')?.value || ''); }
 
-function renderOpggGameDetail(norm, container) {
+// ============ 1.6.25: 详情页多标签 (对齐 Akari 的 match-card) ============
+// 原来一页到底: 组队关系 + 双方队伍表 + 复盘 (异步追加), 越往下越难找东西。
+// 现在拆成 概览 / 数据 / 符文 / 事件 / 曲线, 后两个由 review.js 填 (只有国服 SGP 有时间线)。
+const OGD_POS_ORDER = { TOP: 0, JUNGLE: 1, MIDDLE: 2, BOTTOM: 3, UTILITY: 4 };
+const ogdPosSort = (a, b) => (OGD_POS_ORDER[a.position] ?? 9) - (OGD_POS_ORDER[b.position] ?? 9);
+const ogdFmtInt = v => Math.round(Number(v) || 0).toLocaleString('en-US');
+const ogdFmtDec = (v, d) => (Number(v) || 0).toFixed(d == null ? 1 : d);
+
+// 数据页: "指标 × 玩家" 矩阵。行按 基础/输出/生存/经济/视野 分组, 列是 10 名玩家。
+// 每行取最优值高亮 (死亡是越低越好), 只比非 0 值 —— 全 0 的一行不该有"最佳"。
+function ogdMatrixHtml(norm, ctx) {
+  const { teams, tids, rating } = ctx;
+  const teamOf = p => teams[p.teamId] || [];
+  const teamSum = (p, f) => teamOf(p).reduce((s, x) => s + (Number(x[f]) || 0), 0);
+  const teamKills = p => teamOf(p).reduce((s, x) => s + (Number(x.k) || 0), 0);
+  const mins = p => Math.max(1, (Number(norm.dur) || 0) / 60);
+  const share = (p, f) => { const t = teamSum(p, f); return t > 0 ? (Number(p[f]) || 0) / t * 100 : 0; };
+  const perMin = (p, f) => (Number(p[f]) || 0) / mins(p);
+  const rows = [
+    ['基础', '评分', p => rating(p), v => ogdFmtDec(v, 1), 'high'],
+    ['基础', 'KDA', p => (p.k + p.a) / Math.max(1, p.d), v => ogdFmtDec(v, 2), 'high'],
+    ['基础', '击杀', p => p.k, ogdFmtInt, 'high'],
+    ['基础', '死亡', p => p.d, ogdFmtInt, 'low'],
+    ['基础', '助攻', p => p.a, ogdFmtInt, 'high'],
+    ['基础', '参团率', p => { const t = teamKills(p); return t ? (p.k + p.a) / t * 100 : 0; }, v => ogdFmtInt(v) + '%', 'high'],
+    ['基础', '等级', p => p.level, ogdFmtInt, 'none'],
+    ['输出', '总伤害', p => p.dmg, ogdFmtInt, 'high'],
+    ['输出', '分均伤害', p => perMin(p, 'dmg'), ogdFmtInt, 'high'],
+    ['输出', '物理伤害', p => p.physDmg, ogdFmtInt, 'high'],
+    ['输出', '魔法伤害', p => p.magicDmg, ogdFmtInt, 'high'],
+    ['输出', '真实伤害', p => p.trueDmg, ogdFmtInt, 'high'],
+    ['输出', '队内伤害占比', p => share(p, 'dmg'), v => ogdFmtInt(v) + '%', 'high'],
+    ['生存', '承受伤害', p => p.dmgTaken, ogdFmtInt, 'none'],
+    ['生存', '分均承伤', p => perMin(p, 'dmgTaken'), ogdFmtInt, 'none'],
+    ['生存', '自我减免', p => p.mitigated, ogdFmtInt, 'high'],
+    ['生存', '自身回复', p => p.healing, ogdFmtInt, 'none'],
+    ['生存', '队友治疗', p => p.allyHeal, ogdFmtInt, 'high'],
+    ['生存', '队友护盾', p => p.shielding, ogdFmtInt, 'high'],
+    ['经济', '总经济', p => p.gold, ogdFmtInt, 'high'],
+    ['经济', '分均经济', p => perMin(p, 'gold'), ogdFmtInt, 'high'],
+    ['经济', '补刀', p => p.cs, ogdFmtInt, 'high'],
+    ['经济', '分均补刀', p => perMin(p, 'cs'), v => ogdFmtDec(v, 1), 'high'],
+    ['视野', '视野得分', p => p.visionScore, ogdFmtInt, 'high'],
+    ['视野', '插眼', p => p.wardsPlaced, ogdFmtInt, 'high'],
+    ['视野', '排眼', p => p.wardsKilled, ogdFmtInt, 'high']
+  ];
+  // 列序: 蓝队 → 红队, 队内按 上/野/中/下/辅
+  const cols = [];
+  for (const tid of tids) for (const p of (teams[tid] || []).slice().sort(ogdPosSort)) cols.push(p);
+  const myPuuid = cachedSummoner && cachedSummoner.puuid;
+  const head = cols.map(p => {
+    const c = champNumMap[String(p.championId)];
+    const cn = (c && c.name) || p.championName || String(p.championId || '');
+    return `<th class="ogd-mx-col${p.puuid && p.puuid === myPuuid ? ' is-me' : ''}" title="${escapeHtml(getName(p))} · ${escapeHtml(cn)}">`
+      + `<img class="ogd-mx-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">`
+      + `<i class="ogd-mx-dot t-${p.teamId === 200 ? 'red' : 'blue'}"></i></th>`;
+  }).join('');
+  let lastGroup = '';
+  const body = rows.map(([group, label, get, fmt, better]) => {
+    const vals = cols.map(p => { try { return Number(get(p)) || 0; } catch (e) { return 0; } });
+    let best = null;
+    if (better !== 'none') {
+      const pool = vals.filter(v => v > 0);
+      if (pool.length > 1) best = better === 'low' ? Math.min(...pool) : Math.max(...pool);
+      if (best != null && vals.filter(v => v === best).length === cols.length) best = null;
+    }
+    const groupRow = group !== lastGroup
+      ? `<tr class="ogd-mx-group"><td colspan="${cols.length + 1}">${group}</td></tr>` : '';
+    lastGroup = group;
+    const cells = cols.map((p, i) => `<td class="ogd-mx-cell${best != null && vals[i] === best ? ' is-top' : ''}">${fmt(vals[i])}</td>`).join('');
+    return groupRow + `<tr><td class="ogd-mx-label">${label}</td>${cells}</tr>`;
+  }).join('');
+  return `<div class="ogd-mx-wrap"><table class="ogd-matrix">
+    <thead><tr><th class="ogd-mx-label">指标</th>${head}</tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
+// 符文页: 每个玩家一张完整的符文卡 (主系 4 + 副系 2 + 属性 3), 复用悬停卡的同一份 DOM。
+// 不再靠 hover 才能看到 —— 这一页就是要一次看全 10 个人的选择。
+function ogdRunesHtml(norm, ctx) {
+  const { teams, tids } = ctx;
+  const myPuuid = cachedSummoner && cachedSummoner.puuid;
+  const block = tid => {
+    const list = (teams[tid] || []).slice().sort(ogdPosSort);
+    if (!list.length) return '';
+    const won = list.some(p => p.win);
+    const cells = list.map(p => {
+      const c = champNumMap[String(p.championId)];
+      const cn = (c && c.name) || p.championName || '';
+      let card = '';
+      try { card = typeof runePageCardHtml === 'function' ? runePageCardHtml(p) : ''; } catch (e) { card = ''; }
+      const empty = card ? '' : '<div class="ogd-rune-empty">该局没有符文数据</div>';
+      return `<div class="ogd-rune-cell${p.puuid && p.puuid === myPuuid ? ' is-me' : ''}">
+        <div class="ogd-rune-who">
+          <img class="ogd-rune-champ" src="${c ? champImg(c.id) : placeholder('?')}" onerror="this.src='${placeholder('?')}'">
+          <div class="ogd-rune-who-txt">
+            <b>${escapeHtml(getName(p))}</b>
+            <em>${escapeHtml(cn)}${p.position ? ' · ' + escapeHtml(POS_MAP[p.position] || '') : ''}</em>
+          </div>
+        </div>${card}${empty}
+      </div>`;
+    }).join('');
+    return `<div class="ogd-rune-team ${won ? 'is-win' : 'is-loss'}">
+      <div class="ogd-rune-teamhead"><b>${won ? '胜利' : '失败'}</b><span>${tid === '100' ? '蓝队' : '红队'}</span><em>${list.length} 人</em></div>
+      <div class="ogd-rune-grid">${cells}</div>
+    </div>`;
+  };
+  return tids.map(block).join('') || '<div class="ogd-empty">没有符文数据</div>';
+}
+
+function renderOpggGameDetail(norm, container, options) {
   // 1.6.23: 位置归一化评分, 与战绩卡/小代标签共用 utils.js 的同一套实现
   const rating = p => championRatingOf(p, norm.participants.filter(x => x && x.teamId === p.teamId));
   const teams = {};
@@ -1259,13 +1369,42 @@ function renderOpggGameDetail(norm, container) {
     </div>`;
   };
 
+  // 时间线两页只有国服 SGP 才有; 实时对局浮窗/兜底路径不传 options, 也就不会出现空标签。
+  const withTimeline = !!(options && options.withTimeline);
+  const tabs = [['summary', '概览'], ['data', '数据'], ['runes', '符文']];
+  if (withTimeline) tabs.push(['events', '事件'], ['curve', '曲线']);
+  const ctx = { teams, tids, rating };
   container.innerHTML = `
     <div class="ogd-wrap">
-      <div class="ogd-actions"><button class="btn-secondary" type="button" data-battle-card>保存战报卡</button></div>
-      <div class="ak-party-summary" data-party-summary>组队关系识别中…</div>
-      ${teamBlock(tids[0])}
-      ${tids[1] ? teamBlock(tids[1]) : ''}
+      <div class="ogd-top">
+        <div class="ogd-tabs" data-ogd-tabs>
+          ${tabs.map(([k, label], i) => `<button class="tab-btn ogd-tab${i === 0 ? ' active' : ''}" type="button" data-tab="${k}">${label}</button>`).join('')}
+        </div>
+        <div class="ogd-actions"><button class="btn-secondary" type="button" data-battle-card>保存战报卡</button></div>
+      </div>
+      <div class="ogd-pane is-on" data-pane="summary">
+        <div class="ak-party-summary" data-party-summary>组队关系识别中…</div>
+        ${teamBlock(tids[0])}
+        ${tids[1] ? teamBlock(tids[1]) : ''}
+      </div>
+      <div class="ogd-pane" data-pane="data">${ogdMatrixHtml(norm, ctx)}</div>
+      <div class="ogd-pane" data-pane="runes">${ogdRunesHtml(norm, ctx)}</div>
+      ${withTimeline ? `<div class="ogd-pane" data-pane="events"><div class="ogd-empty">时间线加载中…</div></div>
+      <div class="ogd-pane" data-pane="curve"><div class="ogd-empty">复盘加载中…</div></div>` : ''}
     </div>`;
+  // 标签切换: 就地显示/隐藏, 不重渲染 —— 详情里的图片与状态都不该被重建。
+  // 必须 stopPropagation, 详情整体挂在卡片 onclick 上。
+  const tabbar = container.querySelector('[data-ogd-tabs]');
+  if (tabbar) {
+    tabbar.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-tab]');
+      if (!btn) return;
+      ev.stopPropagation();
+      const key = btn.dataset.tab;
+      for (const b of tabbar.querySelectorAll('[data-tab]')) b.classList.toggle('active', b === btn);
+      for (const pane of container.querySelectorAll('.ogd-pane')) pane.classList.toggle('is-on', pane.dataset.pane === key);
+    });
+  }
   // 1.6.24: 符文悬停卡片的事件委托 (幂等, 只绑一次)
   if (typeof runeHoverBind === 'function') runeHoverBind();
   // 战报卡: 交给 battle-card.js 拼 HTML + 主进程离屏截图。

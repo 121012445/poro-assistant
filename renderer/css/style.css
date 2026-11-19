@@ -721,6 +721,62 @@ body {
 .og-detail-inner { display: flex; flex-direction: column; gap: 12px; }
 /* ===== 战绩详情表格 (复刻 LeagueAkari TeamTable, ak-*) ===== */
 .ogd-wrap { display: flex; flex-direction: column; gap: 8px; }
+/* 1.6.25: 详情页拆成多标签 (概览/数据/符文/事件/曲线), 与 Akari 的 match-card 对齐 */
+.ogd-top { display: flex; align-items: center; gap: 8px; }
+.ogd-tabs { display: flex; gap: 6px; flex: 1 1 auto; flex-wrap: wrap; }
+.ogd-tabs .ogd-tab { height: 28px; padding: 0 12px; font-size: var(--fs-xs); }
+.ogd-pane { display: none; }
+.ogd-pane.is-on { display: flex; flex-direction: column; gap: 8px; }
+.ogd-pane[data-pane="curve"] .rv-box { margin-top: 0; }
+.ogd-empty { padding: 20px 10px; text-align: center; font-size: var(--fs-xs); color: var(--text-muted); }
+/* 数据页: 指标 × 玩家 矩阵 */
+.ogd-mx-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.ogd-matrix { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ogd-matrix th, .ogd-matrix td { padding: 4px 6px; text-align: center; white-space: nowrap; }
+.ogd-matrix thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card); border-bottom: 1px solid var(--border); }
+.ogd-matrix tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.ogd-mx-label { text-align: left !important; color: var(--text-muted); font-weight: 500; }
+.ogd-mx-col { width: 46px; }
+.ogd-mx-col.is-me { background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+.ogd-mx-champ { width: 22px; height: 22px; border-radius: 50%; display: inline-block; vertical-align: middle; background: var(--bg-card); }
+.ogd-mx-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-left: 2px; vertical-align: middle; }
+.ogd-mx-dot.t-blue { background: #4a86d8; }
+.ogd-mx-dot.t-red { background: #d85858; }
+.ogd-mx-cell.is-top { color: var(--accent); font-weight: 700; }
+.ogd-mx-group td { text-align: left; padding: 3px 6px; font-size: var(--fs-2xs); letter-spacing: .04em; color: var(--text-muted); background: color-mix(in srgb, var(--bg-card) 82%, var(--accent) 10%); }
+/* 符文页: 10 人完整符文卡 */
+.ogd-rune-team { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); overflow: hidden; }
+.ogd-rune-teamhead { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; font-size: var(--fs-xs); }
+.ogd-rune-team.is-win .ogd-rune-teamhead { background: rgba(52, 121, 209, .10); }
+.ogd-rune-team.is-loss .ogd-rune-teamhead { background: rgba(209, 58, 58, .08); }
+.ogd-rune-teamhead em { margin-left: auto; font-style: normal; color: var(--text-muted); font-size: var(--fs-2xs); }
+.ogd-rune-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); }
+.ogd-rune-cell { padding: 8px 10px; border-top: 1px solid var(--border); min-width: 0; }
+.ogd-rune-cell.is-me { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ogd-rune-cell .rune-pop-card { width: 100%; }
+.ogd-rune-who { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; min-width: 0; }
+.ogd-rune-champ { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; }
+.ogd-rune-who-txt { min-width: 0; display: flex; flex-direction: column; }
+.ogd-rune-who-txt b { font-size: var(--fs-xs); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ogd-rune-who-txt em { font-style: normal; font-size: var(--fs-2xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ogd-rune-empty { font-size: var(--fs-2xs); color: var(--text-muted); padding: 4px 0; }
+/* 事件页 */
+.ogd-ev-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 10px; font-size: var(--fs-xs); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.ogd-ev-head em { margin-left: auto; font-style: normal; font-size: var(--fs-2xs); color: var(--text-muted); }
+.ogd-ev-sum { display: inline-flex; align-items: center; gap: 3px; color: var(--text-secondary); }
+.ogd-ev-list { max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.ogd-ev { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: var(--fs-xs); border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.ogd-ev.is-blue { border-left: 2px solid #4a86d8; }
+.ogd-ev.is-red { border-left: 2px solid #d85858; }
+.ogd-ev.is-none { border-left: 2px solid var(--border); }
+.ogd-ev-t { flex-shrink: 0; width: 38px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ogd-ev-body { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
+.ogd-ev-body b { font-weight: 600; }
+.ogd-ev-body i { font-style: normal; color: var(--text-muted); }
+.ogd-ev-body em { font-style: normal; font-size: var(--fs-2xs); color: var(--text-muted); }
+.ogd-ev-champ { width: 18px; height: 18px; border-radius: 50%; }
+.ogd-ev-fb { font-size: var(--fs-2xs); color: #e0a34a; border: 1px solid rgba(224, 163, 74, .42); border-radius: 999px; padding: 0 4px; }
+.ogd-ev-body .pi { width: 14px; height: 14px; }
 .ak-party-summary { min-height: 28px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-card) 88%, var(--accent) 12%); color: var(--text-secondary); font-size: var(--fs-xs); box-sizing: border-box; }
 .ak-party-summary.is-loading { color: var(--accent); }
 .ak-team { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

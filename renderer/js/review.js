@@ -92,17 +92,90 @@ function buildPoroRating(norm) {
   } catch (e) { return ''; }
 }
 let _reviewSeq = 0;
+
+// 1.6.25: 事件页 —— 把时间线里的事件流换成中文。
+// 只放 击杀 / 野怪 / 建筑 三类: 插眼、买装备那类事件量太大, 一页放不下也用不上。
+const OGD_MONSTER_CN = { BARON_NASHOR: '大龙', DRAGON: '小龙', ELDER_DRAGON: '远古巨龙', RIFTHERALD: '峡谷先锋', HORDE: '虚空巢虫' };
+const OGD_DRAGON_CN = { FIRE_DRAGON: '火', WATER_DRAGON: '水', EARTH_DRAGON: '土', AIR_DRAGON: '风', HEXTECH_DRAGON: '海克斯', CHEMTECH_DRAGON: '炼金', ELDER_DRAGON: '远古' };
+const OGD_TOWER_CN = { OUTER_TURRET: '一塔', INNER_TURRET: '二塔', BASE_TURRET: '高地塔', NEXUS_TURRET: '门牙塔' };
+function ogdEventTimelineHtml(norm, chart, pidPuuid) {
+  const evts = (chart && Array.isArray(chart.evts)) ? chart.evts : [];
+  if (!evts.length) return '<div class="ogd-empty">该局没有可展示的关键事件</div>';
+  const parts = (norm && norm.participants) || [];
+  const findP = (pid) => {
+    if (!pid) return null;
+    const puuid = pidPuuid ? pidPuuid[pid] : '';
+    if (puuid) { const hit = parts.find(x => x.puuid && x.puuid === puuid); if (hit) return hit; }
+    return parts[pid - 1] || null;
+  };
+  const pname = p => (p && (p.name || p.championName)) || '未知';
+  const champIc = (p) => {
+    if (!p) return '';
+    const c = (typeof champNumMap === 'object' && champNumMap) ? champNumMap[String(p.championId)] : null;
+    const src = (c && typeof champImg === 'function') ? champImg(c.id) : '';
+    if (!src) return '';
+    return `<img class="ogd-ev-champ" src="${src}" title="${escapeHtml(pname(p))}" onerror="this.style.display='none'">`;
+  };
+  const sideOf = t => t === 200 ? 'red' : t === 100 ? 'blue' : 'none';
+  const teamCn = t => t === 200 ? '红方' : t === 100 ? '蓝方' : '中立';
+  const clock = t => {
+    const m = Math.floor(t), s = Math.round((t - m) * 60);
+    return String(m).padStart(2, '0') + ':' + String(Math.min(59, s)).padStart(2, '0');
+  };
+  let kills = { 100: 0, 200: 0 }, towers = { 100: 0, 200: 0 }, dragons = { 100: 0, 200: 0 }, barons = { 100: 0, 200: 0 };
+  const rows = evts.slice(0, 240).map(e => {
+    let inner = '';
+    if (e.kind === 'kill') {
+      const k = findP(e.killer), v = findP(e.victim);
+      if (e.team === 100 || e.team === 200) kills[e.team]++;
+      const fb = (chart.firstKill === e) ? '<span class="ogd-ev-fb">一血</span>' : '';
+      inner = fb + (k
+        ? `${champIc(k)}<b>${escapeHtml(pname(k))}</b><i>击杀</i>${champIc(v)}<span>${escapeHtml(pname(v))}</span>`
+        : `${champIc(v)}<span>${escapeHtml(pname(v))}</span><i>阵亡 (无击杀者)</i>`)
+        + (e.assists && e.assists.length ? `<em>助攻 ${e.assists.length}</em>` : '');
+    } else if (e.kind === 'monster') {
+      const name = OGD_MONSTER_CN[e.monster] || e.monster || '野怪';
+      const sub = e.monster === 'DRAGON' && OGD_DRAGON_CN[e.sub] ? `(${OGD_DRAGON_CN[e.sub]})` : '';
+      if (e.monster === 'DRAGON' || e.monster === 'ELDER_DRAGON') dragons[e.team] = (dragons[e.team] || 0) + 1;
+      if (e.monster === 'BARON_NASHOR') barons[e.team] = (barons[e.team] || 0) + 1;
+      const ic = poroIcon(e.monster === 'BARON_NASHOR' ? 'eagle' : e.monster === 'RIFTHERALD' ? 'wave' : 'dragon');
+      inner = `${ic}<b>${escapeHtml(teamCn(e.team))}</b><i>拿下</i><span>${escapeHtml(name + sub)}</span>`;
+    } else if (e.kind === 'building') {
+      const tower = OGD_TOWER_CN[e.tower] || '';
+      const name = e.building === 'INHIBITOR_BUILDING' ? '水晶' : (tower || '防御塔');
+      if (e.building === 'TOWER_BUILDING' && (e.team === 100 || e.team === 200)) towers[e.team]++;
+      const ic = poroIcon(e.building === 'INHIBITOR_BUILDING' ? 'gem' : 'tower');
+      inner = `${ic}<b>${escapeHtml(teamCn(e.team))}</b><i>摧毁</i><span>${escapeHtml(name)}</span>`;
+    }
+    return `<div class="ogd-ev is-${sideOf(e.team)}"><span class="ogd-ev-t">${clock(e.t)}</span><span class="ogd-ev-body">${inner}</span></div>`;
+  }).join('');
+  const head = `<div class="ogd-ev-head">
+    <b>关键事件</b>
+    <span class="ogd-ev-sum">击杀 ${kills[100] || 0} : ${kills[200] || 0}</span>
+    <span class="ogd-ev-sum">${poroIcon('tower')} ${towers[100] || 0} : ${towers[200] || 0}</span>
+    <span class="ogd-ev-sum">${poroIcon('dragon')} ${dragons[100] || 0} : ${dragons[200] || 0}</span>
+    <span class="ogd-ev-sum">${poroIcon('eagle')} ${barons[100] || 0} : ${barons[200] || 0}</span>
+    <em>共 ${evts.length} 条${evts.length > 240 ? ', 只显示前 240 条' : ''}</em>
+  </div>`;
+  return head + `<div class="ogd-ev-list">${rows}</div>`;
+}
+
 async function renderGameReview(norm, gameId, detail, gamePlatformId) {
   const seq = ++_reviewSeq;
+  // 1.6.25: 多标签下复盘只占"曲线"页, 事件页单独填; 找不到 pane 时退回老行为 (整块追加到详情底部)
+  const curvePane = detail.querySelector('[data-pane="curve"]');
+  const eventsPane = detail.querySelector('[data-pane="events"]');
   const box = document.createElement('div');
   box.className = 'rv-box';
   box.innerHTML = '<div class="rv-title">复盘分析</div><div class="rv-body">' + buildPoroRating(norm) + '<div class="rv-tl"><span class="ri-empty">时间线加载中...</span></div></div>';
   // 点击复盘区内部 (如 AI 复盘按钮) 不冒泡到对局卡片, 否则会触发 expandOpggGame 导致详情直接折叠
   box.addEventListener('click', (ev) => ev.stopPropagation());
-  detail.appendChild(box);
+  if (curvePane) { curvePane.innerHTML = ''; curvePane.appendChild(box); }
+  else detail.appendChild(box);
   const body = box.querySelector('.rv-tl');
   let tl = null;
   const pidTeam = {};
+  const pidPuuid = {};
   try {
     const platformId = gamePlatformId || await getPlatformId();
     const resp = await lolAPI.sgpGameDetails(platformId, gameId);
@@ -113,6 +186,7 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
       const plist = g.participants || (g.gameDetail || g).players || [];
       for (const p of plist) {
         const pid = p.participantId || 0;
+        if (p.puuid) pidPuuid[pid] = p.puuid;
         if (p.teamId != null) { pidTeam[pid] = p.teamId; continue; }
         const np = norm.participants.find(x => x.puuid && x.puuid === p.puuid)
           || norm.participants[pid - 1];
@@ -125,9 +199,11 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
   if (seq !== _reviewSeq) return;
   if (!tl || !tl.length) {
     body.innerHTML = '<span class="ri-empty">无时间线数据 (仅国服 SGP 对局支持复盘)</span>';
+    if (eventsPane) eventsPane.innerHTML = '<div class="ogd-empty">该局没有时间线数据 (仅国服 SGP 对局支持)</div>';
     return;
   }
-  const chart = buildTimelineData(tl, pidTeam);
+  const chart = buildTimelineData(tl, pidTeam, pidPuuid);
+  if (eventsPane) eventsPane.innerHTML = ogdEventTimelineHtml(norm, chart, pidPuuid);
   const paint = drawTimelineChart(chart);
   body.innerHTML = `
     ${buildAutomaticReview(norm, chart)}
@@ -194,9 +270,10 @@ function buildMistakeCard(norm, gameId) {
 }
 
 // 解析时间线帧 → 经济差序列 + 关键事件
-function buildTimelineData(frames, pidTeam) {
+function buildTimelineData(frames, pidTeam, pidPuuid) {
   const diffs = [];   // {t(分钟), diff(蓝-红经济)}
   const kills = [];   // {t, team(击杀方), first}
+  const evts = [];    // 1.6.25: 事件 tab 的原始事件流 (击杀/野怪/建筑), 渲染时再换成中文
   const objectives = { baron: [], dragon: [], elder: [], herald: [], towers: { 100: 0, 200: 0 }, inhibitors: { 100: 0, 200: 0 } };
   let firstBloodTeam = null;
   for (const fr of frames) {
@@ -213,6 +290,11 @@ function buildTimelineData(frames, pidTeam) {
       if (ev.type === 'CHAMPION_KILL') {
         if (firstBloodTeam === null && ev.killerId) firstBloodTeam = pidTeam[ev.killerId] || null;
         if (ev.killerId && ev.killerId > 0) kills.push({ t: tMin, team: pidTeam[ev.killerId] || 0 });
+        evts.push({
+          t: tMin, kind: 'kill', team: pidTeam[ev.killerId] || 0,
+          killer: ev.killerId || 0, victim: ev.victimId || 0,
+          assists: (ev.assistingParticipantIds || []).slice(0, 4)
+        });
       } else if (ev.type === 'ELITE_MONSTER_KILL') {
         const mt = ev.monsterType || '';
         const killerTeam = pidTeam[ev.killerId] || ev.killerTeamId || 0;
@@ -220,15 +302,20 @@ function buildTimelineData(frames, pidTeam) {
         else if (mt === 'DRAGON') objectives.dragon.push({ t: tMin, team: killerTeam });
         else if (mt === 'ELDER_DRAGON') objectives.elder.push({ t: tMin, team: killerTeam });
         else if (mt === 'RIFTHERALD') objectives.herald.push({ t: tMin, team: killerTeam });
+        evts.push({ t: tMin, kind: 'monster', team: killerTeam, monster: mt, sub: ev.monsterSubType || '', killer: ev.killerId || 0 });
       } else if (ev.type === 'BUILDING_KILL') {
         // killerTeamId 是摧毁方(与上面 ELITE_MONSTER_KILL 的口径一致),
         // 不能取反 —— 否则蓝方拆的塔会记到红方头上, "蓝:红" 显示颠倒。
         const kt = ev.killerTeamId || pidTeam[ev.killerId] || 0;
         if (ev.buildingType === 'TOWER_BUILDING') { if (kt) objectives.towers[kt]++; }
         else if (ev.buildingType === 'INHIBITOR_BUILDING') { if (kt) objectives.inhibitors[kt]++; }
+        evts.push({ t: tMin, kind: 'building', team: kt, building: ev.buildingType || '', tower: ev.towerType || '', killer: ev.killerId || 0 });
       }
     }
   }
+  evts.sort((a, b) => a.t - b.t);
+  // 第一滴血标记: 第一条 CHAMPION_KILL 就是它, 只在渲染时加个角标
+  const firstKill = evts.find(e => e.kind === 'kill');
   const goldAt = m => {
     let last = 0;
     for (const d of diffs) { if (d.t <= m) last = d.diff; else break; }
@@ -250,7 +337,7 @@ function buildTimelineData(frames, pidTeam) {
   chips.push(`<span class="rv-chip">${poroIcon('tower')} ${objectives.towers[100]} : ${objectives.towers[200]}</span>`);
   chips.push(`<span class="rv-chip">${poroIcon('dragon')} ${drag100} : ${drag200}</span>`);
   chips.push(`<span class="rv-chip">${poroIcon('eagle')} ${baron100} : ${baron200}</span>`);
-  return { diffs, kills, chips, objectives, firstBloodTeam };
+  return { diffs, kills, chips, objectives, firstBloodTeam, evts, firstKill };
 }
 
 function buildAutomaticReview(norm, chart) {
