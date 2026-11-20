@@ -86,9 +86,17 @@
     for (const p of theirTeam) {
       if (+p.championId > 0) addEnemy(+p.championId, posKeyOf(p));
     }
+    // locked = 已锁, intent = 只预选(悬停)。1.6.32: 两者都要, 但界面和打分的用法不同 ——
+    // 已锁的英雄已经占住一个位置, 预选可能改; ban 建议要针对"队友真想玩什么"。
     for (const p of myTeam) {
-      if (+p.championId > 0) { state.ally.push({ id: +p.championId, pos: posKeyOf(p) }); state.unavailable.add(+p.championId); }
-      if (+p.championPickIntent > 0) { state.ally.push({ id: +p.championPickIntent, pos: posKeyOf(p) }); state.unavailable.add(+p.championPickIntent); }
+      if (+p.championId > 0) {
+        state.ally.push({ id: +p.championId, pos: posKeyOf(p), locked: true, cellId: p.cellId });
+        state.unavailable.add(+p.championId);
+      }
+      if (+p.championPickIntent > 0 && +p.championPickIntent !== +p.championId) {
+        state.ally.push({ id: +p.championPickIntent, pos: posKeyOf(p), intent: true, cellId: p.cellId });
+        state.unavailable.add(+p.championPickIntent);
+      }
     }
     // 正在进行的动作里若已填了英雄（对面 hover / 锁定前一刻），也当作"已亮"
     for (const a of actions) {
@@ -142,8 +150,11 @@
 
   // ---------- 打分 ----------
   // tables: { '敌人id:位置键' -> { '候选id' -> { play, wr } } }
-  function recommend(state, tables) {
+  // opts.fitOf(id) -> 补位加分（百分点），来自 bp-team 的阵容缺口分析。
+  //   不传时行为与 1.6.31 完全一致（score 就是对位分），旧测试与旧调用不受影响。
+  function recommend(state, tables, opts) {
     const t = tables || {};
+    const fitOf = (opts && typeof opts.fitOf === 'function') ? opts.fitOf : null;
     const rows = [];
     for (const c of poolFor(state.myPosition)) {
       if (state.unavailable.has(c.id)) continue;
@@ -161,15 +172,22 @@
         edges.push({ enemyId: en.id, enemyName: champName(en.id), delta, play: row.play, lane: en.pos === state.myPosition });
       }
       edges.sort((a, b) => b.delta * b.play - a.delta * a.play);
-      rows.push({ id: c.id, score, base: c.winRate, edges, missing, tier: c.tier, banRate: c.banRate });
+      const fit = fitOf ? (Number(fitOf(c.id)) || 0) : 0;
+      rows.push({
+        id: c.id, score, base: c.winRate, edges, missing, tier: c.tier, banRate: c.banRate,
+        fit, total: score + fit
+      });
     }
-    rows.sort((a, b) => b.score - a.score || b.base - a.base);
+    rows.sort((a, b) => (b.total - a.total) || b.score - a.score || b.base - a.base);
     return rows.slice(0, PICK_COUNT);
   }
 
   // ban 建议：我已选/预选 → 优先 ban 掉最克制我的；还没选 → 退化成版本强势（胜率 + ban 率）
-  function recommendBans(state, tables) {
+  // opts.intents: 队友已锁/预选的英雄。我没选时优先 ban 掉"克制队友预选"的敌人 —— 帮队友清路。
+  function recommendBans(state, tables, opts) {
     const t = tables || {};
+    const o = opts || {};
+    const intents = Array.isArray(o.intents) ? o.intents : [];
     const myId = state.myChampionId || state.myIntentId;
     const myTable = myId && state.myPosition ? t[myId + ':' + state.myPosition] : null;
     if (myTable) {
@@ -179,6 +197,20 @@
         .sort((a, b) => b.delta * Math.min(1, b.play / SAMPLE_FULL) - a.delta * Math.min(1, a.play / SAMPLE_FULL))
         .slice(0, BAN_COUNT)
         .map(r => ({ ...r, basis: 'counter', score: r.delta * Math.min(1, r.play / SAMPLE_FULL) }));
+      if (rows.length) return rows;
+    }
+    // 自己还没定 -> 先照顾队友的预选
+    if (intents.length && root.PoroBPTeam) {
+      const rows = root.PoroBPTeam.banAgainstIntents(intents, t, {
+        exclude: state.unavailable, limit: BAN_COUNT, minPlay: MIN_PLAY
+      }).map(r => {
+        const best = r.hits[0] || { wr: 0.5, play: 0 };
+        return {
+          id: r.id, delta: (best.wr - 0.5) * 100, play: best.play,
+          basis: 'intent', score: r.score, hits: r.hits,
+          forName: champName(best.forId)
+        };
+      });
       if (rows.length) return rows;
     }
     return poolFor(state.myPosition)
@@ -218,14 +250,24 @@
       if (best) {
         bits.push('对位 ' + esc(best.enemyName) + (best.lane ? '' : '（非对线）') + ' ' + sign(best.delta));
       }
+      // 1.6.32: 补位加分只在我方已有人亮时才存在（fit > 0），否则不提，免得每张卡都写"补位"
+      if (item.fit) bits.push('补位 +' + item.fit.toFixed(1));
       bits.push('自身 ' + (item.base * 100).toFixed(1) + '%');
       if (item.missing) bits.push(item.missing + ' 人无对位样本');
       why = bits.join(' · ');
-      if (!best && !item.edges.length) scoreText = '无对位样本';
+      // 没有任何对位样本时：如果这手是靠"补我方缺口"进来的，就把补位后的总分显示出来，
+      // 否则显示「无对位样本」——那才是这张卡的真实依据。
+      if (!best && !item.edges.length) scoreText = item.fit ? sign(item.total) : '无对位样本';
+      else if (item.fit) scoreText = sign(item.total);
     } else if (item.basis === 'counter') {
       // ban 的分数是" ban 优先级", 不是胜率差 —— 不带正负号, 免得看成 +7% 优势
       scoreText = item.score.toFixed(1);
       why = '克制你 ' + (50 + item.delta).toFixed(1) + '% · 样本 ' + item.play;
+    } else if (item.basis === 'intent') {
+      scoreText = item.score.toFixed(1);
+      const top = item.hits && item.hits[0];
+      why = '克制队友 ' + esc(item.forName || '') + (top ? ' ' + (top.wr * 100).toFixed(1) + '%' : '')
+        + (item.hits && item.hits.length > 1 ? ' · 还克 ' + esc(champName(item.hits[1].forId)) : '');
     } else {
       scoreText = item.score.toFixed(1);
       why = '版本强势 ' + (50 + item.delta).toFixed(1) + '% · ban ' + ((item.banRate || 0) * 100).toFixed(1) + '%';
@@ -243,17 +285,30 @@
     const head = [];
     if (state.myPosition) head.push('你的位置：' + KEY_CN[state.myPosition]);
     head.push('敌方已亮 ' + state.enemy.length + ' 人');
+    if (state.ally && state.ally.length) {
+      const locked = state.ally.filter(a => a.locked).length;
+      const intents = state.ally.filter(a => a.intent && !a.locked).length;
+      head.push('我方已亮 ' + state.ally.length + ' 人' + (locked || intents ? '（选 ' + locked + ' / 预选 ' + intents + '）' : ''));
+    }
     if (state.myAction) head.push(state.myAction === 'ban' ? '轮到你 ban' : '轮到你选');
+    const ctx = {
+      champNumMap: (typeof champNumMap !== 'undefined' ? champNumMap : null),
+      allChampions: (typeof allChampions !== 'undefined' ? allChampions : null)
+    };
     const pickHtml = picks.length
       ? picks.map(p => cardHtml(p, 'pick')).join('')
       : '<div class="bp-empty">没有可推荐的英雄（池子被 ban 完或对位数据缺失）</div>';
     const banHtml = bans.length
       ? bans.map(b => cardHtml(b, 'ban')).join('')
       : '<div class="bp-empty">暂无 ban 建议</div>';
-    // 三合一融合结论：三套信号（对位/阵容/敌方结构）叠加，给一条「这一手拿谁」。
-    // extra 由 refresh 注入；旧的三参数调用（含测试）没有 extra 时不渲染，保持兼容。
+    // 我方视角（1.6.32）：已亮英雄的结构 + 缺口。
+    // 有 team 时用 bp-team 出结论 —— 补位分已经并进 picks 的 total，再走 bp-fusion 会重复计分。
+    const team = extra && extra.team;
+    const briefHtml = team && root.PoroBPTeam ? root.PoroBPTeam.briefHtml(team, ctx) : '';
     let fusionHtml = '';
-    if (extra && root.PoroBPFusion && picks.length) {
+    if (team && root.PoroBPTeam && picks.length) {
+      try { fusionHtml = root.PoroBPTeam.verdictHtml(picks[0], team, ctx); } catch (e) { fusionHtml = ''; }
+    } else if (extra && root.PoroBPFusion && picks.length) {
       try {
         const model = root.PoroBPFusion.blend(picks, {
           ally: extra.ally, enemy: extra.enemy, mode: extra.mode, reviewHints: extra.reviewHints,
@@ -267,12 +322,14 @@
       } catch (e) { fusionHtml = ''; }
     }
     return '<div class="bp-head"><b>BP 建议</b><span>' + esc(head.join(' · ')) + '</span></div>'
+      + briefHtml
       + fusionHtml
       + '<div class="bp-cols">'
       + '<div class="bp-col"><div class="bp-col-title">推荐 Pick</div><div class="bp-list">' + pickHtml + '</div></div>'
       + '<div class="bp-col"><div class="bp-col-title">推荐 Ban</div><div class="bp-list">' + banHtml + '</div></div>'
       + '</div>'
       + '<div class="bp-foot">分数 = 0.6×自身强度 + Σ对位优势（同位置权重 1，其他位置 0.35，样本 &lt;50 场不计）'
+      + (team ? ' + 补位分（我方缺口按英雄标签匹配，单条 0.8–1.5）' : '')
       + ' · 数据 OP.GG 韩服排位 · 只做建议，不替你点</div>';
   }
 
@@ -302,12 +359,19 @@
     _lastKey = 'note:' + text;
   }
 
-  async function ensureTables(state) {
+  async function ensureTables(state, extraNeeds) {
     const api = root.lolAPI;
     const out = {};
     const need = state.enemy.slice();
     const myId = state.myChampionId || state.myIntentId;
     if (myId && state.myPosition) need.push({ id: myId, pos: state.myPosition });
+    // 1.6.32: 队友预选的英雄也要它们的对位表 —— "帮队友清路"的 ban 建议全靠这张表。
+    // 只在还没轮到我锁人时取（那才是 ban 阶段），其余时候不白花请求。
+    if (myId === 0) {
+      for (const a of (Array.isArray(extraNeeds) ? extraNeeds : [])) {
+        if (a && a.id && a.pos) need.push({ id: a.id, pos: a.pos });
+      }
+    }
     await Promise.all(need.map(async en => {
       if (!en.pos) return;
       const key = en.id + ':' + en.pos;
@@ -365,9 +429,28 @@
     if (_refreshing) return;
     _refreshing = true;
     try {
-      const tables = await ensureTables(state);
-      const picks = recommend(state, tables);
-      const bans = recommendBans(state, tables);
+      // 我方视角：队友已锁/预选的结构（把自己排除 —— 我正在考虑的这手还没定，
+      // 把自己的悬停算进"我方已有"会让缺口判断自我抵消）。
+      const selfCell = (session && session.localPlayerCellId);
+      let team = null;
+      if (root.PoroBPTeam) {
+        try {
+          team = root.PoroBPTeam.analyze({
+            ally: state.ally.filter(a => selfCell == null || a.cellId !== selfCell),
+            enemy: state.enemy
+          }, null, { rift: modeOfSession() === 'rift' });
+        } catch (e) { team = null; }
+      }
+      const tables = await ensureTables(state, team ? team.intents : []);
+      const fitOf = team ? (id => root.PoroBPTeam.fitOf(id, team.needs, null).fit) : null;
+      const picks = recommend(state, tables, { fitOf });
+      if (team) {
+        for (const p of picks) {
+          const f = root.PoroBPTeam.fitOf(p.id, team.needs, null);
+          p.fitReasons = f.reasons;
+        }
+      }
+      const bans = recommendBans(state, tables, { intents: team ? team.intents : [] });
       const box = el('bpAdvisor');
       const body = el('bpAdvisorBody');
       if (!box || !body) return;
@@ -380,7 +463,7 @@
         }
       } catch (e) { reviewHints = []; }
       body.innerHTML = buildHtml(state, picks, bans, {
-        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints
+        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team
       });
       box.hidden = false;
       _lastKey = key;

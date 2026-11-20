@@ -1896,6 +1896,11 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const isSelf = selfPuuid && p.puuid === selfPuuid;
     const tag = isSelf ? '<span class="lp-self-tag">自己</span>' : '';
     const premadeGroupId = premadeGroups && p.puuid ? premadeGroups[p.puuid] : null;
+    // 1.6.32: 开黑组除了标签, 整张卡左侧再画一条同色竖条 —— 两队十个人一眼能看出谁和谁一组。
+    // 颜色编号与 .lp-pg-N（标签底色）一致, 但类名分开, 避免把卡片当标签涂色。
+    const premadeRowCls = premadeGroupId ? ` lp-premade-row lp-pm-${((premadeGroupId - 1) % 6) + 1}` : '';
+    // 挑战徽章只有自己那张卡有: 客户端只对本机玩家返回挑战分, 给队友/对手贴分数就是编数据。
+    const challengeHtml = isSelf && typeof PoroChallenge !== 'undefined' ? PoroChallenge.html(null, { suffix: '本机账号' }) : '';
     const marksHtml = !isSelf && p.puuid ? `<span class="lp-mark" onclick="showMarkModal(${inlineArg(p.puuid)},${inlineArg(name)})" title="标记该玩家">${poroIcon('pin')}</span>${getPlayerMarksHtml(p.puuid)}${encounterTagHtml(p.puuid)}` : '';
     const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
     // 大乱斗/海斗: 英雄平衡性调整徽标 + 当前模式强度角标; 峡谷排位: 英雄库页那份 KR 排位 T 级
@@ -1916,12 +1921,12 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     // 1.5.150: 头部重排 —— 名字独占一行 (可折两行、全宽), 胜率/KDA 与平衡性/T级/
     // 标记/自己徽章下沉到段位行换行排布。旧排版里这些徽章 (flex:0 0 auto 不压缩) 加
     // 胜率块远超 identity 列宽, 名字是行内唯一可收缩项被压到 0 宽, ID 整个不可见。
-    return `<div class="lp-row${isSelf ? ' lp-self' : ''}" data-player-key="${escapeHtml(drawerKey)}" onclick="openLivePlayerDrawer(event,${inlineArg(drawerKey)})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLivePlayerDrawer(event,${inlineArg(drawerKey)})}">
+    return `<div class="lp-row${isSelf ? ' lp-self' : ''}${premadeRowCls}" data-player-key="${escapeHtml(drawerKey)}" onclick="openLivePlayerDrawer(event,${inlineArg(drawerKey)})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openLivePlayerDrawer(event,${inlineArg(drawerKey)})}">
       <div class="lp-card-head">
         <img class="lp-champ" src="${c ? champImg(c.id) : placeholder('?')}" ${c ? champIconAttrs(c.id, c.name) : `onerror="this.src='${placeholder('?')}'"`}>
         <div class="lp-info">
           <div class="lp-identity">
-            <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span>${tag}${balanceHtml}${marksHtml}</div>
+            <div class="lp-name-line"><span class="lp-name lp-name-link" title="点击查看 ${escapeHtml(name)} 的主页"${profileClick}>${escapeHtml(name)}</span>${tag}${challengeHtml}${balanceHtml}${marksHtml}</div>
             <div class="lp-rank">${p.rank ? `<span class="lp-tier" data-tier="${p.tier || ''}">${escapeHtml(p.rank)}</span>` : '无段位'} <span class="lp-flash-slot">${flashPreferenceHtml(p.flashPreference)}</span></div>
             ${inlineStats}
           </div>

@@ -3402,6 +3402,11 @@ async function loadHomeStats(force, opts) {
     // 画像页(#page-profile)与首页共用这份数据。若画像页已经挂载过、或用户正停在
     // 画像页等数据, 这里补一次渲染; 否则完全不碰它, 不白算教练分析。
     refreshProfilePageIfMounted();
+    // 1.6.32: 背景原画跟着"我最近一局玩的英雄"走。只有自己的战绩才换背景 ——
+    // 查别人主页时把背景换成对方的英雄, 会让人误以为在看自己的数据。
+    if (homeGamesOwnerIsSelf && typeof PoroSplash !== 'undefined') {
+      try { PoroSplash.applyFromGames(games, s.puuid); } catch (e) {}
+    }
     // 1.5.136: 自己的战绩首页顺手回写「上次相遇结果」(Akari MET 手法)。
     // 必须在 ownerIsSelf 判定之后, 查别人战绩时那些队友不是"你遇见的人"。
     if (homeGamesOwnerIsSelf && typeof recordEncounterResults === 'function') {

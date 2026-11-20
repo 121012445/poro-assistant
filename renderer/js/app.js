@@ -232,6 +232,9 @@ function switchPage(page) {
     renderBlacklistPage();
     if (typeof switchPlayerMemoryTab === "function") switchPlayerMemoryTab(window._pmTab || "memory");
   }
+  // 背景原画只在首页/我的画像挂, 其余页摘掉（表格页透出原画会糊）
+  if (typeof PoroSplash !== 'undefined') PoroSplash.onPage(page);
+  if (page === "profile" && typeof renderChallengeCard === "function") renderChallengeCard();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   item.addEventListener("click", (e) => { e.preventDefault(); switchPage(item.dataset.page); });
@@ -309,6 +312,11 @@ async function init() {
     applyUiTheme(storeGet('uiTheme') || 'c');
     // 恢复导航栏收起/展开偏好
     applyNavCollapsedState();
+    // 1.6.32: 挑战分（只在"我的画像"顶部与实时页自己那张卡上显示）。
+    // 缓存半小时, 取不到就整块隐藏 —— 不显示 0 分。
+    if (typeof PoroChallenge !== 'undefined') {
+      PoroChallenge.load().then(() => { if (typeof renderChallengeCard === 'function') renderChallengeCard(); }).catch(() => {});
+    }
     // 静态数据 (DDragon/符文图标/英雄网格) 与首页数据并行: 首页不再等待静态资源
     const staticLoad = (async () => {
       try {
@@ -472,19 +480,62 @@ async function renderRankBenchPanel() {
 
 // 玩家记忆页的两个标签: 人工档案 / 全部遭遇过的人
 function switchPlayerMemoryTab(tab) {
-  window._pmTab = tab === 'recent' ? 'recent' : 'memory';
-  const recent = window._pmTab === 'recent';
+  // 1.6.32: 第三个页签「好友」—— 只读好友列表, 游戏中的那行给旁观按钮
+  window._pmTab = tab === 'recent' ? 'recent' : (tab === 'friends' ? 'friends' : 'memory');
+  const cur = window._pmTab;
+  const recent = cur === 'recent';
+  const friends = cur === 'friends';
+  const plain = cur === 'memory';
   const list = document.getElementById('blPageList');
   const addRow = document.getElementById('blAddRow');
   const rp = document.getElementById('recentPlayersPanel');
+  const fp = document.getElementById('friendsPanel');
   const tabA = document.getElementById('pmTabMemory');
   const tabB = document.getElementById('pmTabRecent');
-  if (list) list.hidden = recent;
-  if (addRow) addRow.hidden = recent;
+  const tabC = document.getElementById('pmTabFriends');
+  if (list) list.hidden = !plain;
+  if (addRow) addRow.hidden = !plain;
   if (rp) rp.hidden = !recent;
-  if (tabA) tabA.classList.toggle('active', !recent);
+  if (fp) fp.hidden = !friends;
+  if (tabA) tabA.classList.toggle('active', plain);
   if (tabB) tabB.classList.toggle('active', recent);
+  if (tabC) tabC.classList.toggle('active', friends);
   if (recent) renderRecentPlayers();
+  if (friends && typeof PoroFriends !== 'undefined') PoroFriends.refresh();
+}
+
+// 好友行上的旁观按钮（inline handler 只传 puuid，按钮自己找）
+function spectateFriendByPuuid(puuid) {
+  if (typeof PoroFriends !== 'undefined') return PoroFriends.spectate(null, puuid);
+}
+
+// 背景原画开关：写进本机设置，重启后保持
+function toggleSplashBg() {
+  if (typeof PoroSplash === 'undefined') return;
+  const on = PoroSplash.toggle();
+  const btn = document.getElementById('splashToggleBtn');
+  if (btn) {
+    btn.classList.toggle('is-off', !on);
+    btn.title = on ? '背景原画：已开启（点一下关闭）' : '背景原画：已关闭（点一下开启）';
+  }
+  // 关掉之后当前页也要立刻回到纯色，不能等切页
+  if (typeof switchPage === 'function' && document.body) {
+    const active = document.querySelector('.page.active');
+    if (active && active.id) PoroSplash.onPage(active.id.replace('page-', ''));
+  }
+}
+
+// 画像页顶部的挑战卡：只有本机账号有数据，取不到就整块隐藏
+function renderChallengeCard() {
+  const box = document.getElementById('challengeCard');
+  if (!box || typeof PoroChallenge === 'undefined') return;
+  const data = PoroChallenge.get();
+  if (!data) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = '<b>挑战</b><span class="chg-points">' + PoroChallenge.html(data) + '</span>'
+    + '<span class="chg-meta">等级 ' + (data.level || '—') + ' · 积分 ' + data.points
+    + (data.categories ? ' · ' + data.categories + ' 个分类' : '') + '</span>'
+    + '<span class="chg-src">本机账号 · 客户端挑战接口</span>';
 }
 
 function renderRecentPlayers(query) {

@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026112021">
-<link rel="stylesheet" href="css/extras.css?v=2026112021">
-<link rel="stylesheet" href="css/dark.css?v=2026112021">
-<link rel="stylesheet" href="css/premium.css?v=2026112021">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026112021">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026112021">
-<link rel="stylesheet" href="css/v4.css?v=2026112021">
-<link rel="stylesheet" href="css/poro-1630.css?v=2026112021">
+<link rel="stylesheet" href="css/style.css?v=2026112022">
+<link rel="stylesheet" href="css/extras.css?v=2026112022">
+<link rel="stylesheet" href="css/dark.css?v=2026112022">
+<link rel="stylesheet" href="css/premium.css?v=2026112022">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026112022">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026112022">
+<link rel="stylesheet" href="css/v4.css?v=2026112022">
+<link rel="stylesheet" href="css/poro-1630.css?v=2026112022">
+<link rel="stylesheet" href="css/poro-1632.css?v=2026112022">
 </head>
 <body>
 
@@ -96,6 +97,9 @@
       <button class="sidebar-status-reconnect" type="button" onclick="reconnectLcu()">重新检测客户端</button>
     </div>
     <div class="sidebar-extras">
+      <button class="theme-picker-btn" id="splashToggleBtn" onclick="toggleSplashBg()" title="背景原画（首页 / 我的画像）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-5-5-6 6"/></svg>
+      </button>
       <button class="theme-picker-btn" id="themePickerBtn" onclick="toggleThemePicker(event)" title="主题">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg>
       </button>
@@ -121,6 +125,8 @@
            必须明说出来 —— 否则标题写「我的画像」而内容是别人的数据。 -->
       <span id="profileOwnerNote" class="profile-owner-note" hidden></span>
     </div>
+    <!-- 挑战徽章卡：客户端只对本机玩家返回挑战分，所以这里只展示「我」的 -->
+    <div id="challengeCard" class="chg-card" hidden></div>
     <div id="profilePanel"><div class="meta-loading">先到「首页」加载战绩后查看画像</div></div>
   </div>
 
@@ -705,6 +711,7 @@
     <div class="pm-tabs">
       <button class="pm-tab active" id="pmTabMemory" type="button" onclick="switchPlayerMemoryTab('memory')">玩家记忆</button>
       <button class="pm-tab" id="pmTabRecent" type="button" onclick="switchPlayerMemoryTab('recent')">遭遇库</button>
+      <button class="pm-tab" id="pmTabFriends" type="button" onclick="switchPlayerMemoryTab('friends')">好友</button>
     </div>
     <div class="bl-add-row" id="blAddRow">
       <input type="text" id="blPageName" placeholder="输入召唤师名称" class="tool-input" style="flex:1;">
@@ -712,6 +719,7 @@
     </div>
     <div id="blPageList" class="bl-page-list"></div>
     <div id="recentPlayersPanel" class="rp-panel" hidden></div>
+    <div id="friendsPanel" class="fr-panel-host" hidden></div>
   </div>
 </div>
 
@@ -800,80 +808,84 @@
   </div>
 </div>
 
-<script src="js/utils.js?v=2026112021"></script>
-<script src="js/player-index.js?v=2026112021"></script>
-<script src="js/local-cache.js?v=2026112021"></script>
-<script src="js/icons.js?v=2026112021"></script>
-<script src="js/data-model.js?v=2026112021"></script>
-<script src="js/session-state.js?v=2026112021"></script>
-<script src="js/performance.js?v=2026112021"></script>
-<script src="js/diagnostics.js?v=2026112021"></script>
-<script src="js/balance.js?v=2026112021"></script>
-<script src="js/behavior-tags.js?v=2026112021"></script>
-<script src="js/smurf-tags.js?v=2026112021"></script>
-<script src="js/bench.js?v=2026112021"></script>
-<script src="js/champions.js?v=2026112021"></script>
-<script src="js/progress-report.js?v=2026112021"></script>
-<script src="js/review-bp-bridge.js?v=2026112021"></script>
-<script src="js/home.js?v=2026112021"></script>
-<script src="js/automation-log.js?v=2026112021"></script>
-<script src="js/automation-matrix.js?v=2026112021"></script>
-<script src="js/home-status.js?v=2026112021"></script>
-<script src="js/ai-markdown.js?v=2026112021"></script>
-<script src="js/repeat-mistakes.js?v=2026112021"></script>
-<script src="js/review.js?v=2026112021"></script>
-<script src="js/theme.js?v=2026112021"></script>
+<script src="js/utils.js?v=2026112022"></script>
+<script src="js/player-index.js?v=2026112022"></script>
+<script src="js/local-cache.js?v=2026112022"></script>
+<script src="js/icons.js?v=2026112022"></script>
+<script src="js/data-model.js?v=2026112022"></script>
+<script src="js/session-state.js?v=2026112022"></script>
+<script src="js/performance.js?v=2026112022"></script>
+<script src="js/diagnostics.js?v=2026112022"></script>
+<script src="js/balance.js?v=2026112022"></script>
+<script src="js/behavior-tags.js?v=2026112022"></script>
+<script src="js/smurf-tags.js?v=2026112022"></script>
+<script src="js/bench.js?v=2026112022"></script>
+<script src="js/champions.js?v=2026112022"></script>
+<script src="js/progress-report.js?v=2026112022"></script>
+<script src="js/review-bp-bridge.js?v=2026112022"></script>
+<script src="js/home.js?v=2026112022"></script>
+<script src="js/automation-log.js?v=2026112022"></script>
+<script src="js/automation-matrix.js?v=2026112022"></script>
+<script src="js/home-status.js?v=2026112022"></script>
+<script src="js/ai-markdown.js?v=2026112022"></script>
+<script src="js/repeat-mistakes.js?v=2026112022"></script>
+<script src="js/review.js?v=2026112022"></script>
+<script src="js/theme.js?v=2026112022"></script>
 <script src="assets/augments-meta.js?v=2026111604"></script>
-<script src="js/hex.js?v=2026112021"></script>
-<script src="js/history.js?v=2026112021"></script>
-<script src="js/enemy-intel.js?v=2026112021"></script>
-<script src="js/live-insights.js?v=2026112021"></script>
-<script src="js/draft-coach.js?v=2026112021"></script>
-<script src="js/bp-fusion.js?v=2026112021"></script>
-<script src="js/bp-advisor.js?v=2026112021"></script>
-<script src="js/growth-model.js?v=2026112021"></script>
-<script src="js/growth.js?v=2026112021"></script>
-<script src="js/battle-card.js?v=2026112021"></script>
-<script src="js/build-engine.js?v=2026112021"></script>
-<script src="js/player-habits.js?v=2026112021"></script>
-<script src="js/live.js?v=2026112021"></script>
-<script src="js/weekly.js?v=2026112021"></script>
-<script src="js/friends.js?v=2026112021"></script>
-<script src="js/compliance.js?v=2026112021"></script>
-<script src="js/blacklist.js?v=2026112021"></script>
-<script src="js/social.js?v=2026112021"></script>
-<script src="js/chat.js?v=2026112021"></script>
-<script src="js/translate.js?v=2026112021"></script>
-<script src="js/autobp.js?v=2026112021"></script>
-<script src="js/pick-guard.js?v=2026112021"></script>
-<script src="js/lcu-events.js?v=2026112021"></script>
-<script src="js/opgg-loadout.js?v=2026112021"></script>
-<script src="js/update.js?v=2026112021"></script>
-<script src="js/autoflow.js?v=2026112021"></script>
-<script src="js/chat-status.js?v=2026112021"></script>
-<script src="js/settings.js?v=2026112021"></script>
-<script src="js/persist.js?v=2026112021"></script>
-<script src="js/hotkeys.js?v=2026112021"></script>
-<script src="js/live-metrics.js?v=2026112021"></script>
-<script src="js/live-tips.js?v=2026112021"></script>
-<script src="js/autoreturn.js?v=2026112021"></script>
-<script src="js/sona-extra.js?v=2026112021"></script>
-<script src="i18n/zh-CN.js?v=2026112021"></script>
-<script src="js/i18n.js?v=2026112021"></script>
-<script src="js/position-kpi.js?v=2026112021"></script>
-<script src="js/rank-bench.js?v=2026112021"></script>
-<script src="js/scout-report.js?v=2026112021"></script>
-<script src="js/fleet.js?v=2026112021"></script>
-<script src="js/game-cd.js?v=2026112021"></script>
-<script src="js/growth-lp.js?v=2026112021"></script>
-<script src="js/mastery.js?v=2026112021"></script>
-<script src="js/recent-players.js?v=2026112021"></script>
-<script src="js/settings-profiles.js?v=2026112021"></script>
-<script src="js/replay-marks.js?v=2026112021"></script>
-<script src="js/account-drift.js?v=2026112021"></script>
-<script src="js/hex-cross.js?v=2026112021"></script>
-<script src="js/tools-nav.js?v=2026112021"></script>
-<script src="js/tools-overview.js?v=2026112021"></script>
-<script src="js/app.js?v=2026112021"></script>
+<script src="js/hex.js?v=2026112022"></script>
+<script src="js/history.js?v=2026112022"></script>
+<script src="js/enemy-intel.js?v=2026112022"></script>
+<script src="js/live-insights.js?v=2026112022"></script>
+<script src="js/draft-coach.js?v=2026112022"></script>
+<script src="js/bp-fusion.js?v=2026112022"></script>
+<script src="js/bp-advisor.js?v=2026112022"></script>
+<script src="js/growth-model.js?v=2026112022"></script>
+<script src="js/growth.js?v=2026112022"></script>
+<script src="js/battle-card.js?v=2026112022"></script>
+<script src="js/build-engine.js?v=2026112022"></script>
+<script src="js/player-habits.js?v=2026112022"></script>
+<script src="js/live.js?v=2026112022"></script>
+<script src="js/weekly.js?v=2026112022"></script>
+<script src="js/friends.js?v=2026112022"></script>
+<script src="js/compliance.js?v=2026112022"></script>
+<script src="js/blacklist.js?v=2026112022"></script>
+<script src="js/social.js?v=2026112022"></script>
+<script src="js/chat.js?v=2026112022"></script>
+<script src="js/translate.js?v=2026112022"></script>
+<script src="js/autobp.js?v=2026112022"></script>
+<script src="js/pick-guard.js?v=2026112022"></script>
+<script src="js/lcu-events.js?v=2026112022"></script>
+<script src="js/opgg-loadout.js?v=2026112022"></script>
+<script src="js/update.js?v=2026112022"></script>
+<script src="js/autoflow.js?v=2026112022"></script>
+<script src="js/chat-status.js?v=2026112022"></script>
+<script src="js/settings.js?v=2026112022"></script>
+<script src="js/persist.js?v=2026112022"></script>
+<script src="js/hotkeys.js?v=2026112022"></script>
+<script src="js/live-metrics.js?v=2026112022"></script>
+<script src="js/live-tips.js?v=2026112022"></script>
+<script src="js/autoreturn.js?v=2026112022"></script>
+<script src="js/sona-extra.js?v=2026112022"></script>
+<script src="i18n/zh-CN.js?v=2026112022"></script>
+<script src="js/i18n.js?v=2026112022"></script>
+<script src="js/position-kpi.js?v=2026112022"></script>
+<script src="js/rank-bench.js?v=2026112022"></script>
+<script src="js/scout-report.js?v=2026112022"></script>
+<script src="js/fleet.js?v=2026112022"></script>
+<script src="js/game-cd.js?v=2026112022"></script>
+<script src="js/growth-lp.js?v=2026112022"></script>
+<script src="js/mastery.js?v=2026112022"></script>
+<script src="js/recent-players.js?v=2026112022"></script>
+<script src="js/settings-profiles.js?v=2026112022"></script>
+<script src="js/replay-marks.js?v=2026112022"></script>
+<script src="js/account-drift.js?v=2026112022"></script>
+<script src="js/hex-cross.js?v=2026112022"></script>
+<script src="js/challenge-badge.js?v=2026112022"></script>
+<script src="js/friends-panel.js?v=2026112022"></script>
+<script src="js/home-splash.js?v=2026112022"></script>
+<script src="js/bp-team.js?v=2026112022"></script>
+<script src="js/tools-nav.js?v=2026112022"></script>
+<script src="js/tools-overview.js?v=2026112022"></script>
+<script src="js/app.js?v=2026112022"></script>
 </body>
 </html>

@@ -1,0 +1,171 @@
+/* ============================================================
+   1.6.32：外观四项 + BP 我方视角
+   全部用主题变量，不造新色；暗色主题只改透明度与滤镜，不换配色。
+   ============================================================ */
+
+/* ---------- ① 挑战徽章 ---------- */
+.chg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  letter-spacing: .2px;
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: help;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.chg-badge.chg-low { color: var(--brand-deep); border-color: var(--brand-line); background: var(--brand-soft); }
+.chg-badge.chg-mid { color: var(--cat-violet); border-color: color-mix(in srgb, var(--cat-violet) 36%, transparent); }
+.chg-badge.chg-hi { color: var(--cat-amber); border-color: color-mix(in srgb, var(--cat-amber) 42%, transparent); }
+body.dark .chg-badge { background: var(--surface-3); border-color: var(--line-strong); }
+
+/* ---------- ② 开黑同色：整张卡左侧竖条 ---------- */
+/* 与既有的 .lp-pg-N（标签底色）分开命名：那个是背景色，套到卡片上会把整张卡涂成色块。
+   用 ::before 而不是 box-shadow —— .lp-row 本身已经有阴影（hover/暗色各一套），
+   覆盖 box-shadow 会把那两套一起干掉。 */
+#page-live .lp-row.lp-premade-row { position: relative; }
+.lp-row.lp-premade-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--pm-color, transparent);
+}
+.lp-row.lp-pm-1 { --pm-color: #0f6f68; }
+.lp-row.lp-pm-2 { --pm-color: #1f3fa6; }
+.lp-row.lp-pm-3 { --pm-color: #5c6000; }
+.lp-row.lp-pm-4 { --pm-color: #1a7a2a; }
+.lp-row.lp-pm-5 { --pm-color: #8a4400; }
+.lp-row.lp-pm-6 { --pm-color: #8a2a00; }
+
+/* ---------- ③ 好友面板 ---------- */
+.fr-panel { display: flex; flex-direction: column; gap: 8px; }
+.fr-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.fr-head > b { font-size: 13px; }
+.fr-head > span { color: var(--text-muted); font-size: 11px; }
+.fr-refresh {
+  margin-left: auto; padding: 2px 9px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-1); color: var(--ink-2); font-size: 11px;
+}
+.fr-refresh:hover { border-color: var(--brand-line); color: var(--brand-deep); }
+.fr-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface-1); overflow: hidden; }
+.fr-group-title {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; font-size: 11px; font-weight: 700; color: var(--ink-2);
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+}
+.fr-group-title > i { font-style: normal; font-weight: 600; color: var(--text-muted); }
+.fr-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-bottom: 1px solid var(--surface-3); font-size: 12px;
+}
+.fr-row:last-child { border-bottom: 0; }
+.fr-champ { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; background: var(--surface-3); }
+.fr-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--surface-3); margin: 0 8px; flex: 0 0 auto; }
+.fr-ingame .fr-dot { background: var(--positive); }
+.fr-online .fr-dot { background: var(--brand); }
+.fr-away .fr-dot { background: var(--cat-amber); }
+.fr-body { min-width: 0; flex: 1 1 auto; }
+.fr-name { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr-name > i { font-style: normal; color: var(--text-muted); font-size: 10.5px; }
+.fr-meta { color: var(--text-muted); font-size: 10.5px; }
+.fr-offline { opacity: .55; }
+.fr-btn {
+  flex: 0 0 auto; padding: 2px 9px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--brand-line); background: var(--brand-soft); color: var(--brand-deep);
+  font-size: 11px; font-weight: 600;
+}
+.fr-btn:hover { border-color: var(--brand); }
+.fr-tip { font-size: 10.5px; color: var(--text-muted); margin-left: 6px; }
+.fr-tip-bad { color: var(--negative); }
+.fr-empty, .fr-note { color: var(--text-muted); font-size: 11px; line-height: 1.7; }
+.fr-note { opacity: .85; }
+
+/* ---------- ④ 背景原画（首页 / 我的画像） ---------- */
+body.splash-on.splash-page { background: var(--surface-canvas); }
+/* 原画层上面压一层画布色渐变：顶部留给页头文字，往下才逐渐透出原画。
+   第一版直接把 opacity 拉到 .42，页头那行浅灰小字直接糊在画上 —— 现在靠这层渐变压住。 */
+body.splash-on.splash-page::before {
+  content: '';
+  position: fixed;
+  inset: -6%;
+  z-index: -1;
+  background-image:
+    linear-gradient(to bottom,
+      var(--surface-canvas) 0%,
+      color-mix(in srgb, var(--surface-canvas) 92%, transparent) 16%,
+      color-mix(in srgb, var(--surface-canvas) 66%, transparent) 38%,
+      transparent 74%),
+    var(--poro-splash);
+  background-size: 100% 100%, cover;
+  background-position: 0 0, center 24%;
+  background-repeat: no-repeat, no-repeat;
+  opacity: .46;
+  filter: saturate(.9) contrast(1.02);
+  animation: poroSplashPan 44s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+body.dark.splash-on.splash-page::before {
+  opacity: .45;
+  filter: saturate(.78) brightness(.66);
+}
+/* 内容区让出透明，侧栏保持不透明（列表页文字多，背景透上去会糊） */
+body.splash-on.splash-page .main-content { background: transparent; }
+@keyframes poroSplashPan {
+  from { transform: scale(1.02) translate3d(-0.6%, 0.4%, 0); }
+  to   { transform: scale(1.12) translate3d(0.8%, -1.2%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.splash-on.splash-page::before { animation: none; transform: scale(1.04); }
+}
+
+/* ---------- BP 我方视角 ---------- */
+.bpt-brief {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  margin: 6px 0 8px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2);
+  font-size: 11px;
+}
+.bpt-side, .bpt-needs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.bpt-side > b, .bpt-needs > b { font-size: 10px; color: var(--text-muted); font-weight: 700; }
+.bpt-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-1); border: 1px solid var(--line); color: var(--ink-1);
+}
+.bpt-chip > i { font-style: normal; color: var(--text-muted); font-size: 9.5px; }
+.bpt-chip-lock { border-color: var(--brand-line); background: var(--brand-soft); }
+.bpt-gap {
+  padding: 1px 7px; border-radius: 999px;
+  color: var(--cat-amber); background: color-mix(in srgb, var(--cat-amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cat-amber) 34%, transparent);
+}
+.bpt-none { color: var(--text-muted); }
+
+/* 画像页顶部挑战卡 */
+.chg-card {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 10px; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1);
+  font-size: 12px;
+}
+.chg-card > b { font-size: 13px; }
+.chg-points .chg-badge { margin-left: 0; font-size: 11px; padding: 1px 7px; line-height: 17px; }
+.chg-meta { color: var(--ink-2); font-size: 11px; }
+.chg-src { margin-left: auto; color: var(--text-muted); font-size: 10px; }
+.fr-panel-host { display: block; }
+
+/* 侧栏背景开关的关闭态 */
+.theme-picker-btn.is-off { opacity: .45; }
