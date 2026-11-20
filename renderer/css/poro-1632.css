@@ -169,3 +169,13 @@ body.splash-on.splash-page .main-content { background: transparent; }
 
 /* 侧栏背景开关的关闭态 */
 .theme-picker-btn.is-off { opacity: .45; }
+
+/* 侧栏底部按钮排布（1.6.38）
+   收起态侧栏只有 58px 宽，两个 32px 按钮 + 6px 间距 = 70px，横排必被裁掉 17px
+   （主题按钮只露出半个）。改成竖排；展开态则让按钮靠左、版本号贴右，不再被
+   space-between 拉成两端各一个。 */
+.sidebar-extras { display: flex; align-items: center; gap: 8px; }
+.sidebar-extras > * { flex: 0 0 auto; }
+.sidebar-footer .version { margin-left: auto; white-space: nowrap; }
+body.nav-collapsed .sidebar-extras { flex-direction: column; gap: 6px; justify-content: center; }
+body.nav-collapsed .sidebar-footer .version { margin-left: 0; }
