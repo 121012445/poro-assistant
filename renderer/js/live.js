@@ -2033,10 +2033,6 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   const pageHtml = `
     ${typeof PoroScout !== 'undefined' ? PoroScout.html(PoroScout.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('scoutCollapsed') === '1') }) : ''}
     ${enemyIntelHtml(data, selfPuuid)}
-    ${typeof PoroFleet !== 'undefined' ? PoroFleet.gapLine(PoroFleet.build(data, {
-      selfTeam: selfTeamNum,
-      tags: id => (allChampions && allChampions[id] && allChampions[id].tags) || []
-    }), { mode: liveModeFamily }) : ''}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
