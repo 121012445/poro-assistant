@@ -1769,6 +1769,10 @@ function normalizeGame(g, isSgp) {
         visionScore: p.visionScore || 0,
         wardsPlaced: p.wardsPlaced || 0,
         wardsKilled: p.wardsKilled || 0,
+        // 2026-11-20: 控制时长 —— 实测 SGP 摘要里 timeCCingOthers 有真值 (0~54s),
+        // 之前没映射, 于是辅助只能拿输出类指标评分。totalTimeCCDealt 一并留着备用。
+        ccTime: p.timeCCingOthers || 0,
+        ccDealt: p.totalTimeCCDealt || 0,
         // 1.6.23: 完整符文页 (主 4 + 副 2 + 属性 3), 详情页据此显示每个人的具体符文
         ...perkPageFields(p),
         spells: [p.spell1Id ?? p.summoner1Id, p.spell2Id ?? p.summoner2Id].filter(Boolean),
@@ -1814,6 +1818,8 @@ function normalizeGame(g, isSgp) {
         level: p.stats?.champLevel || 1,
         visionScore: p.stats?.visionScore || 0,
         wardsPlaced: p.stats?.wardsPlaced || 0, wardsKilled: p.stats?.wardsKilled || 0,
+        // match-v5 的 stats 同样带 timeCCingOthers/totalTimeCCDealt, 外服走这条分支时别丢
+        ccTime: p.stats?.timeCCingOthers || 0, ccDealt: p.stats?.totalTimeCCDealt || 0,
         penta: p.stats?.pentaKills || 0, fb: !!p.stats?.firstBloodKill,
         profileIconId: p.stats?.profileIcon || 0,
         // 1.6.23: LCU 兜底路径此前一个符文字段都没映射 -> 日服/外服对局详情符文整列空白。

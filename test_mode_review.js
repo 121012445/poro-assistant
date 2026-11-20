@@ -14,7 +14,8 @@ assert(review.includes('if (!aramMode && ownDragons !== enemyDragons)'), '大乱
 assert(review.includes('避免复活后与队伍脱节进场'), '大乱斗死亡建议应围绕团战同步');
 assert(review.includes('大乱斗没有野区、野怪、插眼控视野或小龙大龙运营'), 'AI 大乱斗复盘应明确禁止峡谷建议');
 assert(utils.includes('const aramMode = /极地大乱斗|海克斯大乱斗|ARAM|KIWI|MAYHEM/i'), '战绩标签应识别大乱斗模式');
-assert(utils.includes('if (!aramMode && (+player.visionScore'), '大乱斗战绩标签不得使用视野掌控');
+assert(utils.includes('if (!aramMode) {'), '大乱斗战绩标签不得使用视野掌控');
+assert(utils.includes("push(utility, '视野掌控'"), '视野类标签应走 aramMode 守卫的 utility 桶');
 assert(home.includes('mins, g.mode)'), '战绩卡应把模式传入标签规则');
 
 console.log('按模式评分与复盘测试通过');

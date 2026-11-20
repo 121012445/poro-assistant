@@ -150,6 +150,10 @@ function resolveMatchPremadeGroups(players, profiles = [], threshold = 3) {
 
 // 将单局数据转成简短、可解释的表现标签。相对队内均值判断可兼容
 // 不同模式和对局时长；辅助位或高治疗贡献玩家不会被简单标记为输出乏力。
+// 2026-11-20: 旧代码用 `position === 'SUPPORT'` 判辅助, 但 LCU/SGP 的分路枚举是
+// UTILITY (live.js 也把 SUPPORT 归一成 UTILITY), 于是整个辅助位从来没被识别出来 ——
+// 2/2/27 的辅助照样吃到「输出乏力 / 伤转偏低」。现在两种写法都认, 并把视野/排眼/
+// 控制/保护类标签排在输出类之前, 输出类指标对辅助只作兜底。
 function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') {
   const player = p || {};
   const team = Array.isArray(myTeam) ? myTeam.filter(Boolean) : [];
@@ -162,6 +166,8 @@ function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') 
   const kda = ((+player.k || 0) + (+player.a || 0)) / Math.max(1, +player.d || 0);
   const share = Math.max(0, +dmgShare || 0);
   const participation = Math.max(0, +kp || 0);
+  const mins = Math.max(0, +minutes || 0);
+  const perMin = value => (mins > 0 ? value / mins : 0);
 
   if (player.win) {
     if ((+player.d || 0) === 0 && ((+player.k || 0) + (+player.a || 0)) >= 5) add('完美发挥', 'positive', '零阵亡并参与至少 5 次击杀');
@@ -193,44 +199,96 @@ function derivePerformanceTags(p, myTeam, kp, dmgShare, minutes = 0, mode = '') 
   const healingStrong = myHealing > 0
     && myHealing === Math.max(...healValues)
     && myHealing >= Math.max(2500, avgHealing * 1.35);
-  const isSupport = String(player.position || '').toUpperCase() === 'SUPPORT';
+  const pos = String(player.position || player.teamPosition || player.individualPosition || '').toUpperCase();
+  const isSupport = pos === 'UTILITY' || pos === 'SUPPORT';
+  // 两桶候选: 视野/控制/保护 与 输出/伤转/承伤。最后按位置决定谁先占位 ——
+  // 辅助先吃保护视野类, 其它位置先吃输出类, 都不会被对方的指标挤掉。
+  const utility = [];
+  const output = [];
+  const push = (bucket, label, tone, tip) => {
+    if (!bucket.some(tag => tag.label === label)) bucket.push({ label, tone, tip });
+  };
 
-  if (healingStrong) add('治疗给力', 'healing', `队内治疗/护盾最高：${Math.round(myHealing).toLocaleString()}`);
+  if (healingStrong) push(utility, '治疗给力', 'healing', `队内治疗/护盾最高：${Math.round(myHealing).toLocaleString()}`);
 
+  const ownDmg = Math.max(0, +player.dmg || 0);
+  const ownGold = Math.max(0, +player.gold || 0);
   const maxDamage = Math.max(...team.map(item => +item.dmg || 0));
   const maxVision = Math.max(...team.map(item => +item.visionScore || 0));
   const avgVision = sum('visionScore') / n;
-  if ((+player.dmg || 0) === maxDamage && share >= 25) {
-    add('输出核心', 'damage', `全队伤害最高，占比 ${share}%`);
-  } else if (+minutes >= 10 && !isSupport && !healingStrong && share <= 12 && (+player.dmg || 0) <= avgDamage * 0.65) {
-    add('输出乏力', 'low', `伤害占比 ${share}%，低于队内平均`);
+  const vision = Math.max(0, +player.visionScore || 0);
+  if (!aramMode) {
+    if (vision === maxVision && vision >= Math.max(20, avgVision * 1.25)) {
+      push(utility, '视野掌控', 'vision', `全队视野得分最高：${vision}`);
+    } else if (isSupport && vision >= 25 && perMin(vision) >= 1.6) {
+      // 不是全队第一但密度够 (>=1.6/分, 正常辅助水准), 也给一条, 别让视野贡献隐身
+      push(utility, '视野扎实', 'vision', `视野得分 ${vision}，约 ${perMin(vision).toFixed(1)}/分钟`);
+    }
+    const wardsKilled = Math.max(0, +player.wardsKilled || 0);
+    const maxWardsKilled = Math.max(...team.map(item => +item.wardsKilled || 0));
+    // 视野掌控已经代表视野压制了, 再叠一条排眼等于占两个格子; 只在没有视野标签时
+    // 才用排眼补位 —— 那种情况通常是"眼不多但反得多"的游走型辅助。
+    if (!utility.some(tag => tag.tone === 'vision')
+        && wardsKilled === maxWardsKilled && wardsKilled >= Math.max(5, mins * 0.3)) {
+      push(utility, '排眼积极', 'vision', `排掉 ${wardsKilled} 个守卫，全队最多`);
+    }
+  }
+  // 控制时长 (timeCCingOthers): SGP 摘要与大乱斗都有真实值, 不按模式屏蔽。
+  // 只给"队内最长且每分钟 >= 1.8 秒"的人, 否则控制型英雄人人都是控制拉满。
+  const ccTime = Math.max(0, +player.ccTime || 0);
+  const maxCc = Math.max(...team.map(item => +item.ccTime || 0));
+  if (ccTime > 0 && ccTime === maxCc && perMin(ccTime) >= 1.8) {
+    push(utility, '控制拉满', 'accent', `控制时长 ${Math.round(ccTime)} 秒，全队最长`);
+  }
+  // 开团型辅助 (硬辅) 的另一个主要贡献是承伤: 分摊到全队 22% 以上才给,
+  // 队均 20%, 低于这条线的辅助通常是真的没上前排。
+  if (isSupport && mins >= 10 && takenShare >= 22) {
+    push(utility, '前排承伤', 'team', `承伤占全队 ${takenShare}%，顶在最前面`);
   }
 
-  if (+minutes >= 10 && takenShare <= 11 && (+player.dmgTaken || 0) <= avgTaken * 0.65) {
-    add('承伤偏少', 'low', `承伤占比 ${takenShare}%；仅描述本局分摊，不代表负面评价`);
+  if (ownDmg === maxDamage && share >= 25) {
+    push(output, '输出核心', 'damage', `全队伤害最高，占比 ${share}%`);
+  } else if (mins >= 10 && !isSupport && !healingStrong && share <= 12 && ownDmg <= avgDamage * 0.65) {
+    push(output, '输出乏力', 'low', `伤害占比 ${share}%，低于队内平均`);
   }
 
-  const ownGoldRate = (+player.gold || 0) > 0 ? (+player.dmg || 0) / (+player.gold || 1) * 100 : 0;
+  // 辅助在团战里本来就分摊得少, 阈值收到 6% 才提示, 免得正常辅助白吃一条"偏低"
+  const takenLimit = isSupport ? 6 : 11;
+  const takenRatio = isSupport ? 0.5 : 0.65;
+  if (mins >= 10 && takenShare <= takenLimit && (+player.dmgTaken || 0) <= avgTaken * takenRatio) {
+    push(output, '承伤偏少', 'low', `承伤占比 ${takenShare}%；仅描述本局分摊，不代表负面评价`);
+  }
+
+  const ownGoldRate = ownGold > 0 ? ownDmg / ownGold * 100 : 0;
   const teamGoldRates = team
     .filter(item => (+item.gold || 0) >= 1000)
     .map(item => (+item.dmg || 0) / Math.max(1, +item.gold || 0) * 100);
   const avgGoldRate = teamGoldRates.length
     ? teamGoldRates.reduce((total, value) => total + value, 0) / teamGoldRates.length
     : 0;
-  if (+minutes >= 10 && (+player.gold || 0) >= 3000 && avgGoldRate > 0
+  if (mins >= 10 && ownGold >= 3000 && avgGoldRate > 0
       && ownGoldRate >= avgGoldRate * 1.3 && share >= 20) {
-    add('伤转高', 'efficiency', `伤害转化 ${Math.round(ownGoldRate)}%，显著高于队内平均`);
-  } else if (+minutes >= 10 && !isSupport && !healingStrong && (+player.gold || 0) >= 3000
+    push(output, '伤转高', 'efficiency', `伤害转化 ${Math.round(ownGoldRate)}%，显著高于队内平均`);
+  } else if (mins >= 10 && !isSupport && !healingStrong && ownGold >= 3000
       && avgGoldRate > 0 && ownGoldRate <= avgGoldRate * 0.72 && share <= 16) {
-    add('伤转偏低', 'low', `伤害转化 ${Math.round(ownGoldRate)}%，低于队内平均`);
+    push(output, '伤转偏低', 'low', `伤害转化 ${Math.round(ownGoldRate)}%，低于队内平均`);
   }
 
-  if (!aramMode && (+player.visionScore || 0) === maxVision && (+player.visionScore || 0) >= Math.max(20, avgVision * 1.25)) {
-    add('视野掌控', 'vision', `全队视野得分最高：${+player.visionScore || 0}`);
-  } else if (participation >= 75) {
-    add('团队核心', 'team', `击杀参与率 ${participation}%`);
+  if (participation >= 75) push(utility, '团队核心', 'team', `击杀参与率 ${participation}%`);
+
+  // 辅助侧的展示优先级: 视野 > 控制 > 承伤 > 排眼 > 治疗 > 团队。谁更"辅助"谁先占位,
+  // 避免治疗给力把控制/视野挤掉 (用户诉求就是这两类要能看见)。
+  const UTILITY_ORDER = ['视野掌控', '视野扎实', '控制拉满', '排眼积极', '前排承伤', '治疗给力', '团队核心'];
+  utility.sort((a, b) => UTILITY_ORDER.indexOf(a.label) - UTILITY_ORDER.indexOf(b.label));
+
+  const ordered = isSupport ? utility.concat(output) : output.concat(utility);
+  // 辅助的多维贡献 (视野+控制+保护) 一屏放得下 4 条, 输出位维持 3 条不变
+  const limit = isSupport ? 4 : 3;
+  for (const tag of ordered) {
+    if (tags.length >= limit) break;
+    add(tag.label, tag.tone, tag.tip);
   }
-  return tags.slice(0, 3);
+  return tags.slice(0, limit);
 }
 
 // ========== 对局评分 (1.6.23: 按位置归一化) ==========
