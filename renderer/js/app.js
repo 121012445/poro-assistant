@@ -372,6 +372,7 @@ async function init() {
     })();
     // 加载持久化配置
     loadConfig();
+    if (typeof syncSplashToggleBtn === 'function') syncSplashToggleBtn();
     // 持久化开关是在工具箱摘要的 DOMContentLoaded 之后恢复的，
     // 配置完成后立即让顶部摘要和左下状态中心读取同一份最终状态。
     if (typeof refreshToolsOverview === 'function') refreshToolsOverview();
@@ -510,6 +511,17 @@ function spectateFriendByPuuid(puuid) {
 }
 
 // 背景原画开关：写进本机设置，重启后保持
+// 关掉背景后重启 Poro: 按钮若还画成"开启"的样子, 用户会以为设置没生效。
+// 启动时按持久化值同步一次按钮外观。
+function syncSplashToggleBtn() {
+  if (typeof PoroSplash === 'undefined') return;
+  const btn = document.getElementById('splashToggleBtn');
+  if (!btn) return;
+  const on = PoroSplash.enabled();
+  btn.classList.toggle('is-off', !on);
+  btn.title = on ? '背景原画：已开启（点一下关闭）' : '背景原画：已关闭（点一下开启）';
+}
+
 function toggleSplashBg() {
   if (typeof PoroSplash === 'undefined') return;
   const on = PoroSplash.toggle();

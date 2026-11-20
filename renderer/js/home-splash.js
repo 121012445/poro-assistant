@@ -20,11 +20,17 @@
   let currentId = 0;
   let currentUrl = '';
 
+  // storeSet 一律 String(v) 落盘, 读回来是 "true"/"false" 字符串。
+  // 早先这里写 !!v: !!"false" === true, 于是关掉之后仍被判成开启 —— 表现在
+  // 就是"点了开关按钮变灰, 背景却一点没变"。字符串必须按字面解析。
   function enabled() {
     try {
       if (typeof storeGet === 'function') {
         const v = storeGet(KEY);
-        return v === undefined || v === null ? true : !!v;
+        if (v === undefined || v === null || v === '') return true;
+        if (typeof v === 'boolean') return v;
+        if (typeof v === 'number') return v !== 0;
+        return !/^(false|0|off|no)$/i.test(String(v).trim());
       }
     } catch (e) { /* 存储不可用就默认开 */ }
     return true;
@@ -75,8 +81,9 @@
       const url = urlOf(id);
       if (url) { currentId = id; currentUrl = url; }
     }
-    if (!currentUrl) return;
-    body.style.setProperty('--poro-splash', 'url("' + currentUrl + '")');
+    // 没有图也要如实反映开关状态: 否则按钮灰了但 body 上还挂着 splash-on,
+    // 下一轮 onPage 又按旧状态把背景挂回去。
+    if (currentUrl) body.style.setProperty('--poro-splash', 'url("' + currentUrl + '")');
     body.classList.toggle('splash-on', enabled());
   }
 
@@ -107,7 +114,11 @@
   function toggle() {
     const next = !enabled();
     setEnabled(next);
-    onPage(document.body.classList.contains('splash-page') ? 'home' : '');
+    // 早先这里用 classList.contains('splash-page') 反推当前页: 关掉时该 class 被摘掉,
+    // 再点开就反推成"不在白名单页", onPage('') 又把背景按了回去 —— 关掉后打不开。
+    // 页面归属只问 activePage(), 不再从自己的副产物里猜。
+    const page = activePage();
+    if (page) onPage(page);
     return next;
   }
 
