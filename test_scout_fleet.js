@@ -52,56 +52,48 @@ assert.ok(noTeam.reason);
 assert.deepStrictEqual(scout.streakOf([{ win: false }, { win: false }, { win: true }]), { type: 'loss', n: 2 });
 assert.deepStrictEqual(scout.streakOf([{ win: true }]), { type: '', n: 1 });
 
-// ---------- 车队 ----------
-const team = players.slice(0, 5).map((p, i) => Object.assign({}, p, { premadeGroupId: i < 3 ? 'g1' : null }));
-const view = fleet.build(team, { selfTeam: 100, champName: () => '亚索', tags: () => ['Mage'] });
+// ---------- 阵容缺口 (1.6.36 起只留一行, 不再有成员列表/分组) ----------
+const team = players.slice(0, 5);
+// 全员法师 → 没有前排 / 缺硬辅 / 缺输出
+const view = fleet.build(team, { selfTeam: 100, tags: () => ['Mage'] });
 assert.ok(view.ready);
-assert.strictEqual(view.partySize, 3, '3 人开黑');
-const g1 = view.groups.find(g => g.size === 3);
-assert.ok(g1 && g1.label === '开黑1');
-assert.strictEqual(view.wr, 50, '五人 20 场 10 胜');
-// 全员法师 → 提示缺前排与持续输出
-assert.ok(view.warnings.some(w => w.includes('没有前排')), '应提示没有前排');
-assert.ok(view.warnings.some(w => w.includes('持续输出')), '应提示缺少持续输出点');
+assert.deepStrictEqual(view.gaps.join('|'), '没有前排|缺硬辅|缺输出');
+assert.strictEqual(view.size, 5);
+assert.ok(view.warnings.some(w => w.includes('没有前排')), '完整句子要留着做 title');
+// 不再产出被砍掉的东西: 成员列表 / 分组 / 团队合并胜率
+assert.strictEqual(view.members, undefined, '成员明细已砍 (十人卡里有同一份数据)');
+assert.strictEqual(view.groups, undefined, '分组已砍 (十人卡已有组1/组2 标签)');
+assert.strictEqual(view.wr, undefined, '团队合并胜率已砍 (同队五人样本相关, 不是独立样本)');
 
-// 有坦克 + ADC 时不该再报缺口
+// 有坦克 + ADC 时不再报前排/输出, 但"全物理伤害"仍该报
 const mixed = fleet.build(team.map((p, i) => Object.assign({}, p, { championId: i })), {
-  selfTeam: 100, champName: () => '', tags: id => (Number(id) === 0 ? ['Tank'] : ['Marksman'])
+  selfTeam: 100, tags: id => (Number(id) === 0 ? ['Tank'] : ['Marksman'])
 });
-assert.ok(!mixed.warnings.some(w => w.includes('没有前排')));
-assert.ok(!mixed.warnings.some(w => w.includes('持续输出')));
+assert.deepStrictEqual(mixed.gaps, ['伤害单一'], '一队全物理仍要提示伤害类型单一');
 
-// 人数不足时明确不给面板
+// 五个位置结构齐全时不该再报任何缺口, 也就不占那一行
+const FULL = [['Tank'], ['Mage'], ['Marksman'], ['Support'], ['Assassin']];
+const full = fleet.build(team.map((p, i) => Object.assign({}, p, { championId: i })), {
+  selfTeam: 100, tags: id => FULL[Number(id)] || []
+});
+assert.strictEqual(full.gaps.length, 0, '阵容齐了就不报缺口');
+assert.strictEqual(fleet.gapLine(full, { mode: 'rift' }), '', '没缺口就不占地方');
+
+// 人数不足时明确不给结论
 assert.strictEqual(fleet.build([P('独狼', 100)], { selfTeam: 100 }).ready, false);
+assert.strictEqual(fleet.gapLine({ ready: false }), '', '数据没齐时不出空壳');
 
-// ---------- 车队默认折叠: 只保留一条摘要 ----------
-assert.ok(view.gaps.some(g => g === '没有前排'), 'gaps 要给折叠条用的短标签');
-assert.ok(view.gaps.every(g => g.length <= 5), '短标签不能太长, 折叠条排不下');
-const folded = fleet.html(view, { collapsed: true });
-const open = fleet.html(view);
-assert.ok(folded.includes('ft-card collapsed'), '折叠态要带 collapsed 类');
-assert.ok(open.includes('ft-card') && !open.includes('ft-card collapsed'), '展开态默认不带 collapsed');
-assert.ok(folded.includes('toggleFleetCard(this)'), '折叠条要能点开');
-assert.ok(folded.includes(`团队 <b>${view.games}</b> 场`), '折叠时仍要给出团队样本量');
-assert.ok(folded.includes('没有前排'), '折叠时仍要露出首个缺口');
-assert.ok(folded.includes('展开') && open.includes('收起'), '开关文案要跟着状态走');
-// 缺口多于一个时折叠成 "+N", 不把整排句子塞进标题条
-assert.ok(folded.includes('+' + (view.gaps.length - 1)) || view.gaps.length === 1);
-assert.ok(!fleet.html({ ready: false }, { collapsed: true }), '数据没齐时不出空壳');
+// 只有峡谷才提示: 大乱斗/斗魂的阵容是系统随机的, 谈"缺前排"是废话
+assert.ok(fleet.gapLine(view, { mode: 'rift' }).includes('阵容缺口'));
+assert.ok(fleet.gapLine(view, { mode: 'rift' }).includes('没有前排'));
+assert.strictEqual(fleet.gapLine(view, { mode: 'aram' }), '', '海斗/极地不提示');
+assert.strictEqual(fleet.gapLine(view, { mode: 'arena' }), '', '斗魂不提示');
+assert.strictEqual(fleet.gapLine(view, { mode: 'fun' }), '', '无限火力不提示');
+assert.ok(fleet.gapLine(view).includes('阵容缺口'), '不传 mode 时默认显示');
 
-// ---------- 名字兜底: 国服 Live Client Data 常只给 riotId, p.name 是空的 ----------
-const anon = team.map(p => Object.assign({}, p, { name: '' }));
-const cache = { me: '北司魔凡' };
-const withName = fleet.build(anon, { selfTeam: 100, nameOf: p => cache[p.puuid] || '' });
-assert.strictEqual(withName.members[0].name, '北司魔凡', '应优先用调用方给的补名');
-assert.strictEqual(withName.members.filter(m => m.name !== '未知').length, 1, '只补缓存里有的, 其余如实未知');
-const noHook = fleet.build(anon, { selfTeam: 100 });
-assert.ok(noHook.members.every(m => m.name === '未知'), '没有兜底就如实说未知, 不编名字');
-// 兜底函数抛错不能把整个面板带崩
-const boom = fleet.build(anon, { selfTeam: 100, nameOf: () => { throw new Error('x'); } });
-assert.ok(boom.ready && boom.members.length === 5);
-// 位置为空 (大乱斗没有分路) 时不留破折号占位
-const noPos = fleet.build(team.map(p => Object.assign({}, p, { position: '' })), { selfTeam: 100, champName: () => '亚索' });
-assert.ok(!fleet.html(noPos).includes('—'), '位置为空时不该渲染占位破折号');
+// 一行, 不是卡片: 不能出现卡片外框/折叠开关那些旧结构
+const line = fleet.gapLine(view, { mode: 'rift' });
+assert.ok(!/ft-card|ft-head|toggleFleetCard|ft-members/.test(line), '不该再输出旧面板结构');
+assert.ok(line.indexOf('按英雄标签粗判') > 0, 'title 要写清口径');
 
 console.log('test_scout_fleet: OK');
