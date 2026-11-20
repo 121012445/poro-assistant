@@ -74,4 +74,19 @@ assert.ok(!mixed.warnings.some(w => w.includes('持续输出')));
 // 人数不足时明确不给面板
 assert.strictEqual(fleet.build([P('独狼', 100)], { selfTeam: 100 }).ready, false);
 
+// ---------- 车队默认折叠: 只保留一条摘要 ----------
+assert.ok(view.gaps.some(g => g === '没有前排'), 'gaps 要给折叠条用的短标签');
+assert.ok(view.gaps.every(g => g.length <= 5), '短标签不能太长, 折叠条排不下');
+const folded = fleet.html(view, { collapsed: true });
+const open = fleet.html(view);
+assert.ok(folded.includes('ft-card collapsed'), '折叠态要带 collapsed 类');
+assert.ok(open.includes('ft-card') && !open.includes('ft-card collapsed'), '展开态默认不带 collapsed');
+assert.ok(folded.includes('toggleFleetCard(this)'), '折叠条要能点开');
+assert.ok(folded.includes(`团队 <b>${view.games}</b> 场`), '折叠时仍要给出团队样本量');
+assert.ok(folded.includes('没有前排'), '折叠时仍要露出首个缺口');
+assert.ok(folded.includes('展开') && open.includes('收起'), '开关文案要跟着状态走');
+// 缺口多于一个时折叠成 "+N", 不把整排句子塞进标题条
+assert.ok(folded.includes('+' + (view.gaps.length - 1)) || view.gaps.length === 1);
+assert.ok(!fleet.html({ ready: false }, { collapsed: true }), '数据没齐时不出空壳');
+
 console.log('test_scout_fleet: OK');

@@ -94,12 +94,14 @@
     };
     const all = members.flatMap(m => tagsOf(m.championId));
     const has = t => all.includes(t);
-    const warnings = [];
-    if (!has('Tank') && !has('Fighter')) warnings.push('没有前排，开团靠先手失误');
-    if (!has('Mage') && has('Marksman')) warnings.push('伤害类型偏单一 (物理为主)');
-    if (!has('Support') && !has('Tank')) warnings.push('缺少硬辅/开团位');
-    if (!has('Marksman') && !has('Assassin')) warnings.push('缺少持续输出点');
-    if (!warnings.length) warnings.push('标签层面没有明显缺口');
+    const warnings = [];   // 完整句子, 展开后看
+    const gaps = [];       // 折叠条上的短标签, 四个字以内
+    const note = (short, full) => { gaps.push(short); warnings.push(full); };
+    if (!has('Tank') && !has('Fighter')) note('没有前排', '没有前排，开团靠先手失误');
+    if (!has('Mage') && has('Marksman')) note('伤害单一', '伤害类型偏单一 (物理为主)');
+    if (!has('Support') && !has('Tank')) note('缺硬辅', '缺少硬辅/开团位');
+    if (!has('Marksman') && !has('Assassin')) note('缺输出', '缺少持续输出点');
+    if (!warnings.length) { gaps.push('阵容完整'); warnings.push('标签层面没有明显缺口'); }
 
     const totalGames = members.reduce((s, m) => s + m.games, 0);
     const totalWins = members.reduce((s, m) => s + m.wins, 0);
@@ -108,33 +110,57 @@
       members,
       groups,
       warnings,
+      gaps,
       wr: totalGames ? Math.round(totalWins / totalGames * 100) : null,
       games: totalGames,
       partySize: groups.filter(g => g.id !== '__solo').reduce((s, g) => s + g.size, 0)
     };
   }
 
-  function html(view) {
+  /**
+   * opts.collapsed 默认由调用方传 true —— 实时页主体是十人卡, 车队只在"想深看"时展开。
+   * 折叠状态下仍然把最关键的三件事留在一条里: 团队样本、开黑构成、阵容缺口。
+   */
+  function html(view, opts) {
     if (!view || !view.ready) return '';
+    const o = opts || {};
+    const collapsed = !!o.collapsed;
     const wrCls = view.wr == null ? 'flat' : view.wr >= 55 ? 'up' : view.wr <= 45 ? 'down' : 'flat';
     const groupHtml = view.groups.map(g => `<span class="ft-group${g.id === '__solo' ? ' solo' : ''}">${esc(g.label)} <b>${g.size}人</b>${g.wr == null ? '' : ` · ${g.wr}%`}</span>`).join('');
-    const memberHtml = view.members.map(m => `<div class="ft-m">
-      <span class="ft-pos">${esc(m.position || '—')}</span>
-      <b class="ft-name">${esc(m.name)}</b>
-      <span class="ft-champ">${esc(m.champName || '')}</span>
-      <span class="ft-wr ${m.wr == null ? 'flat' : m.wr >= 55 ? 'up' : m.wr <= 45 ? 'down' : 'flat'}">${m.wr == null ? '--' : m.wr + '%'}</span>
-      <span class="ft-kda">KDA ${m.kda == null ? '--' : m.kda}</span>
-      ${m.group ? '<span class="ft-tag">开黑</span>' : ''}
-    </div>`).join('');
-    return `<section class="ft-card">
-      <div class="ft-head"><b>车队视角</b>
-        <span class="ft-sum">团队近期 ${view.games} 场 · 胜率 <i class="${wrCls}">${view.wr == null ? '--' : view.wr + '%'}</i></span>
-        ${view.partySize ? `<span class="ft-party">本队开黑 ${view.partySize} 人</span>` : '<span class="ft-party solo">全员散人</span>'}
+    // 成员一格两行: 上排 位置+名字(+开黑标), 下排 英雄+胜率+KDA。竖排 5 行改成网格, 高度压到一行
+    const memberHtml = view.members.map(m => {
+      const cls = m.wr == null ? 'flat' : m.wr >= 55 ? 'up' : m.wr <= 45 ? 'down' : 'flat';
+      return `<div class="ft-m">
+      <div class="ft-m-top">
+        <span class="ft-pos">${esc(m.position || '—')}</span>
+        <b class="ft-name">${esc(m.name)}</b>
+        ${m.group ? '<span class="ft-tag">开黑</span>' : ''}
       </div>
-      <div class="ft-groups">${groupHtml}</div>
-      <div class="ft-members">${memberHtml}</div>
-      <div class="ft-warn">${view.warnings.map(w => `<span>${esc(w)}</span>`).join('')}</div>
-      <p class="ft-foot">分组来自近 30 场共同出场证据; 阵容缺口按英雄标签粗判, 不替代你自己的判断。</p>
+      <div class="ft-m-bot">
+        <span class="ft-champ">${esc(m.champName || '')}</span>
+        <b class="ft-wr ${cls}">${m.wr == null ? '--' : m.wr + '%'}</b>
+        <span class="ft-kda">KDA ${m.kda == null ? '--' : m.kda}</span>
+      </div>
+    </div>`;
+    }).join('');
+    // 折叠条只带首个缺口, 其余折叠成 "+N", 完整句子在展开后的 body 里
+    const gapChips = view.gaps.length
+      ? `<span class="ft-gap${view.gaps[0] === '阵容完整' ? ' ok' : ''}">${esc(view.gaps[0])}${view.gaps.length > 1 ? ` +${view.gaps.length - 1}` : ''}</span>`
+      : '';
+    return `<section class="ft-card${collapsed ? ' collapsed' : ''}">
+      <div class="ft-head" onclick="toggleFleetCard(this)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'){toggleFleetCard(this)}">
+        <b>车队视角</b>
+        <span class="ft-sum">团队 <b>${view.games}</b> 场 · 胜率 <i class="${wrCls}">${view.wr == null ? '--' : view.wr + '%'}</i></span>
+        ${view.partySize ? `<span class="ft-party">开黑 ${view.partySize} 人</span>` : '<span class="ft-party solo">全员散人</span>'}
+        ${gapChips}
+        <span class="ft-toggle">${collapsed ? '展开' : '收起'}</span>
+      </div>
+      <div class="ft-body">
+        <div class="ft-groups">${groupHtml}</div>
+        <div class="ft-members">${memberHtml}</div>
+        <div class="ft-warn">${view.warnings.map(w => `<span>${esc(w)}</span>`).join('')}</div>
+        <p class="ft-foot">分组来自近 30 场共同出场证据; 阵容缺口按英雄标签粗判, 不替代你自己的判断。</p>
+      </div>
     </section>`;
   }
 

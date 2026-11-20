@@ -2011,7 +2011,10 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       selfTeam: selfTeamNum,
       champName: id => champNameOf(id),
       tags: id => (allChampions && allChampions[id] && allChampions[id].tags) || []
-    })) : ''}
+    }), {
+      // 默认折叠: 实时页首屏要留给十人卡, 车队只在想看时展开 (展开状态存盘, 跨刷新保留)
+      collapsed: !(typeof storeGet === 'function' && storeGet('fleetExpanded') === '1')
+    }) : ''}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
@@ -2040,6 +2043,17 @@ function toggleScoutReport(headEl) {
   const tip = headEl.querySelector('.sr-toggle');
   if (tip) tip.textContent = collapsed ? '展开' : '收起';
   try { if (typeof storeSet === 'function') storeSet('scoutCollapsed', collapsed ? '1' : ''); } catch (e) {}
+}
+
+// ---------- 车队视角折叠 (默认收起, 展开放盘) ----------
+function toggleFleetCard(headEl) {
+  const card = headEl && headEl.closest ? headEl.closest('.ft-card') : null;
+  if (!card) return;
+  const collapsed = card.classList.toggle('collapsed');
+  const tip = headEl.querySelector('.ft-toggle');
+  if (tip) tip.textContent = collapsed ? '展开' : '收起';
+  try { if (typeof storeSet === 'function') storeSet('fleetExpanded', collapsed ? '' : '1'); } catch (e) {}
+  // 状态已落盘, 下一轮轮询重算 pageHtml 时会带上同样的折叠态, 重建一次即收敛
 }
 
 // ---------- 浮窗技能计时: 推"敌方 5 人 + 基础 CD" ----------

@@ -47,23 +47,34 @@
 .sr-foot, .ft-foot, .ad-foot, .gsp-foot, .hx-foot, .lpc-note { margin: 4px 0 0; font-size: 10px; color: var(--text-muted); }
 
 /* ---------- 车队视角 ---------- */
-.ft-card { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); }
-.ft-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+/* 默认折叠成一条, 只在需要深看时展开 —— 实时页主体是十人卡, 车队不该抢走首屏高度 */
+.ft-card { margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); overflow: hidden; }
+.ft-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 12px; font-size: 12px; cursor: pointer; user-select: none; }
 .ft-head > b { font-size: 13px; }
 .ft-sum i { font-style: normal; font-weight: 600; }
 .ft-sum i.up { color: var(--positive); } .ft-sum i.down { color: var(--negative); }
-.ft-party { margin-left: auto; font-size: 11px; color: var(--accent); }
+.ft-party { font-size: 11px; color: var(--accent); }
 .ft-party.solo { color: var(--text-muted); }
-.ft-groups { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.ft-gap { font-size: 10px; padding: 1px 7px; border-radius: 6px; background: var(--surface-2); color: var(--cat-amber); }
+.ft-gap.ok { color: var(--text-muted); }
+.ft-toggle { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.ft-card.collapsed .ft-body { display: none; }
+.ft-body { padding: 0 12px 9px; }
+.ft-groups { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; }
 .ft-group { font-size: 11px; padding: 2px 8px; border-radius: 7px; background: var(--surface-2); }
 .ft-group.solo { color: var(--text-muted); }
-.ft-members { display: flex; flex-direction: column; gap: 2px; }
-.ft-m { display: grid; grid-template-columns: 40px 1fr 84px 46px 64px 42px; gap: 6px; align-items: center; font-size: 11px; }
-.ft-pos { color: var(--text-muted); font-size: 10px; }
+/* 五人竖排 → 网格横排: 一行放得下就一行, 窄了自动折行 */
+.ft-members { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 4px; }
+.ft-m { display: flex; flex-direction: column; gap: 1px; padding: 4px 8px; border-radius: 8px;
+  background: var(--surface-2); min-width: 0; }
+.ft-m-top, .ft-m-bot { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.ft-m-bot { font-size: 10px; }
+.ft-pos { color: var(--text-muted); font-size: 10px; flex: none; }
 .ft-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ft-champ { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-wr { font-size: 10px; flex: none; }
 .ft-wr.up { color: var(--positive); } .ft-wr.down { color: var(--negative); }
-.ft-kda, .ft-tag { color: var(--text-muted); font-size: 10px; }
+.ft-kda, .ft-tag { color: var(--text-muted); font-size: 10px; flex: none; }
 .ft-warn { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .ft-warn span { font-size: 11px; padding: 2px 8px; border-radius: 7px; background: var(--surface-2); color: var(--cat-amber); }
 
