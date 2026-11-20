@@ -89,4 +89,19 @@ assert.ok(folded.includes('展开') && open.includes('收起'), '开关文案要
 assert.ok(folded.includes('+' + (view.gaps.length - 1)) || view.gaps.length === 1);
 assert.ok(!fleet.html({ ready: false }, { collapsed: true }), '数据没齐时不出空壳');
 
+// ---------- 名字兜底: 国服 Live Client Data 常只给 riotId, p.name 是空的 ----------
+const anon = team.map(p => Object.assign({}, p, { name: '' }));
+const cache = { me: '北司魔凡' };
+const withName = fleet.build(anon, { selfTeam: 100, nameOf: p => cache[p.puuid] || '' });
+assert.strictEqual(withName.members[0].name, '北司魔凡', '应优先用调用方给的补名');
+assert.strictEqual(withName.members.filter(m => m.name !== '未知').length, 1, '只补缓存里有的, 其余如实未知');
+const noHook = fleet.build(anon, { selfTeam: 100 });
+assert.ok(noHook.members.every(m => m.name === '未知'), '没有兜底就如实说未知, 不编名字');
+// 兜底函数抛错不能把整个面板带崩
+const boom = fleet.build(anon, { selfTeam: 100, nameOf: () => { throw new Error('x'); } });
+assert.ok(boom.ready && boom.members.length === 5);
+// 位置为空 (大乱斗没有分路) 时不留破折号占位
+const noPos = fleet.build(team.map(p => Object.assign({}, p, { position: '' })), { selfTeam: 100, champName: () => '亚索' });
+assert.ok(!fleet.html(noPos).includes('—'), '位置为空时不该渲染占位破折号');
+
 console.log('test_scout_fleet: OK');

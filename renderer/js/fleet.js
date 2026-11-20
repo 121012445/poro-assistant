@@ -44,7 +44,7 @@
 
   /**
    * @param {Array} players live.js 的 10 人 (或 5 人) 数组
-   * @param {object} opts { selfTeam, tags(id) -> string[], champName(id) }
+   * @param {object} opts { selfTeam, tags(id) -> string[], champName(id) -> string, nameOf(player) -> string }
    */
   function build(players, opts) {
     const o = opts || {};
@@ -53,10 +53,23 @@
     const team = teamNo ? list.filter(p => Number(p.team) === teamNo) : list;
     if (team.length < 2) return { ready: false, reason: '还没识别到己方队伍' };
 
+    // 名字兜底: 实时页的 p.name 在国服常常是空的 (Live Client Data 只给 riotId),
+    // 十人卡靠 nameCache 补名 —— 车队没有那份缓存, 所以让调用方把补名函数传进来。
+    // 这里不做第二次兜底, 页面上的"未知"就必须是"真的查不到", 而不是"忘了查"。
+    const nameOf = p => {
+      try {
+        if (typeof o.nameOf === 'function') {
+          const n = o.nameOf(p);
+          if (n) return String(n);
+        }
+      } catch (e) { /* 兜底失败就退回原字段 */ }
+      return p.name || '未知';
+    };
+
     const members = team.map(p => {
       const st = stats(p);
       return {
-        name: p.name || '未知',
+        name: nameOf(p),
         puuid: p.puuid || '',
         position: posOf(p),
         championId: +p.championId || 0,
@@ -132,8 +145,8 @@
       const cls = m.wr == null ? 'flat' : m.wr >= 55 ? 'up' : m.wr <= 45 ? 'down' : 'flat';
       return `<div class="ft-m">
       <div class="ft-m-top">
-        <span class="ft-pos">${esc(m.position || '—')}</span>
-        <b class="ft-name">${esc(m.name)}</b>
+        ${m.position ? `<span class="ft-pos">${esc(m.position)}</span>` : ''}
+        <b class="ft-name" title="${esc(m.name)}">${esc(m.name)}</b>
         ${m.group ? '<span class="ft-tag">开黑</span>' : ''}
       </div>
       <div class="ft-m-bot">

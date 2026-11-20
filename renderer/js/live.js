@@ -441,12 +441,16 @@ function buildLivePlayers(livePlayers, parts, phase) {
         if (found) cid = +found.key;
       }
       const sp = cid ? sessionByChamp[cid] : null;
+      // 国服 Live Client Data 的 playerList 常常只给 riotId ("名字#TAG"),
+      // riotIdGameName / summonerName 双双为空。十人卡能显示名字是靠 nameCache 兜底,
+      // 车队视角这类没有缓存的调用方就只剩"未知" —— 这里先把 riotId 的前缀切出来。
+      const riotName = lp.riotId ? String(lp.riotId).split('#')[0].trim() : '';
       return {
         puuid: sp?.puuid || lp.riotId || '',
         championId: cid,
         team: normTeam(lp.team),
         position: lp.position || '',
-        name: lp.riotIdGameName || lp.summonerName || sp?.summonerName || sp?.gameName || '',
+        name: lp.riotIdGameName || lp.summonerName || riotName || sp?.summonerName || sp?.gameName || '',
         items: (lp.items || []).map(item => +(item?.itemID ?? item?.itemId ?? item) || 0).filter(Boolean),
         // 技能计时用: Live Client Data 给的是技能名 (中文/英文随客户端语言)
         spells: lp.summonerSpells
@@ -2010,7 +2014,9 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     ${typeof PoroFleet !== 'undefined' ? PoroFleet.html(PoroFleet.build(data, {
       selfTeam: selfTeamNum,
       champName: id => champNameOf(id),
-      tags: id => (allChampions && allChampions[id] && allChampions[id].tags) || []
+      tags: id => (allChampions && allChampions[id] && allChampions[id].tags) || [],
+      // 与十人卡同源补名: p.name 为空时用 nameCache (国服 Live Client Data 常只给 riotId)
+      nameOf: p => (p && p.name) || (p && p.puuid && nameCache[p.puuid]) || ''
     }), {
       // 默认折叠: 实时页首屏要留给十人卡, 车队只在想看时展开 (展开状态存盘, 跨刷新保留)
       collapsed: !(typeof storeGet === 'function' && storeGet('fleetExpanded') === '1')
