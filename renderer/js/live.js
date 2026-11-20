@@ -477,6 +477,25 @@ function buildLivePlayers(livePlayers, parts, phase) {
   return players;
 }
 
+// 把 resolveNames 解析好的名字回填到 data 本身。
+//
+// 名字解析结果此前只落进 nameCache, data 项的 name 一直是空的: 十人卡有
+// `p.name || nameCache[p.puuid]` 兜底所以看着正常, 但车队/侦察这类直接读 p.name
+// 的模块拿到的就是空字符串, 页面上表现为"未知"。与其让每个模块各抄一遍兜底,
+// 不如在数据层回填一次 —— 下游拿到的 data 自带名字。
+function backfillLiveNames(players) {
+  if (!Array.isArray(players)) return 0;
+  let n = 0;
+  for (const p of players) {
+    if (!p || !p.puuid) continue;
+    const cached = nameCache[p.puuid];
+    if (!cached) continue;
+    const broken = !p.name || (typeof hasBrokenText === 'function' && hasBrokenText(p.name));
+    if (broken) { p.name = cached; n++; }
+  }
+  return n;
+}
+
 // 作战计划条渲染到页头槽位; 没有阵容 (加载中/出错/不在对局) 时清空, 不留上一局的残留。
 // 轮询每 4/12s 重入一次, 计划条内容通常不变 —— 无条件 innerHTML 会造成肉眼可见的闪烁,
 // 所以内容相同时直接跳过写入。
@@ -643,6 +662,9 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
 
   // 先解析名字和段位 (快)
   await resolveNames(players.filter(p => p.puuid).map(p => p.puuid));
+  // 解析结果只落在 nameCache 里, data 的名字字段仍是空的 —— 在这里回填一次,
+  // 车队 / 侦察 / BP 这些直接读 p.name 的模块才不会显示"未知"。
+  backfillLiveNames(players);
   await resolveRanks(players.filter(p => p.puuid).map(p => p.puuid));
   if (staleSession()) return;
 
