@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://ddragon.leagueoflegends.com https://raw.communitydragon.org; connect-src 'self' https://ddragon.leagueoflegends.com https://raw.communitydragon.org; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <title>Poro - 英雄联盟</title>
-<link rel="stylesheet" href="css/style.css?v=2026112010">
-<link rel="stylesheet" href="css/extras.css?v=2026112010">
-<link rel="stylesheet" href="css/dark.css?v=2026112010">
-<link rel="stylesheet" href="css/premium.css?v=2026112010">
-<link rel="stylesheet" href="css/ui-polish.css?v=2026112010">
-<link rel="stylesheet" href="css/ui-system-v3.css?v=2026112010">
-<link rel="stylesheet" href="css/v4.css?v=2026112010">
+<link rel="stylesheet" href="css/style.css?v=2026112021">
+<link rel="stylesheet" href="css/extras.css?v=2026112021">
+<link rel="stylesheet" href="css/dark.css?v=2026112021">
+<link rel="stylesheet" href="css/premium.css?v=2026112021">
+<link rel="stylesheet" href="css/ui-polish.css?v=2026112021">
+<link rel="stylesheet" href="css/ui-system-v3.css?v=2026112021">
+<link rel="stylesheet" href="css/v4.css?v=2026112021">
+<link rel="stylesheet" href="css/poro-1630.css?v=2026112021">
 </head>
 <body>
 
@@ -129,7 +130,11 @@
       <h2>成长</h2>
       <p class="page-sub">跨局训练计划 · 长期趋势 · 只统计本机已存下的复盘与对局，不预测、不打分</p>
     </div>
+    <div id="lpPanel" class="lpc-panel"></div>
+    <div id="rankBenchPanel" class="rbk-panel"><div class="meta-loading">正在取同段位基准线…</div></div>
     <div id="growthPanel"><div class="meta-loading">先到「首页」加载战绩后查看成长数据</div></div>
+    <div id="replayMarksPanel" class="rm-panel"></div>
+    <div id="accountDriftPanel" class="ad-panel"></div>
   </div>
 
   <!-- 英雄库 -->
@@ -142,6 +147,7 @@
       </div>
       <div class="role-filters" id="roleFilters"></div>
     </div>
+    <div id="masteryPanel" class="ms-panel"></div>
     <div class="champ-table-wrap" id="championGrid"></div>
   </div>
 
@@ -220,8 +226,7 @@
     <div id="hexStats" class="hex-stats-bar">样本统计中...</div>
     <!-- 两组控件分开：左边是"看哪份数据"，右边是"浮窗怎么摆"。后者不进游戏也该能调，
          所以空闲态只收左边那组。 -->
-    <div class="hex-filter-bar">
-      <div class="hex-filter-data">
+    <div class="hex-filter-bar">      <div class="hex-filter-data">
         <label>数据范围<select id="hexScope" onchange="setHexDataScope(this.value)"><option value="all">全分段</option><option value="high">高分段</option></select></label>
         <label>强化轮次<select id="hexStage" onchange="setHexBrowseStage(this.value)"><option value="all">综合</option><option value="1">第 1 轮</option><option value="2">第 2 轮</option><option value="3">第 3 轮</option><option value="4">第 4 轮</option></select></label>
         <span class="hex-filter-note">胜率已按样本量做可信度修正，避免小样本虚高。</span>
@@ -232,6 +237,12 @@
       </div>
     </div>
     <details class="hex-journal" ontoggle="if(this.open) renderAugmentJournal()"><summary>海克斯选择档案 · 仅本机保存</summary><div id="augmentJournal" style="max-height:360px;overflow:auto"></div></details>
+    <div id="hexFitPanel" class="hx-card">
+      <div class="hx-head"><b>强化 × 英雄</b><span>反向查：这个强化在已缓存英雄里谁最吃香</span></div>
+      <input type="text" id="hexFitSearch" class="tool-input" placeholder="输入强化名，如「加速巫术」" oninput="PoroHexCross.onSearchInput(this)">
+      <div id="hexFitHits" class="hx-hits"></div>
+      <div id="hexFitBody" class="hx-body"></div>
+    </div>
     <div id="hexGuides" class="hex-guide-grid"></div>
     <div class="tool-row hex-search-row">
       <input type="text" id="hexSearch" placeholder="搜索强化名称..." class="tool-input" style="flex:1" oninput="filterHexList()">
@@ -612,6 +623,11 @@
           </select>
         </div>
       </div>
+      <div class="tool-card">
+        <h3>游戏设置配置档</h3>
+        <p>把当前这套设置另存为具名档（单排 / 车队 / 直播），需要时一键切回。底层复用上面的设置快照，不会改动其它档。</p>
+        <div id="gsSlots" class="gs-slots"><div class="gsp-empty">读取配置档…</div></div>
+      </div>
       <div class="tools-section" id="tools-sec-data" data-cat="设置与数据">设置与数据</div>
       <div class="tool-card span-all">
         <h3>软件更新 <span id="updateBadge" class="update-badge" hidden>有新版本</span></h3>
@@ -686,11 +702,16 @@
       <h2>玩家记忆</h2>
     </div>
     <p class="pm-page-desc">人工标签、私人备注和遭遇记录仅保存在本机；黑名单仍会在实时对局中提醒。</p>
-    <div class="bl-add-row">
+    <div class="pm-tabs">
+      <button class="pm-tab active" id="pmTabMemory" type="button" onclick="switchPlayerMemoryTab('memory')">玩家记忆</button>
+      <button class="pm-tab" id="pmTabRecent" type="button" onclick="switchPlayerMemoryTab('recent')">遭遇库</button>
+    </div>
+    <div class="bl-add-row" id="blAddRow">
       <input type="text" id="blPageName" placeholder="输入召唤师名称" class="tool-input" style="flex:1;">
       <button class="btn-primary" onclick="addBlacklistFromPage()">加入黑名单</button>
     </div>
     <div id="blPageList" class="bl-page-list"></div>
+    <div id="recentPlayersPanel" class="rp-panel" hidden></div>
   </div>
 </div>
 
@@ -779,66 +800,80 @@
   </div>
 </div>
 
-<script src="js/utils.js?v=2026112010"></script>
-<script src="js/player-index.js?v=2026112010"></script>
-<script src="js/local-cache.js?v=2026112010"></script>
-<script src="js/icons.js?v=2026112010"></script>
-<script src="js/data-model.js?v=2026112010"></script>
-<script src="js/session-state.js?v=2026112010"></script>
-<script src="js/performance.js?v=2026112010"></script>
-<script src="js/diagnostics.js?v=2026112010"></script>
-<script src="js/balance.js?v=2026112010"></script>
-<script src="js/behavior-tags.js?v=2026112010"></script>
-<script src="js/smurf-tags.js?v=2026112010"></script>
-<script src="js/bench.js?v=2026112010"></script>
-<script src="js/champions.js?v=2026112010"></script>
-<script src="js/progress-report.js?v=2026112010"></script>
-<script src="js/review-bp-bridge.js?v=2026112010"></script>
-<script src="js/home.js?v=2026112010"></script>
-<script src="js/automation-log.js?v=2026112010"></script>
-<script src="js/automation-matrix.js?v=2026112010"></script>
-<script src="js/home-status.js?v=2026112010"></script>
-<script src="js/ai-markdown.js?v=2026112010"></script>
-<script src="js/repeat-mistakes.js?v=2026112010"></script>
-<script src="js/review.js?v=2026112010"></script>
-<script src="js/theme.js?v=2026112010"></script>
+<script src="js/utils.js?v=2026112021"></script>
+<script src="js/player-index.js?v=2026112021"></script>
+<script src="js/local-cache.js?v=2026112021"></script>
+<script src="js/icons.js?v=2026112021"></script>
+<script src="js/data-model.js?v=2026112021"></script>
+<script src="js/session-state.js?v=2026112021"></script>
+<script src="js/performance.js?v=2026112021"></script>
+<script src="js/diagnostics.js?v=2026112021"></script>
+<script src="js/balance.js?v=2026112021"></script>
+<script src="js/behavior-tags.js?v=2026112021"></script>
+<script src="js/smurf-tags.js?v=2026112021"></script>
+<script src="js/bench.js?v=2026112021"></script>
+<script src="js/champions.js?v=2026112021"></script>
+<script src="js/progress-report.js?v=2026112021"></script>
+<script src="js/review-bp-bridge.js?v=2026112021"></script>
+<script src="js/home.js?v=2026112021"></script>
+<script src="js/automation-log.js?v=2026112021"></script>
+<script src="js/automation-matrix.js?v=2026112021"></script>
+<script src="js/home-status.js?v=2026112021"></script>
+<script src="js/ai-markdown.js?v=2026112021"></script>
+<script src="js/repeat-mistakes.js?v=2026112021"></script>
+<script src="js/review.js?v=2026112021"></script>
+<script src="js/theme.js?v=2026112021"></script>
 <script src="assets/augments-meta.js?v=2026111604"></script>
-<script src="js/hex.js?v=2026112010"></script>
-<script src="js/history.js?v=2026112010"></script>
-<script src="js/enemy-intel.js?v=2026112010"></script>
-<script src="js/live-insights.js?v=2026112010"></script>
-<script src="js/draft-coach.js?v=2026112010"></script>
-<script src="js/bp-fusion.js?v=2026112010"></script>
-<script src="js/bp-advisor.js?v=2026112010"></script>
-<script src="js/growth-model.js?v=2026112010"></script>
-<script src="js/growth.js?v=2026112010"></script>
-<script src="js/battle-card.js?v=2026112010"></script>
-<script src="js/build-engine.js?v=2026112010"></script>
-<script src="js/player-habits.js?v=2026112010"></script>
-<script src="js/live.js?v=2026112010"></script>
-<script src="js/weekly.js?v=2026112010"></script>
-<script src="js/friends.js?v=2026112010"></script>
-<script src="js/compliance.js?v=2026112010"></script>
-<script src="js/blacklist.js?v=2026112010"></script>
-<script src="js/social.js?v=2026112010"></script>
-<script src="js/chat.js?v=2026112010"></script>
-<script src="js/translate.js?v=2026112010"></script>
-<script src="js/autobp.js?v=2026112010"></script>
-<script src="js/pick-guard.js?v=2026112010"></script>
-<script src="js/lcu-events.js?v=2026112010"></script>
-<script src="js/opgg-loadout.js?v=2026112010"></script>
-<script src="js/update.js?v=2026112010"></script>
-<script src="js/autoflow.js?v=2026112010"></script>
-<script src="js/chat-status.js?v=2026112010"></script>
-<script src="js/settings.js?v=2026112010"></script>
-<script src="js/persist.js?v=2026112010"></script>
-<script src="js/hotkeys.js?v=2026112010"></script>
-<script src="js/live-metrics.js?v=2026112010"></script>
-<script src="js/live-tips.js?v=2026112010"></script>
-<script src="js/autoreturn.js?v=2026112010"></script>
-<script src="js/sona-extra.js?v=2026112010"></script>
-<script src="js/tools-nav.js?v=2026112010"></script>
-<script src="js/tools-overview.js?v=2026112010"></script>
-<script src="js/app.js?v=2026112010"></script>
+<script src="js/hex.js?v=2026112021"></script>
+<script src="js/history.js?v=2026112021"></script>
+<script src="js/enemy-intel.js?v=2026112021"></script>
+<script src="js/live-insights.js?v=2026112021"></script>
+<script src="js/draft-coach.js?v=2026112021"></script>
+<script src="js/bp-fusion.js?v=2026112021"></script>
+<script src="js/bp-advisor.js?v=2026112021"></script>
+<script src="js/growth-model.js?v=2026112021"></script>
+<script src="js/growth.js?v=2026112021"></script>
+<script src="js/battle-card.js?v=2026112021"></script>
+<script src="js/build-engine.js?v=2026112021"></script>
+<script src="js/player-habits.js?v=2026112021"></script>
+<script src="js/live.js?v=2026112021"></script>
+<script src="js/weekly.js?v=2026112021"></script>
+<script src="js/friends.js?v=2026112021"></script>
+<script src="js/compliance.js?v=2026112021"></script>
+<script src="js/blacklist.js?v=2026112021"></script>
+<script src="js/social.js?v=2026112021"></script>
+<script src="js/chat.js?v=2026112021"></script>
+<script src="js/translate.js?v=2026112021"></script>
+<script src="js/autobp.js?v=2026112021"></script>
+<script src="js/pick-guard.js?v=2026112021"></script>
+<script src="js/lcu-events.js?v=2026112021"></script>
+<script src="js/opgg-loadout.js?v=2026112021"></script>
+<script src="js/update.js?v=2026112021"></script>
+<script src="js/autoflow.js?v=2026112021"></script>
+<script src="js/chat-status.js?v=2026112021"></script>
+<script src="js/settings.js?v=2026112021"></script>
+<script src="js/persist.js?v=2026112021"></script>
+<script src="js/hotkeys.js?v=2026112021"></script>
+<script src="js/live-metrics.js?v=2026112021"></script>
+<script src="js/live-tips.js?v=2026112021"></script>
+<script src="js/autoreturn.js?v=2026112021"></script>
+<script src="js/sona-extra.js?v=2026112021"></script>
+<script src="i18n/zh-CN.js?v=2026112021"></script>
+<script src="js/i18n.js?v=2026112021"></script>
+<script src="js/position-kpi.js?v=2026112021"></script>
+<script src="js/rank-bench.js?v=2026112021"></script>
+<script src="js/scout-report.js?v=2026112021"></script>
+<script src="js/fleet.js?v=2026112021"></script>
+<script src="js/game-cd.js?v=2026112021"></script>
+<script src="js/growth-lp.js?v=2026112021"></script>
+<script src="js/mastery.js?v=2026112021"></script>
+<script src="js/recent-players.js?v=2026112021"></script>
+<script src="js/settings-profiles.js?v=2026112021"></script>
+<script src="js/replay-marks.js?v=2026112021"></script>
+<script src="js/account-drift.js?v=2026112021"></script>
+<script src="js/hex-cross.js?v=2026112021"></script>
+<script src="js/tools-nav.js?v=2026112021"></script>
+<script src="js/tools-overview.js?v=2026112021"></script>
+<script src="js/app.js?v=2026112021"></script>
 </body>
 </html>

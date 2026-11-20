@@ -2155,6 +2155,10 @@ function buildHomeMmr(qm,modeStats,wr,s) {
     };
     const soloQf = qm.RANKED_SOLO_5x5;
     const flexQf = qm.RANKED_FLEX_SR;
+    // 1.6.30: 每次拿到排位条目就记一个 LP 采样 (成长页的 LP 曲线靠它)
+    if (typeof PoroLp !== 'undefined') {
+      try { if (soloQf) PoroLp.record('RANKED_SOLO_5x5', soloQf); if (flexQf) PoroLp.record('RANKED_FLEX_SR', flexQf); } catch (e) {}
+    }
     const soloWr = seasonWrOfQ(soloQf) ?? recentWrOf(["单双排", "排位·单双排"]) ?? wr;
     const flexWr = seasonWrOfQ(flexQf) ?? recentWrOf(["灵活组排", "排位·灵活组排"]) ?? wr;
     const soloM = mmrFromRanked(soloQf?.tier, soloQf?.division, soloQf?.leaguePoints, soloWr);

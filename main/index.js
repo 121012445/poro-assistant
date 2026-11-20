@@ -1991,6 +1991,14 @@ ipcMain.handle('opgg:build', async (e, mode, championId, position) => {
   catch (err) { return { __error: err.message }; }
 });
 
+// ---------- op.gg 同段位基准线 (1.6.31) ----------
+// 一次取回该段位全部英雄的分路数据 (胜率/登场率/KDA/名次), 渲染层用它算加权分位数当参考带。
+// 主进程只做校验与缓存, 不替渲染层决定"哪个段位对应哪个参数"。
+ipcMain.handle('opgg:bench', async (e, tier, region) => {
+  try { return await opggClient.getBench(String(tier || 'all'), String(region || 'global')); }
+  catch (err) { return { __error: err.message }; }
+});
+
 // ---------- op.gg 英雄强度数据 (KR 服务器, 10分钟缓存) ----------
 let opggCache = { t: 0, data: null };
 ipcMain.handle('opgg:champions', async () => {
@@ -2046,6 +2054,15 @@ ipcMain.handle('hex:championAugments', async (e, championId, scope) => {
   catch (error) {
     logErr('[HEX STATS] champion=' + String(championId) + ' ' + error.message);
     return { __error: true, message: error.message };
+  }
+});
+
+// 反向查询: 某个强化在已缓存英雄里谁最吃香 (只读本机缓存, 不联网)
+ipcMain.handle('hex:augmentFit', async (e, augmentId, scope) => {
+  try { return aramkit.augmentFit(augmentId, USER_DATA, scope); }
+  catch (error) {
+    logErr('[HEX FIT] augment=' + String(augmentId) + ' ' + error.message);
+    return { ok: false, error: error.message, champions: [], scanned: 0 };
   }
 });
 
@@ -2175,6 +2192,24 @@ ipcMain.handle('game-settings:clear-full', async () => {
   catch (error) { return { ok: false, error: error.message }; }
 });
 
+// 配置档: 具名保存 / 列出 / 写回快照 / 删除。写回后渲染层再调 apply-full 才生效。
+ipcMain.handle('game-settings:list-slots', async () => {
+  try { return gameSettings.listSlots(USER_DATA); }
+  catch (error) { return { ok: false, slots: [], error: error.message }; }
+});
+ipcMain.handle('game-settings:save-slot', async (e, name) => {
+  try { return gameSettings.saveSlot(USER_DATA, name); }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('game-settings:restore-slot', async (e, name) => {
+  try { return gameSettings.restoreSlot(USER_DATA, name); }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('game-settings:delete-slot', async (e, name) => {
+  try { return gameSettings.deleteSlot(USER_DATA, name); }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+
 // 渲染层兜底轮询上报的阶段变化 (WS 不可用时快捷键仍能联动)
 let lastReportedPhase = null;
 let inProgressHotkeysActive = false;
@@ -2186,13 +2221,14 @@ let hotkeyPoller = hotkeyPollerFactory.createNativePoller(
 
 // ---------- 自定义热键 (工具箱改键, 存 poro-config.json 的 hotkey_* 键, 进局后生效) ----------
 const hotkeyManager = require('./hotkey-manager');
-const HOTKEY_DEFAULTS = Object.freeze({ f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10' });
+const HOTKEY_DEFAULTS = Object.freeze({ f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10', f11: 'F11' });
 const HOTKEY_ACTIONS = Object.freeze({
   f6: '强化识别 (海克斯三选一重扫)',
   f7: 'KDA 简报 · 己方',
   f8: 'KDA 简报 · 敌方',
   f9: '对局战报浮窗开关',
-  f10: '聊天弹幕 · 打字输入'
+  f10: '聊天弹幕 · 打字输入',
+  f11: '技能计时 · 浮窗可点 (点技能开始倒计时)'
 });
 let hotkeyBindings = Object.assign({}, HOTKEY_DEFAULTS);
 let hotkeyParsed = buildHotkeyParsed();
@@ -2288,6 +2324,10 @@ function dispatchInGameHotkey(action, source) {
     // 物理按键各报一次, 切换式会把状态抵消成"按了没反应" (1.5.36 实测)。退出靠 Esc/发送/失焦。
     logErr('[SHORTCUT] Ctrl+F10 fired source=' + source + ' -> ChatTranslateInput');
     setGameTranslateInput(true);
+  } else if (action === 'f11') {
+    // F11: 让对局浮窗短暂可点, 用来点敌方技能开始倒计时 (平时保持穿透)
+    logErr('[SHORTCUT] F11 fired source=' + source + ' -> GameLiveCdInteractive');
+    toggleGameLiveCdInteractive();
   }
 }
 
@@ -2334,6 +2374,33 @@ function pushGameLiveBoard() {
   try { gameLiveWindow.webContents.send('game-live:board', gameLiveBoard); } catch (e) {}
 }
 
+// ---------- 对局内技能计时 (F11) ----------
+// 浮窗平时点击穿透 (不能挡视线/不能误点), 只有按 F11 才短暂变成可点,
+// 让用户点敌方技能开始倒计时; 12 秒无操作由浮窗自己退回穿透态。
+let gameLiveCd = { rows: [] };
+let gameLiveCdInteractive = false;
+
+function pushGameLiveCd() {
+  if (!gameLiveWindow || gameLiveWindow.isDestroyed()) return;
+  try { gameLiveWindow.webContents.send('game-live:cd', gameLiveCd); } catch (e) {}
+}
+
+function setGameLiveCdInteractive(on) {
+  const want = !!on;
+  gameLiveCdInteractive = want;
+  if (!gameLiveWindow || gameLiveWindow.isDestroyed()) return;
+  try {
+    gameLiveWindow.setIgnoreMouseEvents(!want, { forward: !want });
+    gameLiveWindow.webContents.send('game-live:cd-interactive', want);
+    if (want) gameLiveWindow.moveTop();
+  } catch (e) { logErr('[GAME CD] interactive failed: ' + e.message); }
+}
+
+function toggleGameLiveCdInteractive() {
+  if (!gameLiveVisible) toggleGameLiveWindow();
+  setGameLiveCdInteractive(!gameLiveCdInteractive);
+}
+
 function createGameLiveWindow() {
   if (gameLiveWindow && !gameLiveWindow.isDestroyed()) return gameLiveWindow;
   gameLiveWindow = new BrowserWindow(Object.assign(gameLiveMetrics().bounds, {
@@ -2364,7 +2431,7 @@ function createGameLiveWindow() {
   try { gameLiveWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
   gameLiveWindow.loadFile(path.join(__dirname, '..', 'renderer', 'game-live.html'));
   gameLiveWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  gameLiveWindow.webContents.on('did-finish-load', () => { if (gameLiveVisible) { pushGameLiveData(); pushGameLiveBoard(); } });
+  gameLiveWindow.webContents.on('did-finish-load', () => { if (gameLiveVisible) { pushGameLiveData(); pushGameLiveBoard(); pushGameLiveCd(); } });
   gameLiveWindow.webContents.on('did-fail-load', (e, code, desc) => logErr('[GAME LIVE LOAD FAILED] ' + code + ' ' + desc));
   gameLiveWindow.on('closed', () => { gameLiveWindow = null; });
   return gameLiveWindow;
@@ -2383,16 +2450,20 @@ function toggleGameLiveWindow() {
     try { gameLiveWindow.webContents.setZoomFactor(metrics.scale); } catch (e) {}
     gameLiveWindow.setAlwaysOnTop(true, 'screen-saver', 1);
     gameLiveWindow.setIgnoreMouseEvents(true, { forward: false });
+    gameLiveCdInteractive = false;
     gameLiveVisible = true;
     gameLiveWindow.show();
     try { gameLiveWindow.moveTop(); } catch (e) {}
     pushGameLiveData();
     pushGameLiveBoard();
+    pushGameLiveCd();
+    try { gameLiveWindow.webContents.send('game-live:cd-interactive', false); } catch (e) {}
   } catch (error) { logErr('[GAME LIVE] toggle failed: ' + error.message); }
 }
 
 function hideGameLiveWindow() {
   gameLiveVisible = false;
+  gameLiveCdInteractive = false;
   if (gameLiveWindow && !gameLiveWindow.isDestroyed() && gameLiveWindow.isVisible()) gameLiveWindow.hide();
 }
 
@@ -2427,8 +2498,37 @@ ipcMain.handle('game-live:push', async (e, payload) => {
 
 // 本局实时区块: 经济/对位/成装. 浮窗只做纯渲染, 所有数值在这里过一遍范围校验,
 // 避免渲染层算出 NaN/Infinity 之类的东西直接把浮窗布局搞崩。
-ipcMain.handle('game-live:board', async (e, payload) => {
+// 技能计时: 主窗口把"敌方 5 人的技能 + 基础 CD"推上来, 浮窗自己持有倒计时状态
+ipcMain.handle('game-live:push-cd', async (e, payload) => {
   if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  const p = payload || {};
+  gameLiveCd = {
+    updatedAt: Date.now(),
+    rows: (Array.isArray(p.rows) ? p.rows : []).slice(0, 5).map(r => ({
+      key: String(r && r.key || '').substring(0, 64),
+      name: String(r && r.name || '').substring(0, 24),
+      champName: String(r && r.champName || '').substring(0, 16),
+      champKey: String(r && r.champKey || '').replace(/[^0-9A-Za-z._-]/g, '').substring(0, 32),
+      spells: (Array.isArray(r && r.spells) ? r.spells : []).slice(0, 2).map(s => ({
+        slot: s && s.slot === 'F' ? 'F' : 'D',
+        name: String(s && s.name || '').substring(0, 16),
+        cd: Math.max(0, Math.min(600, Number(s && s.cd) || 0)) || null
+      })),
+      ult: { name: 'R', cd: Math.max(0, Math.min(300, Number(r && r.ult && r.ult.cd) || 0)) || null }
+    }))
+  };
+  if (gameLiveVisible) pushGameLiveCd();
+  return true;
+});
+
+// 浮窗自己报告"可点模式结束" (Esc 或空闲超时), 主进程负责把穿透还回去
+ipcMain.handle('game-live:cd-interactive', async (e, on) => {
+  if (!gameLiveWindow || gameLiveWindow.isDestroyed() || e.sender.id !== gameLiveWindow.webContents.id) return false;
+  setGameLiveCdInteractive(!!on);
+  return true;
+});
+
+ipcMain.handle('game-live:board', async (e, payload) => {  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
   const p = payload || {};
   if (p.clear) {
     gameLiveBoard = null;

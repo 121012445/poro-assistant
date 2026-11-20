@@ -11,11 +11,14 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getItems: (v) => ipcRenderer.invoke('ddragon:getItems', v),
   getSummonerSpells: (v) => ipcRenderer.invoke('ddragon:getSummonerSpells', v),
   getOpgg: () => ipcRenderer.invoke('opgg:champions'),
+  getOpggBench: (tier, region) => ipcRenderer.invoke('opgg:bench', tier, region),
   getOpggCounters: (championId, position) => ipcRenderer.invoke('opgg:counters', championId, position),
   getAramBalance: () => ipcRenderer.invoke('opgg:aramBalance'),
   getModeTiers: (mode) => ipcRenderer.invoke('opgg:tiers', mode),
   getOpggBuild: (mode, championId, position) => ipcRenderer.invoke('opgg:build', mode, championId, position),
   getHexChampionAugments: (championId, scope) => ipcRenderer.invoke('hex:championAugments', championId, scope),
+  // 反向: 某个强化在已缓存英雄里的收益排行 (只读本机缓存)
+  getHexAugmentFit: (augmentId, scope) => ipcRenderer.invoke('hex:augmentFit', augmentId, scope),
   // Riot API (远程战绩)
   getAccount: (region, gameName, tagLine, apiKey) => ipcRenderer.invoke('riot:getAccount', region, gameName, tagLine, apiKey),
   getMatchIds: (region, puuid, apiKey) => ipcRenderer.invoke('riot:getMatchIds', region, puuid, apiKey),
@@ -35,6 +38,11 @@ contextBridge.exposeInMainWorld('lolAPI', {
   fullGameSettingsStatus: () => ipcRenderer.invoke('game-settings:full-status'),
   verifyFullGameSettings: () => ipcRenderer.invoke('game-settings:verify-full'),
   clearFullGameSettings: () => ipcRenderer.invoke('game-settings:clear-full'),
+  // 配置档: 多套设置快照 (单排/车队/直播…)。restore 只是把档写回当前快照, 生效要再调 apply
+  listGameSettingSlots: () => ipcRenderer.invoke('game-settings:list-slots'),
+  saveGameSettingSlot: (name) => ipcRenderer.invoke('game-settings:save-slot', name),
+  restoreGameSettingSlot: (name) => ipcRenderer.invoke('game-settings:restore-slot', name),
+  deleteGameSettingSlot: (name) => ipcRenderer.invoke('game-settings:delete-slot', name),
   // LCU WebSocket 事件流
   onLcuEvent: (cb) => { ipcRenderer.on('lcu:event', (e, d) => cb(d)); },
   onWsState: (cb) => { ipcRenderer.on('lcu:wsState', (e, d) => cb(d)); },
@@ -108,6 +116,11 @@ contextBridge.exposeInMainWorld('lolAPI', {
   onGameLiveData: (cb) => { ipcRenderer.on('game-live:data', (e, d) => cb(d)); },
   liveBoardPush: (payload) => ipcRenderer.invoke('game-live:board', payload),
   onGameLiveBoard: (cb) => { ipcRenderer.on('game-live:board', (e, d) => cb(d)); },
+  // 技能计时: 主窗口推"敌方技能+基础CD", 浮窗自己持有倒计时; F11 切可点
+  gameLivePushCd: (payload) => ipcRenderer.invoke('game-live:push-cd', payload),
+  onGameLiveCd: (cb) => { ipcRenderer.on('game-live:cd', (e, d) => cb(d)); },
+  gameLiveCdInteractive: (on) => ipcRenderer.invoke('game-live:cd-interactive', on),
+  onGameLiveCdInteractive: (cb) => { ipcRenderer.on('game-live:cd-interactive', (e, d) => cb(d)); },
   // 对局提示语音: 在线合成 (本地 speechSynthesis 音色太机械时用这条)
   // opts = { voice, rate, pitch, reset } —— reset 用于换音色后清掉失败冷却
   ttsSynthesize: (text, opts) => ipcRenderer.invoke('tts:synthesize', text, opts),

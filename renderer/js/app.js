@@ -202,17 +202,20 @@ function switchPage(page) {
   // 切回前台立即补一次对齐, 不用等下一轮 4/12s 轮询 —— 否则进页头几秒标签只剩「+N」。
   if (page === "live" && typeof scheduleLiveRowAlignment === "function") scheduleLiveRowAlignment();
   if (page === "champions") renderChampionGrid();
+  if (page === "champions" && typeof PoroMastery !== 'undefined') PoroMastery.load();
   if (page === "counters") updateCounterClientPick();
   // 「我的画像」的两块内容(擅长与提升 / 趣味档案)是懒渲染的: 首屏不再计算它们,
   // 进页面时才用首页已加载的战绩现算一次。数据没到就显示空状态。
   if (page === "profile" && typeof renderProfilePage === "function") renderProfilePage();
   if (page === "growth" && typeof renderGrowthPage === "function") renderGrowthPage();
+  if (page === "growth" && typeof renderGrowthExtras === "function") renderGrowthExtras();
   if (page === "tools") {
     populateBgChampionList();
     // 提权提示要在打开工具箱时就显示，不能等用户点"刷新诊断"才出现
     refreshElevationNotice();
     // 分类小标签: 按 .tools-section 现算条数, 顺便把滚动位置归零
     if (typeof initToolsNav === "function") initToolsNav();
+    if (typeof PoroGsProfiles !== "undefined") PoroGsProfiles.refresh();
   }
   if (page === "hex") {
     renderHexList();
@@ -225,7 +228,10 @@ function switchPage(page) {
       updateHexRecommendationContext(null, true);
     }
   }
-  if (page === "blacklist") renderBlacklistPage();
+  if (page === "blacklist") {
+    renderBlacklistPage();
+    if (typeof switchPlayerMemoryTab === "function") switchPlayerMemoryTab(window._pmTab || "memory");
+  }
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   item.addEventListener("click", (e) => { e.preventDefault(); switchPage(item.dataset.page); });
@@ -409,6 +415,112 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'PageUp') { e.preventDefault(); sendKDABriefing(true); }
   if (e.key === 'PageDown') { e.preventDefault(); sendKDABriefing(false); }
 });
+
+// ========== 1.6.30 新页面区块的胶水层 ==========
+// 成长页多出三块 (LP 曲线 / 回放书签 / 账号对比)。它们的数据源都是本机存储,
+// 与成长页主体的渲染互不依赖, 所以单独一个入口, 失败不影响原有内容。
+function renderGrowthExtras() {
+  try {
+    const lp = document.getElementById('lpPanel');
+    if (lp && typeof PoroLp !== 'undefined') lp.innerHTML = PoroLp.panelHtml();
+    if (typeof PoroDrift !== 'undefined') { PoroDrift.recordCurrent(); PoroDrift.render(); }
+    if (typeof PoroReplayMarks !== 'undefined') PoroReplayMarks.render();
+    if (typeof PoroRankBench !== 'undefined') renderRankBenchPanel();
+  } catch (e) {}
+}
+
+// 当前账号的单双排队位列 (没有单双排就退到灵活), 拿不到返回空串
+async function poroMyRankTier() {
+  try {
+    const stats = await lolAPI.lcuRequest('GET', '/lol-ranked/v1/current-ranked-stats');
+    const qm = stats && (stats.queueMap || stats);
+    const entry = qm && (qm.RANKED_SOLO_5x5 || qm.RANKED_FLEX_SR);
+    if (entry && entry.tier) return String(entry.tier).toUpperCase();
+  } catch (e) {}
+  return window.__poroMyTier || '';
+}
+
+function poroChampNameOf(id) {
+  try {
+    const c = typeof champOfLive === 'function' ? champOfLive(id) : null;
+    return c ? c.name : '';
+  } catch (e) { return ''; }
+}
+
+// 同段位基准线面板。先用手上已有的那份立刻上屏, 再补齐当前段位的;
+// OP.GG 不可达时 rank-bench 会渲染成"取不到数据", 位置 KPI 自动退回本地经验带。
+let _rbkBusy = false;
+async function renderRankBenchPanel() {
+  const el = document.getElementById('rankBenchPanel');
+  if (!el || typeof PoroRankBench === 'undefined') return;
+  if (_rbkBusy) return;
+  _rbkBusy = true;
+  try {
+    const cached = PoroRankBench.benchSync();
+    if (cached) el.innerHTML = PoroRankBench.html(cached, { champName: poroChampNameOf });
+    const tier = await poroMyRankTier();
+    if (tier) window.__poroMyTier = tier;
+    const bench = await PoroRankBench.ensure(tier, 'global');
+    el.innerHTML = bench ? PoroRankBench.html(bench, { champName: poroChampNameOf })
+      : PoroRankBench.html({ __error: PoroRankBench.lastErr() || '取不到数据' }, {});
+  } catch (e) {
+    el.innerHTML = PoroRankBench.html({ __error: (e && e.message) || '未知错误' }, {});
+  } finally {
+    _rbkBusy = false;
+  }
+}
+
+// 玩家记忆页的两个标签: 人工档案 / 全部遭遇过的人
+function switchPlayerMemoryTab(tab) {
+  window._pmTab = tab === 'recent' ? 'recent' : 'memory';
+  const recent = window._pmTab === 'recent';
+  const list = document.getElementById('blPageList');
+  const addRow = document.getElementById('blAddRow');
+  const rp = document.getElementById('recentPlayersPanel');
+  const tabA = document.getElementById('pmTabMemory');
+  const tabB = document.getElementById('pmTabRecent');
+  if (list) list.hidden = recent;
+  if (addRow) addRow.hidden = recent;
+  if (rp) rp.hidden = !recent;
+  if (tabA) tabA.classList.toggle('active', !recent);
+  if (tabB) tabB.classList.toggle('active', recent);
+  if (recent) renderRecentPlayers();
+}
+
+function renderRecentPlayers(query) {
+  const box = document.getElementById('recentPlayersPanel');
+  if (!box || typeof PoroRecentPlayers === 'undefined') return;
+  const q = typeof query === 'string' ? query : ((document.getElementById('rpQuery') || {}).value || '');
+  const sortEl = document.getElementById('rpSort');
+  const sort = (sortEl && sortEl.value) || window._rpSort || 'recent';
+  window._rpSort = sort;
+  const view = PoroRecentPlayers.build(
+    (typeof encounterMap === 'object' && encounterMap) ? encounterMap : {},
+    (typeof playerMarks === 'object' && playerMarks) ? playerMarks : {},
+    { query: q, sort }
+  );
+  box.innerHTML = PoroRecentPlayers.html(view, { query: q, sort });
+  // 重绘后把焦点还给搜索框 (每次按键都会重绘, 不还焦点就只能输入一个字符)
+  if (typeof query === 'string' && query) {
+    const input = document.getElementById('rpQuery');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
+}
+
+// 设置配置档 (工具箱卡片)
+function saveGsProfile() { if (typeof PoroGsProfiles !== 'undefined') PoroGsProfiles.save(); }
+function applyGsProfile(name) { if (typeof PoroGsProfiles !== 'undefined') PoroGsProfiles.apply(name); }
+function deleteGsProfile(name) { if (typeof PoroGsProfiles !== 'undefined') PoroGsProfiles.remove(name); }
+
+// 回放书签
+function addReplayMarkManual() { if (typeof PoroReplayMarks !== 'undefined') PoroReplayMarks.addManual(); }
+function editReplayMarkNote(gameId, minute, text) { if (typeof PoroReplayMarks !== 'undefined') { PoroReplayMarks.note(gameId, minute, text); } }
+function dropReplayMark(gameId, minute) { if (typeof PoroReplayMarks !== 'undefined') { PoroReplayMarks.remove(gameId, minute); PoroReplayMarks.render(); } }
+function openReplayMark(gameId, platformId) { if (typeof PoroReplayMarks !== 'undefined') PoroReplayMarks.open(gameId, platformId); }
+function markCurrentReview() { if (typeof PoroReplayMarks !== 'undefined') PoroReplayMarks.markCurrent(); }
+
+// 强化反查
+function poroAugmentFit(id, name) { if (typeof PoroHexCross !== 'undefined') PoroHexCross.runFit(id, name); }
 
 // 启动
 document.addEventListener("DOMContentLoaded", init);

@@ -448,6 +448,10 @@ function buildLivePlayers(livePlayers, parts, phase) {
         position: lp.position || '',
         name: lp.riotIdGameName || lp.summonerName || sp?.summonerName || sp?.gameName || '',
         items: (lp.items || []).map(item => +(item?.itemID ?? item?.itemId ?? item) || 0).filter(Boolean),
+        // 技能计时用: Live Client Data 给的是技能名 (中文/英文随客户端语言)
+        spells: lp.summonerSpells
+          ? [lp.summonerSpells.summonerSpellOne?.displayName || '', lp.summonerSpells.summonerSpellTwo?.displayName || '']
+          : [],
         challengeId: sp?.challengeId ?? 0,
         isBot: !!lp.isBot
       };
@@ -460,6 +464,8 @@ function buildLivePlayers(livePlayers, parts, phase) {
       team: normTeam(p.team ?? p.teamId ?? ''),
       position: p.position || "",
       name: p.summonerName || p.gameName || p.displayName || "",
+      // 选人/加载阶段只有数字技能 id, 由 game-cd.js 的 SPELL_ID_CN 翻成名字
+      spellIds: [p.spell1Id || p.summoner1Id || 0, p.spell2Id || p.summoner2Id || 0],
       challengeId: p.challengeId ?? 0
     }));
   }
@@ -1850,6 +1856,19 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   try { const st = await lolAPI.lcuStatus(); selfPuuid = st.summoner?.puuid; } catch(e) {}
   if (expectedToken != null && expectedToken !== liveRenderToken) return;
   liveSelfPuuid = selfPuuid || null;   // 1.6.21: 小代标签用, 不对自己贴
+  // 1.6.31 同段位基准线: 以"我"的段位当整局的尺子。只拉一份 (OP.GG 一次 180KB),
+  // 2.5 秒软超时 —— 取不到就退回 position-kpi 里的本地经验带, 不拖住首屏。
+  let benchReady = false;
+  try {
+    const meRow = selfPuuid ? data.find(x => x && x.puuid === selfPuuid) : null;
+    const myTier = (meRow && meRow.tier) || window.__poroMyTier || '';
+    if (myTier && typeof PoroRankBench !== 'undefined') {
+      const got = await PoroRankBench.ensureSoft(myTier, 'global', 2500);
+      benchReady = !!got;
+      window.__poroMyTier = myTier;
+    }
+  } catch (e) { benchReady = false; }
+  if (expectedToken != null && expectedToken !== liveRenderToken) return;
   window._poroLivePlayerMap = new Map(data.map(player => {
     player.premadeGroupId = premadeGroups && player.puuid ? premadeGroups[player.puuid] : null;
     // 习惯卡: 每次渲染按当前 recent 重算 (纯函数, 20 场循环, 可忽略)
@@ -1909,6 +1928,10 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
         </div>
       </div>
       <div class="lp-profile-line">${pills}</div>
+      ${typeof PoroPositionKpi !== 'undefined' ? PoroPositionKpi.html(p.recent, p.position || p.teamPosition, {
+        prefer: p.position,
+        ref: (benchReady && typeof PoroRankBench !== 'undefined') ? PoroRankBench.refSync(p.position || p.teamPosition || p.position) : null
+      }) : ''}
       ${habitLineHtml(p)}
       ${championUsageHtml(p.recent)}
       <div class="lp-recent">${recentHtml}</div>
@@ -1977,7 +2000,13 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   // 而空快照正是"点按钮毫无反应"的来源。
   window._poroLiveCtx = { data, selfPuuid };
   const pageHtml = `
+    ${typeof PoroScout !== 'undefined' ? PoroScout.html(PoroScout.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('scoutCollapsed') === '1') }) : ''}
     ${enemyIntelHtml(data, selfPuuid)}
+    ${typeof PoroFleet !== 'undefined' ? PoroFleet.html(PoroFleet.build(data, {
+      selfTeam: selfTeamNum,
+      champName: id => champNameOf(id),
+      tags: id => (allChampions && allChampions[id] && allChampions[id].tags) || []
+    })) : ''}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
@@ -1992,8 +2021,51 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   scheduleLiveRowAlignment();
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)
   pushGameLiveBoard(data, premadeGroups);
+  // 浮窗里的技能计时条 (F11 可点): 只推"敌方 5 人的技能名 + 基础 CD", 倒计时在浮窗里算
+  pushGameCdRows(data);
   updateChampSelectCounterHint(data);
   syncLiveExpandButton(true);
+}
+
+// ---------- 载入侦察折叠状态 (跨刷新保留) ----------
+function toggleScoutReport(headEl) {
+  const card = headEl && headEl.closest ? headEl.closest('.sr-card') : null;
+  if (!card) return;
+  const collapsed = card.classList.toggle('collapsed');
+  const tip = headEl.querySelector('.sr-toggle');
+  if (tip) tip.textContent = collapsed ? '展开' : '收起';
+  try { if (typeof storeSet === 'function') storeSet('scoutCollapsed', collapsed ? '1' : ''); } catch (e) {}
+}
+
+// ---------- 浮窗技能计时: 推"敌方 5 人 + 基础 CD" ----------
+let _gameCdKey = '';
+function pushGameCdRows(data) {
+  if (typeof PoroCd === 'undefined' || !lolAPI.gameLivePushCd) return;
+  const phase = window._gameflowPhase;
+  if (!['InProgress', 'GameStart', 'ChampSelect'].includes(phase)) return;
+  if (!Array.isArray(data) || !data.length) return;
+  const self = data.find(p => p.puuid && p.puuid === window._myPuuid);
+  const selfTeam = self ? Number(self.team) : 0;
+  if (!selfTeam) return;
+  try {
+    ensureChampMap();
+    const rows = PoroCd.rowsFor(data, {
+      selfTeam,
+      // champOfLive 给的是精简对象 (id/name), 大招 CD 要从 DDragon 的完整条目里取
+      champOf: id => {
+        const c = champOfLive(id);
+        if (!c) return null;
+        const full = allChampions && allChampions[c.id];
+        return full ? Object.assign({}, c, { champion: full }) : c;
+      }
+    });
+    const key = JSON.stringify(rows.map(r => [r.key, r.champKey, r.spells.map(s => s.name + ':' + s.cd).join('|'), r.ult.cd]));
+    if (key === _gameCdKey) return;
+    _gameCdKey = key;
+    lolAPI.gameLivePushCd({ rows });
+  } catch (e) {
+    try { lolAPI.debugLog('[GAME CD] push error: ' + (e?.message || e)); } catch (e2) {}
+  }
 }
 
 if (typeof window?.addEventListener === 'function') {

@@ -205,12 +205,33 @@ async function renderGameReview(norm, gameId, detail, gamePlatformId) {
   const chart = buildTimelineData(tl, pidTeam, pidPuuid);
   if (eventsPane) eventsPane.innerHTML = ogdEventTimelineHtml(norm, chart, pidPuuid);
   const paint = drawTimelineChart(chart);
+  // 1.6.30: 记下"当前正在看哪一局", 回放书签 (replay-marks.js) 靠它知道要记哪局
+  try {
+    const owner = norm.participants.find(x => x.puuid && x.puuid === reviewOwnerPuuid())
+      || norm.participants.find(x => x.isSelf) || norm.participants[0];
+    window.__poroReviewCtx = { gameId, platformId: gamePlatformId || '', champName: owner ? (owner.championName || '') : '' };
+  } catch (e) {}
   body.innerHTML = `
     ${buildAutomaticReview(norm, chart)}
     <canvas class="rv-canvas" width="760" height="150"></canvas>
     <div class="rv-chips">${chart.chips}</div>
-    <div class="rv-ai"><button class="btn-secondary rv-ai-btn">AI 复盘</button><div class="rv-ai-out"></div></div>`;
+    <div class="rv-ai"><button class="btn-secondary rv-ai-btn">AI 复盘</button><button class="btn-secondary rv-mark-btn" title="把这一局存进回放书签">收藏这一局</button><div class="rv-ai-out"></div></div>`;
   paint(body.querySelector('.rv-canvas'));
+  // 点曲线 = 按 x 轴换算分钟数, 直接存一条回放书签 —— 复盘到回放的最短路径
+  const _cv = body.querySelector('.rv-canvas');
+  if (_cv) _cv.addEventListener('click', (ev) => {
+    if (typeof PoroReplayMarks === 'undefined') return;
+    const ctx = window.__poroReviewCtx;
+    if (!ctx || !ctx.gameId) return;
+    const rect = _cv.getBoundingClientRect();
+    const ratio = rect.width ? Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)) : 0;
+    const totalSec = Number(norm.gameDuration) || 0;
+    const minute = Math.max(0, Math.round(ratio * totalSec / 60));
+    PoroReplayMarks.add(ctx.gameId, ctx.platformId, minute, '');
+    if (typeof toolMsg === 'function') toolMsg(`已加回放书签：第 ${minute} 分钟`);
+  });
+  const _markBtn = body.querySelector('.rv-mark-btn');
+  if (_markBtn) _markBtn.addEventListener('click', () => { if (typeof markCurrentReview === 'function') markCurrentReview(); });
   // 重复失误: 本局最该改的一件事。判定与累计全在本地 (repeat-mistakes.js), AI 不参与,
   // 所以没配 AI 也有; 文案只报数字与"近 10 局第 N 次", 不打分、不预测。
   try {

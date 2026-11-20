@@ -240,4 +240,66 @@ function clear(userData) {
   return { ok: true };
 }
 
-module.exports = { capture, apply, verify, status, clear, mergeIni, mergePersisted, parseIni, diffSettings };
+// ---------- 配置档 (多套设置快照) ----------
+// 现有 capture/apply 只维护"一份"快照 (锁定时用)。配置档在其上再叠一层:
+// 把当前快照另存为具名档 (单排/车队/直播…), 需要时把某个档写回快照再 apply。
+// 只新增函数, 不改动上面任何既有分支 —— 现有锁定/解锁行为完全不变。
+function slotsDir(userData) { return path.join(userData, 'gs_slots'); }
+function slotName(raw) {
+  const s = String(raw || '').trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 24);
+  if (!s) throw new Error('配置档名不能为空');
+  return s;
+}
+
+function listSlots(userData) {
+  const dir = slotsDir(userData);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter(f => f.endsWith('.json')); } catch (e) { return { ok: true, slots: [] }; }
+  const slots = names.map(f => {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      return {
+        name: raw.slotName || f.replace(/\.json$/, ''),
+        savedAt: raw.savedAt || '',
+        settingCount: countSettings(raw.files || {})
+      };
+    } catch (e) { return null; }
+  }).filter(Boolean).sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+  return { ok: true, slots };
+}
+
+function saveSlot(userData, rawName) {
+  const name = slotName(rawName);
+  const snapshot = loadSnapshot(userData);
+  if (!snapshot) throw new Error('还没有设置快照，请先开启一次「锁定游戏设置」');
+  const dir = slotsDir(userData);
+  fs.mkdirSync(dir, { recursive: true });
+  atomicWrite(path.join(dir, name + '.json'), JSON.stringify({
+    version: 1, slotName: name, savedAt: new Date().toISOString(),
+    capturedAt: snapshot.capturedAt, configDir: snapshot.configDir, files: snapshot.files
+  }));
+  return { ok: true, name };
+}
+
+// 把某个档写回"当前快照", 之后调用 apply() 即可生效 (apply 会顺带处理只读与合并)
+function restoreSlot(userData, rawName) {
+  const name = slotName(rawName);
+  const file = path.join(slotsDir(userData), name + '.json');
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!raw || !raw.files) throw new Error('配置档内容损坏');
+  atomicWrite(snapshotPath(userData), JSON.stringify({ version: 1, capturedAt: raw.capturedAt || new Date().toISOString(), configDir: raw.configDir, files: raw.files }));
+  if (raw.configDir) saveLockDir(userData, raw.configDir);
+  return { ok: true, name, configDir: raw.configDir || '' };
+}
+
+function deleteSlot(userData, rawName) {
+  const name = slotName(rawName);
+  try { fs.unlinkSync(path.join(slotsDir(userData), name + '.json')); } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return { ok: true };
+}
+
+module.exports = { capture, apply, verify, status, clear, mergeIni, mergePersisted, parseIni, diffSettings,
+  listSlots, saveSlot, restoreSlot, deleteSlot };
+

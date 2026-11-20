@@ -198,4 +198,42 @@ async function getChampionAugments(championId, userDataPath, requestedScope = 'a
 
 function resetMemoryCache() { versionsCache = null; }
 
-module.exports = { getChampionAugments, normalizeChampionData, resetMemoryCache };
+// 反向查询: 某个强化在"已缓存过的英雄"里，谁的收益最高。
+// 只扫本机 aramkit-cache 里的 champ-*.json (不联网), 所以结果要如实标注样本英雄数 ——
+// 它不是全英雄榜单, 而是"你查过的这些英雄"里的横向对比。
+function augmentFit(augmentId, userDataPath, requestedScope) {
+  const id = Number(augmentId);
+  if (!Number.isInteger(id) || id <= 0 || id > 10000) throw new Error('强化 ID 无效');
+  const scope = requestedScope === 'high' ? 'high' : 'all';
+  const dir = path.join(userDataPath, 'aramkit-cache');
+  let files = [];
+  try {
+    files = fs.readdirSync(dir).filter(f => /^champ-\d+-(all|high)\.json$/.test(f) && f.endsWith('-' + scope + '.json'));
+  } catch (e) { return { ok: true, augmentId: id, scanned: 0, champions: [] }; }
+  const champions = [];
+  for (const f of files) {
+    let data = null;
+    try { data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (e) { continue; }
+    if (!data || !data.augments) continue;
+    let best = null;
+    for (let stage = 1; stage <= 4; stage++) {
+      const hit = data.augments[stage] && data.augments[stage][id];
+      if (!hit || hit.winRate == null) continue;
+      if (!best || (hit.lift || 0) > (best.lift || 0)) best = Object.assign({ stage }, hit);
+    }
+    if (!best) continue;
+    champions.push({
+      championId: Number(data.championId) || 0,
+      winRate: best.winRate,
+      lift: best.lift,
+      rank: best.rank || 0,
+      games: best.games || 0,
+      stage: best.stage,
+      championWinRate: data.champion ? data.champion.winRate : null
+    });
+  }
+  champions.sort((a, b) => (b.lift || 0) - (a.lift || 0));
+  return { ok: true, augmentId: id, scanned: files.length, champions: champions.slice(0, 20) };
+}
+
+module.exports = { getChampionAugments, normalizeChampionData, augmentFit, resetMemoryCache };

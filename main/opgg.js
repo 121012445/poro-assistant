@@ -97,6 +97,68 @@ function normalizeModeTiers(raw) {
   return out;
 }
 
+// ---------- 同段位基准线 ----------
+// GET /api/{region}/champions/ranked?tier={tier}
+//   → { data: [{ id, average_stats, positions: [{ name, stats: { play, win_rate, pick_rate, ban_rate, kda, tier_data:{rank} } }] }], meta:{ version } }
+// 每个 (英雄, 分路) 只有 胜率/登场率/禁用率/KDA/名次 —— OP.GG 不提供补刀、伤害、视野，
+// 所以基准线只覆盖 KDA 一项，其余指标仍用本地的经验参考带（页面上会分开标注来源）。
+// tier 取值实测: all / iron / bronze / silver / gold(+_plus) / platinum(+_plus) / emerald(+_plus) /
+//               diamond(+_plus) / master(+_plus) / grandmaster / challenger
+// region: 实测 cn 不被接受（"Region was invalid"），国服只能用 global 或 kr 当参考。
+const BENCH_TTL_MS = 60 * 60 * 1000;
+const BENCH_TIERS = ['all', 'iron', 'bronze', 'silver', 'gold', 'gold_plus', 'platinum', 'platinum_plus',
+  'emerald', 'emerald_plus', 'diamond', 'diamond_plus', 'master', 'master_plus', 'grandmaster', 'challenger'];
+const BENCH_REGIONS = ['global', 'kr', 'na', 'euw', 'eune', 'br', 'jp', 'lan', 'las', 'oce', 'ru', 'tr', 'vn', 'tw', 'sg'];
+const BENCH_POSITIONS = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
+
+// 0~1 的比例 → 百分数一位小数; 越界或非数字一律 null, 不猜
+function ratePct(v) {
+  const n = strictNumber(v);
+  if (!Number.isFinite(n) || n < 0 || n > 1) return null;
+  return Math.round(n * 1000) / 10;
+}
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+
+function normalizeBench(raw, ctx) {
+  const meta = (raw && raw.meta) || {};
+  const champions = {};
+  for (const row of Array.isArray(raw && raw.data) ? raw.data : []) {
+    const id = Number(row && row.id);
+    if (!isPosInt(id) || id > 10000) continue;
+    const positions = {};
+    for (const p of Array.isArray(row.positions) ? row.positions : []) {
+      const key = String((p && p.name) || '').toUpperCase();
+      if (!BENCH_POSITIONS.includes(key)) continue;
+      const st = (p && p.stats) || {};
+      const play = Number(st.play);
+      const kda = strictNumber(st.kda);
+      // play 为 0 / KDA 缺失的行没有参考价值, 直接丢
+      if (!Number.isFinite(play) || play <= 0 || !Number.isFinite(kda) || kda <= 0) continue;
+      const rank = Number(st.tier_data && st.tier_data.rank);
+      positions[key] = {
+        play,
+        kda: round2(kda),
+        winRate: ratePct(st.win_rate),
+        pickRate: ratePct(st.pick_rate),
+        banRate: ratePct(st.ban_rate),
+        rank: Number.isInteger(rank) && rank > 0 ? rank : 0
+      };
+    }
+    if (Object.keys(positions).length) champions[id] = positions;
+  }
+  return {
+    tier: String((ctx && ctx.tier) || 'all'),
+    region: String((ctx && ctx.region) || 'global'),
+    version: String(meta.version || '').slice(0, 20),
+    cachedAt: String(meta.cached_at || '').slice(0, 32),
+    matchCount: Number(meta.match_count) || 0,
+    champions,
+    count: Object.keys(champions).length
+  };
+}
+
 function intList(list, max) {
   return (Array.isArray(list) ? list : []).map(Number).filter(isPosInt).slice(0, max);
 }
@@ -170,6 +232,8 @@ function createOpggClient(options) {
   const builds = new Map();      // key → { t, value }
   const tiers = new Map();       // mode → { t, value }
   const tiersPending = new Map();
+  const benches = new Map();     // "region|tier" → { t, value }
+  const benchesPending = new Map();
 
   async function getAramBalance() {
     if (balance && now() - balance.t < BALANCE_TTL_MS) return balance.value;
@@ -235,7 +299,34 @@ function createOpggClient(options) {
     return job;
   }
 
-  return { getAramBalance, getBuild, getTiers };
+  // 同段位基准线: 一次拿到该段位全部英雄的分路数据, 渲染层自己算分位数
+  async function getBench(tier, region) {
+    const t = BENCH_TIERS.includes(String(tier)) ? String(tier) : 'all';
+    const r = BENCH_REGIONS.includes(String(region)) ? String(region) : 'global';
+    const key = r + '|' + t;
+    const hit = benches.get(key);
+    if (hit && now() - hit.t < BENCH_TTL_MS) return hit.value;
+    if (benchesPending.has(key)) return benchesPending.get(key);
+    const job = (async () => {
+      try {
+        const raw = await httpGet(HOST, `/api/${r}/champions/ranked?tier=${encodeURIComponent(t)}`);
+        const value = Object.assign(normalizeBench(raw, { tier: t, region: r }), { fetchedAt: now(), source: 'OP.GG' });
+        if (!value.count) throw new Error('OP.GG 同段位数据为空');
+        benches.set(key, { t: now(), value });
+        return value;
+      } catch (error) {
+        if (hit) return Object.assign({}, hit.value, { stale: true });   // 网络失败继续用上一份
+        throw error;
+      } finally { benchesPending.delete(key); }
+    })();
+    benchesPending.set(key, job);
+    return job;
+  }
+
+  return { getAramBalance, getBuild, getTiers, getBench };
 }
 
-module.exports = { createOpggClient, normalizeBalance, normalizeBuild, normalizeMayhemTiers, normalizeModeTiers, BALANCE_FIELDS, MODES, POSITIONS };
+module.exports = {
+  createOpggClient, normalizeBalance, normalizeBuild, normalizeMayhemTiers, normalizeModeTiers, normalizeBench,
+  BALANCE_FIELDS, MODES, POSITIONS, BENCH_TIERS, BENCH_REGIONS, BENCH_POSITIONS
+};
