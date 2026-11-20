@@ -399,73 +399,109 @@ function buildEvidenceVerdict(norm, chart, target) {
     evidence: [`伤害占比 ${damageShare}%`, `参团 ${participation}%`, `KDA ${kda.toFixed(1)}`]
   };
 }
+// 1.6.30: 曲线看着"被拉长", 是三处原因叠在一起:
+//   ① 高度写死 cssW*150/760 (5.07:1) —— 详情页宽 900+ 时只有 180px 高, 曲线自然像一条横线;
+//   ② y 轴按 ±maxAbs 对称铺开, 经济差全程同向时另一半空间全空, 有效高度再砍一半;
+//   ③ 曲线页默认 display:none, canvas.clientWidth 读到 0 就退回 760 兜底, 等切过去时
+//      位图被 width:100% 放大到 900+ (实测 1.24 倍), 线和字一起发虚。
+// 现在: 高度随宽度自适应 (160~280px); y 轴贴合数据但强制最小跨度 5000, 免得一局经济
+//       没拉开时小波动被放大成悬崖; paint 挂到 canvas 上, tab 切到曲线页时补画一次,
+//       位图尺寸始终等于显示宽度。
 function drawTimelineChart(chart) {
   return (canvas) => {
-    // 按 devicePixelRatio 渲染以避免高 DPI 显示模糊; W/H 用 CSS 实际宽度 (逻辑像素)
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = canvas.clientWidth || 760;
-    const cssH = Math.round(cssW * 150 / 760);
-    if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+    let lastW = 0;
+    const paint = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = canvas.clientWidth;
+      if (!cssW || cssW === lastW) return false;
+      // 高宽比取 ~1:3.4 (常规折线图是 1:2.5~1:4)。原来固定 1:5.07, 940 宽只有 185 高,
+      // 一条二十多分钟的经济曲线压在里面就是一条横线。
+      const cssH = Math.max(180, Math.min(300, Math.round(cssW * 0.29)));
+      lastW = cssW;
       canvas.width = Math.round(cssW * dpr);
       canvas.height = Math.round(cssH * dpr);
       canvas.style.height = cssH + 'px';
-    }
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const W = cssW, H = cssH;
-    const padL = 8, padR = 8, padT = 10, padB = 16;
-    const diffs = chart.diffs;
-    if (!diffs.length) return;
-    const tMax = Math.max(1, diffs[diffs.length - 1].t);
-    let maxAbs = 2000;
-    for (const d of diffs) maxAbs = Math.max(maxAbs, Math.abs(d.diff));
-    maxAbs = Math.ceil(maxAbs / 2000) * 2000;
-    const x = t => padL + (t / tMax) * (W - padL - padR);
-    const y = v => padT + (1 - (v + maxAbs) / (2 * maxAbs)) * (H - padT - padB);
-    const css = getComputedStyle(document.body);
-    const cText = css.getPropertyValue('--text-muted').trim() || '#888';
-    const cFont = css.getPropertyValue('font-family').trim() || 'sans-serif';
-    const cWin = css.getPropertyValue('--positive').trim() || '#27ae60';
-    const cLoss = css.getPropertyValue('--negative').trim() || '#e74c3c';
-    ctx.clearRect(0, 0, W, H);
-    // 网格
-    ctx.strokeStyle = 'rgba(128,128,140,0.18)';
-    ctx.lineWidth = 1;
-    for (const gm of [5, 10, 15, 20, 25, 30, 35, 40]) {
-      if (gm > tMax) break;
-      ctx.beginPath(); ctx.moveTo(x(gm), padT); ctx.lineTo(x(gm), H - padB); ctx.stroke();
-      ctx.fillStyle = cText; ctx.font = '10px ' + cFont; ctx.textAlign = 'center';
-      ctx.fillText(gm + '分', x(gm), H - 4);
-    }
-    // 零轴
-    ctx.strokeStyle = 'rgba(128,128,140,0.4)';
-    ctx.beginPath(); ctx.moveTo(padL, y(0)); ctx.lineTo(W - padR, y(0)); ctx.stroke();
-    // 经济差折线 (降采样到 120 点)
-    const step = Math.max(1, Math.floor(diffs.length / 120));
-    ctx.beginPath();
-    let first = true;
-    for (let i = 0; i < diffs.length; i += step) {
-      const d = diffs[i];
-      if (first) { ctx.moveTo(x(d.t), y(d.diff)); first = false; }
-      else ctx.lineTo(x(d.t), y(d.diff));
-    }
-    const lastD = diffs[diffs.length - 1];
-    ctx.lineTo(x(lastD.t), y(lastD.diff));
-    ctx.strokeStyle = cWin; ctx.lineWidth = 1.6; ctx.stroke();
-    // 击杀事件点
-    for (const k of chart.kills) {
-      const at = diffs.reduce((best, d) => (Math.abs(d.t - k.t) < Math.abs(best.t - k.t) ? d : best), diffs[0]);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return false;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const W = cssW, H = cssH;
+      const padL = 8, padR = 8, padT = 16, padB = 16;
+      const diffs = chart.diffs || [];
+      if (!diffs.length) return false;
+      const tMax = Math.max(1, diffs[diffs.length - 1].t);
+      // y 轴贴合实际差值, 上下各留 8%; 跨度下限 5000 (即 ±2500 经济) 防止把细微波动画成悬崖
+      let lo = 0, hi = 0;
+      for (const d of diffs) { if (d.diff < lo) lo = d.diff; if (d.diff > hi) hi = d.diff; }
+      const span = Math.max(5000, (hi - lo) * 1.16);
+      const mid = (hi + lo) / 2;
+      const yLo = mid - span / 2, yHi = mid + span / 2;
+      const x = t => padL + (t / tMax) * (W - padL - padR);
+      const y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * (H - padT - padB);
+      const css = getComputedStyle(document.body);
+      const cText = css.getPropertyValue('--text-muted').trim() || '#888';
+      const cFont = css.getPropertyValue('font-family').trim() || 'sans-serif';
+      const cWin = css.getPropertyValue('--positive').trim() || '#27ae60';
+      ctx.clearRect(0, 0, W, H);
+      // 网格
+      ctx.strokeStyle = 'rgba(128,128,140,0.18)';
+      ctx.lineWidth = 1;
+      for (const gm of [5, 10, 15, 20, 25, 30, 35, 40]) {
+        if (gm > tMax) break;
+        ctx.beginPath(); ctx.moveTo(x(gm), padT); ctx.lineTo(x(gm), H - padB); ctx.stroke();
+        ctx.fillStyle = cText; ctx.font = '10px ' + cFont; ctx.textAlign = 'center';
+        ctx.fillText(gm + '分', x(gm), H - 4);
+      }
+      // 零轴: 改成贴合数据后它有可能落在图外, 越界就不画
+      if (yLo < 0 && yHi > 0) {
+        ctx.strokeStyle = 'rgba(128,128,140,0.4)';
+        ctx.beginPath(); ctx.moveTo(padL, y(0)); ctx.lineTo(W - padR, y(0)); ctx.stroke();
+      }
+      // 经济差折线 (降采样到 120 点)
+      const step = Math.max(1, Math.floor(diffs.length / 120));
       ctx.beginPath();
-      ctx.arc(x(at.t), y(at.diff), 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = k.team === 100 ? '#5b9bd5' : '#e05555';
-      ctx.fill();
-    }
-    // 图例
-    ctx.font = '10px ' + cFont; ctx.textAlign = 'left';
-    ctx.fillStyle = cText;
-    ctx.fillText('蓝方领先 ↑', padL + 4, padT + 2);
-    ctx.fillText(`最终 ${lastD.diff >= 0 ? '蓝' : '红'}方领先 ${fmtGoldShort(Math.abs(lastD.diff))}`, padL + 80, padT + 2);
+      let first = true;
+      for (let i = 0; i < diffs.length; i += step) {
+        const d = diffs[i];
+        if (first) { ctx.moveTo(x(d.t), y(d.diff)); first = false; }
+        else ctx.lineTo(x(d.t), y(d.diff));
+      }
+      const lastD = diffs[diffs.length - 1];
+      ctx.lineTo(x(lastD.t), y(lastD.diff));
+      ctx.strokeStyle = cWin; ctx.lineWidth = 1.6; ctx.stroke();
+      // 击杀事件点
+      for (const k of (chart.kills || [])) {
+        const at = diffs.reduce((best, d) => (Math.abs(d.t - k.t) < Math.abs(best.t - k.t) ? d : best), diffs[0]);
+        ctx.beginPath();
+        ctx.arc(x(at.t), y(at.diff), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = k.team === 100 ? '#5b9bd5' : '#e05555';
+        ctx.fill();
+      }
+      // 图例
+      ctx.font = '10px ' + cFont; ctx.textAlign = 'left';
+      ctx.fillStyle = cText;
+      ctx.fillText('蓝方领先 ↑', padL + 4, padT - 4);
+      ctx.fillText(`最终 ${lastD.diff >= 0 ? '蓝' : '红'}方领先 ${fmtGoldShort(Math.abs(lastD.diff))}`, padL + 80, padT - 4);
+      return true;
+    };
+    // 隐藏状态下量不到宽度, 只能等显示后补画: 由 hex.js 的 tab 切换和下面的窗口缩放各触发一次
+    canvas.__poroTlPaint = paint;
+    paint();
   };
+}
+// 窗口缩放后容器宽度变了, 位图不跟着重画就又会退化成"760 被拉到 900+"。
+// paint 内部用 lastW 判重, 宽度没变不会重复绘制。
+if (typeof window !== 'undefined' && !window.__poroTlResizeBound) {
+  window.__poroTlResizeBound = true;
+  let raf = 0;
+  window.addEventListener('resize', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      document.querySelectorAll('canvas.rv-canvas').forEach(cv => {
+        if (typeof cv.__poroTlPaint === 'function') cv.__poroTlPaint();
+      });
+    });
+  });
 }
 function fmtGoldShort(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.round(v); }
 

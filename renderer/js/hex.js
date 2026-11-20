@@ -1436,6 +1436,10 @@ function renderOpggGameDetail(norm, container, options) {
       const key = btn.dataset.tab;
       for (const b of tabbar.querySelectorAll('[data-tab]')) b.classList.toggle('active', b === btn);
       for (const pane of container.querySelectorAll('.ogd-pane')) pane.classList.toggle('is-on', pane.dataset.pane === key);
+      // 曲线页在 display:none 时 canvas.clientWidth 是 0, 画不出正确尺寸的位图;
+      // 切过来之后补画一次 (位图宽度=容器宽度, 否则会被 width:100% 横拉变形)。
+      const cv = container.querySelector(`.ogd-pane[data-pane="${key}"] canvas.rv-canvas`);
+      if (cv && typeof cv.__poroTlPaint === 'function') cv.__poroTlPaint();
     });
   }
   // 1.6.24: 符文悬停卡片的事件委托 (幂等, 只绑一次)
