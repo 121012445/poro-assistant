@@ -1616,6 +1616,11 @@ body.live-drawer-open { overflow: hidden; }
 .bc-meta b { display: block; font-size: var(--fs-lg); font-weight: 600; color: var(--positive); }
 .bc-loss .bc-meta b { color: var(--negative); }
 .bc-meta span { font-size: var(--fs-xs); color: var(--text-muted); }
+/* 卡片右上角的玩家名: 这是发到群里的图, 必须一眼看出"是谁的战报"。
+   右对齐 + 省略号, 长 Riot ID 不能把"胜利"挤走 (这块是 flex, 名字要能收缩)。 */
+.bc-owner { margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 45%;
+  font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 .bc-hero { display: flex; align-items: center; gap: 12px; padding: 4px 0 12px; border-bottom: 1px solid var(--border); }
 .bc-champ { width: 46px; height: 46px; flex: none; border-radius: var(--radius); border: 1px solid var(--border); }
 .bc-heroinfo b { display: block; font-size: var(--fs-lg); font-weight: 600; color: var(--text-primary); }

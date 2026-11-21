@@ -1450,7 +1450,14 @@ function renderOpggGameDetail(norm, container, options) {
   if (bcBtn && window.PoroBattleCard) {
     bcBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      window.PoroBattleCard.save(norm, ownerPuuid);
+      // 卡片右上角要写"是谁的战报" —— 优先用当前查看的档案主人, 其次本机召唤师。
+      // 拿不到就传空串 (build 里会整块不渲染), 绝不编一个名字上去。
+      const ownerName = String(
+        (profileOverride && profileOverride.name)
+        || (cachedSummoner && (cachedSummoner.displayName || cachedSummoner.gameName))
+        || ''
+      ).trim();
+      window.PoroBattleCard.save(norm, ownerPuuid, { name: ownerName });
     });
   } else if (bcBtn) {
     bcBtn.remove();

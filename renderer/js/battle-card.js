@@ -132,7 +132,11 @@
   }
 
   // norm: normalizeGame() 输出; ownerPuuid: 这张卡以谁为主角
-  function build(norm, ownerPuuid) {
+  // opts.name: 主角的 Riot ID —— 这张卡最终是要发到群里的, 图上不写"是谁的",
+  // 别人只看到"某人 11/3/9"就完全失去了分享的意义。拿不到就不显示 (不编名字)。
+  function build(norm, ownerPuuid, opts) {
+    const o = opts || {};
+    const ownerName = String(o.name == null ? '' : o.name).trim();
     const ps = Array.isArray(norm && norm.participants) ? norm.participants : [];
     const me = ps.find(p => p.puuid && p.puuid === ownerPuuid) || ps.find(p => p.win) || ps[0];
     if (!me) return '';
@@ -160,6 +164,7 @@
   <div class="bc-top">
     <span class="bc-logo">P</span>
     <div class="bc-meta"><b>${me.win ? '胜利' : '失败'}</b><span>${escapeHtml(norm.mode || '对局')} · ${fmtDur(norm.dur)} · ${fmtWhen(norm.time)}</span></div>
+    ${ownerName ? `<span class="bc-owner" title="${escapeHtml(ownerName)}">${escapeHtml(ownerName)}</span>` : ''}
   </div>
   <div class="bc-hero">
     <img class="bc-champ" src="${imgOf(me)}" alt="" onerror="this.style.visibility='hidden'">
@@ -263,7 +268,8 @@
   }
 
   // 点「保存战报卡」: 只渲染并预览, 不弹保存框
-  async function save(norm, ownerPuuid) {
+  async function save(norm, ownerPuuid, opts) {
+    const o = opts || {};
     // 强化名称/图标来自 cherry-augments; 第一次用时补拉一次 (loadHexAugments 自带 20s 冷却)
     try {
       const hasAug = Array.isArray(norm && norm.participants)
@@ -278,15 +284,15 @@
       // 图标内联: 离屏窗口只等 600ms, 外链很可能来不及下载
       if (hasAug) await warmAugmentIcons(norm);
     } catch (e) {}
-    const html = build(norm, ownerPuuid);
+    const html = build(norm, ownerPuuid, o);
     if (!html) { if (typeof showToast === 'function') showToast('这局没有可用的玩家数据', 'negative'); return; }
     const size = measure(html);
     const theme = document.body.classList.contains('dark') ? 'dark' : 'light';
-    const opts = { title: '战报预览', saveTitle: '保存战报图片', prefix: 'Poro战报', theme };
+    const renderOpts = { title: '战报预览', saveTitle: '保存战报图片', prefix: 'Poro战报', theme };
     if (typeof showToast === 'function') showToast('正在生成图片…', 'info');
-    const r = await lolAPI.renderShareCard(html, size.width, size.height, opts)
+    const r = await lolAPI.renderShareCard(html, size.width, size.height, renderOpts)
       .catch(e => ({ __error: (e && e.message) || String(e) }));
-    if (r && r.ok && r.dataUrl) { preview(r.dataUrl, opts); return; }
+    if (r && r.ok && r.dataUrl) { preview(r.dataUrl, renderOpts); return; }
     if (typeof showToast === 'function') showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
   }
 
