@@ -49,7 +49,8 @@ function norm(over) {
   const html = Card.build(norm(), 'p0', { name: '雨未眠#0417' });
   assert.ok(html.includes('bc-owner'), '有名字时必须渲染 .bc-owner');
   assert.ok(html.includes('雨未眠#0417'), '名字要原样上卡');
-  const top = html.slice(html.indexOf('bc-top'), html.indexOf('bc-hero'));
+  // 1.6.45 改版后头部是 bc-top → bc-kda (原 bc-hero 已并入左侧原画条)
+  const top = html.slice(html.indexOf('bc-top'), html.indexOf('bc-kda'));
   assert.ok(top.includes('bc-owner'), '名字必须在卡片头部 (bc-top) 里, 不能落到别处');
   assert.ok(top.includes('胜利'), '头部胜负标题不能被名字挤掉');
 }
@@ -80,10 +81,56 @@ function norm(over) {
 // 5. 基础内容没被这次改动破坏
 {
   const html = Card.build(norm(), 'p0', { name: 'A#1' });
-  assert.ok(html.includes('11<i>/</i><em>3</em><i>/</i>9'), 'KDA 要按 k/d/a 渲染');
+  assert.ok(html.includes('11<i>/</i>3<i>/</i>9'), 'KDA 要按 k/d/a 渲染');
+  assert.ok(!/<em>\d+<\/em>/.test(html), '死亡数不再单独标红 —— 整串同色才和首页战绩卡一致');
   assert.ok(html.includes('盖伦'), '英雄名要在卡上');
   assert.ok(/bc-grid/.test(html) && /bc-mates/.test(html), '数据格与双方阵容都还在');
   assert.ok(html.includes('Poro'), '品牌脚注还在');
+}
+
+// 5b. 1.6.45「竖幅原画 · 档案式」: 原画条 + 分级 KDA + 对位经济
+{
+  const html = Card.build(norm(), 'p0', { name: 'A#1' });
+  assert.ok(/class="bc-art"/.test(html), '必须有左侧原画条');
+  assert.ok(/class="bc-art-img"[^>]*loading\//.test(html), '原画条里要放 ddragon 竖幅 loading 图');
+  // 11/3/9 = 6.67 KDA -> 高于 3, 走 k-hi (绿)
+  assert.ok(/class="bc-kda-num k-hi"/.test(html), 'KDA>=3 要打 k-hi (与首页同口径)');
+  // 对位经济: 同分路敌人 12000 vs 自己 12000 -> +0
+  assert.ok(/对位经济/.test(html), '数据格要有对位经济');
+  // 沙箱没有 rankCache, 段位必须整块不出 —— 不许编一个段位出来
+  assert.ok(!/bc-rank/.test(html), '拿不到段位时不渲染徽章, 不能编');
+  // 乱斗没有真实分路: 对位经济拿不到 -> 显示 —, 不能顶一个别的口径的数值
+  const aram = Card.build(norm({ queueId: 450 }), 'p0', {});
+  assert.ok(/<b>—<\/b><span>对位经济<\/span>/.test(aram), '无分路时对位经济显示 —');
+}
+
+// 5c. KDA 分级三档齐全 (>=3 / <2 / 中间)
+{
+  const lo = norm({ participants: [
+    { puuid: 'p0', teamId: 100, championId: '86', k: 1, d: 9, a: 2, win: false, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' },
+    { puuid: 'p1', teamId: 200, championId: '64', k: 5, d: 2, a: 3, win: true, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' }
+  ] });
+  assert.ok(/bc-kda-num k-lo/.test(Card.build(lo, 'p0', {})), 'KDA<2 要打 k-lo (红)');
+  const mid = norm({ participants: [
+    { puuid: 'p0', teamId: 100, championId: '86', k: 2, d: 2, a: 2, win: true, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' },
+    { puuid: 'p1', teamId: 200, championId: '64', k: 5, d: 2, a: 3, win: false, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' }
+  ] });
+  assert.ok(/bc-kda-num k-mid/.test(Card.build(mid, 'p0', {})), '2<=KDA<3 要打 k-mid (蓝)');
+}
+
+// 5d. 样式: 三档色必须落在 premium.css (导出只注入 style/extras/dark/premium/ui-polish,
+//     v4.css 的 --data-* 在离屏窗口里不存在, 写那边等于没上色)
+{
+  const i = css.indexOf('.bc-kda-num.k-hi');
+  assert.ok(i > 0, 'premium.css 里必须有 KDA 分级色');
+  for (const [cls, tok] of [['k-hi', '--positive'], ['k-lo', '--negative'], ['k-mid', '--accent']]) {
+    const at = css.indexOf('.bc-kda-num.' + cls);
+    const block = css.slice(at, css.indexOf('}', at) + 1);
+    assert.ok(block.includes('var(' + tok + ')'), cls + ' 要用 ' + tok);
+  }
+  const art = css.slice(css.indexOf('.bc-art {'), css.indexOf('}', css.indexOf('.bc-art {')) + 1);
+  assert.ok(/width:\s*138px/.test(art), '原画条宽 138px');
+  assert.ok(!/height:\s*\d+px/.test(art), '原画条高度必须由 flex 撑开, 写死会在内容变长时露底色');
 }
 
 // 6. 样式: 名字要右对齐、能收缩、超长省略
@@ -107,6 +154,52 @@ function norm(over) {
   const src = fs.readFileSync(SRC, 'utf8');
   assert.ok(/function save\(norm, ownerPuuid, opts\)/.test(src), 'save 要接受第三个参数');
   assert.ok(/build\(norm, ownerPuuid, o\)/.test(src), 'save 必须把 opts 透传给 build');
+}
+
+// 5e. 队伍行必须用 grid 均分 —— 5 组「头像+6/5/12」在 307px 里用 flex+gap 会溢出,
+//     实测会把最后一个玩家的数据裁掉半截 (第一版就是这样)
+{
+  const at = css.indexOf('.bc-mates {');
+  assert.ok(at > 0, '.bc-mates 样式必须存在');
+  const block = css.slice(at, css.indexOf('}', at) + 1);
+  assert.ok(/display:\s*grid/.test(block), '.bc-mates 要用 grid 均分, flex 会溢出裁字');
+  assert.ok(/grid-auto-columns:\s*1fr/.test(block), '每列等宽');
+  const art = css.slice(css.indexOf('.bc-art-img {'), css.indexOf('}', css.indexOf('.bc-art-img {')) + 1);
+  assert.ok(/object-fit:\s*cover/.test(art) && /object-position/.test(art),
+    '原画要 cover + 指定焦点, 否则竖图铺进竖条会糊或空');
+}
+
+// 5f. 离屏导出只等 600ms: 卡片上的图必须提前内联, 否则装备格是空白方块、头像缺一半
+{
+  const src = fs.readFileSync(SRC, 'utf8');
+  assert.ok(/IMG_CACHE/.test(src), '要有统一的图片 dataURL 缓存');
+  assert.ok(/async function warmImages\(norm, ownerPuuid\)/.test(src), 'warmImages 要一次预热全部图片');
+  assert.ok(/await warmImages\(norm, ownerPuuid\)/.test(src), 'save 里必须在 renderShareCard 前 await warmImages');
+  // 三处图源都要过 inline()
+  assert.ok(/return inline\(headUrl\(c\.id\)\)/.test(src), '头像要过 inline()');
+  assert.ok(/inline\(SPLASH_CDN/.test(src), '原画要过 inline()');
+  assert.ok(/inline\(itemUrl\(id\)\)/.test(src), '装备图要过 inline()');
+  // 预热范围要覆盖 10 个头像 + 装备, 不能只顾主角原画
+  const warm = src.slice(src.indexOf('async function warmImages'), src.indexOf('const warmSplash = warmImages'));
+  assert.ok(/urls\.add\(headUrl/.test(warm), 'warmImages 要收全员头像');
+  assert.ok(/urls\.add\(itemUrl/.test(warm), 'warmImages 要收装备图');
+}
+
+// 5g. 段位色与 v4.css §33 的深色档必须一致 —— 两边各存一份色值, 最容易悄悄跑偏
+{
+  const src = fs.readFileSync(SRC, 'utf8');
+  const v4 = fs.readFileSync(path.join(__dirname, 'renderer/css/v4.css'), 'utf8');
+  const darkBlock = (v4.match(/body\.dark \{[^}]*--tier-iron[^}]*\}/) || [''])[0];
+  assert.ok(!!darkBlock, 'v4.css 里应有 body.dark 的段位色阶');
+  const TIERS = ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond', 'master', 'grandmaster', 'challenger'];
+  for (const t of TIERS) {
+    const m = darkBlock.match(new RegExp('--tier-' + t + ':\\s*(#[0-9A-Fa-f]{6})'));
+    assert.ok(!!m, 'v4.css 缺 --tier-' + t);
+    const inJs = src.match(new RegExp('["\']?' + t.toUpperCase() + '["\']?:\\s*\'(#[0-9A-Fa-f]{6})\''));
+    assert.ok(!!inJs, 'battle-card.js 的 TIER_HEX 缺 ' + t.toUpperCase());
+    assert.strictEqual(inJs[1].toUpperCase(), m[1].toUpperCase(),
+      t + ' 段位色两边不一致 (v4 ' + m[1] + ' / js ' + inJs[1] + ')');
+  }
 }
 
 console.log('test_battle_card: all assertions passed');

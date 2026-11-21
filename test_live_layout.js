@@ -95,7 +95,9 @@ assert.ok((live.match(/delete body\.dataset\.liveKey/g) || []).length >= 2,
   '1.5.146 离开对局与 error 分支必须清 liveKey, 换局必须重画');
 assert.ok(live.includes('function buildLivePills('),
   '1.5.146 标签行构建必须抽成 buildLivePills, 首次渲染与局部刷新共用');
-assert.ok(live.includes('const pillsHtml = buildLivePills(p, pgid);'),
+// 断言只认「把 buildLivePills(p, …) 的结果赋给 pillsHtml」这件事, 不锁第二个实参的名字:
+// 早先写死 'pgid', live.js 把缓存里的组队 id 改名成 knownGroupId 之后这条就一直误报。
+assert.ok(/const pillsHtml = buildLivePills\(p, [\w$.]+\);/.test(live),
   '1.5.146 updateLivePlayerRow 必须局部同步标签行 (此前只更新战绩区, 标签要等全量重绘)');
 
 // 1.5.148 顶部提示条整体移除 (用户要求不要这一行)

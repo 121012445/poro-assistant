@@ -1605,48 +1605,110 @@ body.live-drawer-open { overflow: hidden; }
 .ld-ask span { color:var(--text-secondary); }
 .gw-foot { margin-top: 10px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.6; }
 
-/* ---------- 单局战报卡 (battle-card.js): 导出时连同样式一起截图 ---------- */
-.bc-card { position: relative; overflow: hidden; width: 460px; box-sizing: border-box; padding: 18px 20px 14px;
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); }
-.bc-band { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--positive); }
-.bc-loss .bc-band { background: var(--negative); }
-.bc-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.bc-logo { width: 22px; height: 22px; flex: none; border-radius: var(--radius-sm); background: var(--text-primary); color: #ffffff;
-  font-size: var(--fs-sm); line-height: 22px; text-align: center; font-weight: 600; }
-.bc-meta b { display: block; font-size: var(--fs-lg); font-weight: 600; color: var(--positive); }
-.bc-loss .bc-meta b { color: var(--negative); }
-.bc-meta span { font-size: var(--fs-xs); color: var(--text-muted); }
+/* ---------- 单局战报卡 (battle-card.js): 导出时连同样式一起截图 ----------
+   1.6.45「竖幅原画 · 档案式」: 左侧 138px 原画贯穿整卡, 右侧是档案信息区。
+   三条约束决定了这里的写法:
+   ① .bc-card 不再自带 padding —— 有内边距原画条就顶不到卡片边缘; padding 全部交给 .bc-body。
+   ② 原画高度不写死, 靠 flex 子项的默认 stretch 跟着内容长 —— 写死会在内容变长时露出底色。
+   ③ 原画右缘用 var(--bg-card) 收口, 深浅主题各自对得上, 不用给 dark 单独补一条。
+   注意: 导出渲染只注入 style/extras/dark/premium/ui-polish, 所以本段不能引用
+   v4.css 里的 --tier-* / --data-*, 那些令牌在离屏窗口里不存在。 */
+.bc-card { position: relative; overflow: hidden; width: 460px; box-sizing: border-box;
+  display: flex; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-primary); }
+/* v4.css 排在 premium.css 之后加载, 里面有一条 .gw-card…,.bc-card 的通用规则
+   (background: var(--surface-1) + box-shadow: var(--e1) + border:1px transparent),
+   会盖掉上面的底色与边框。深色下 --surface-1(#171b1e) 与 --bg-card(#1b1b1e) 还不同色,
+   原画右缘的收口渐变就会露出一条色差边。这里用 .bc-cardA 联合选择器把特异性顶上去
+   (0,2,0 / 深色 0,3,1), 让导出图与界面内保持同一套底色。 */
+.bc-card.bc-cardA { background: var(--bg-card); border-color: var(--border); box-shadow: none; }
+body.dark .bc-card.bc-cardA { background: var(--bg-card); border-color: var(--border); box-shadow: none; }
+
+/* ---- 左侧竖幅原画 ---- */
+.bc-art { position: relative; width: 138px; flex: none; overflow: hidden; background: #0d1420; }
+.bc-art-img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 14%; display: block; }
+/* 底部压暗: 英雄名/段位压在原画上, 不压暗会随原画明暗乱跳、局部看不清 */
+.bc-art-fade { position: absolute; inset: auto 0 0 0; height: 158px;
+  background: linear-gradient(to top, rgba(8,13,22,.95) 0%, rgba(8,13,22,.74) 44%, rgba(8,13,22,0) 100%); }
+.bc-art-edge { position: absolute; inset: 0 0 0 auto; width: 12px;
+  background: linear-gradient(to right, rgba(255,255,255,0), var(--bg-card) 96%); }
+/* 一血/多杀角标: 原画顶部右侧 (人物主体居中偏左, 右上通常是背景, 压不脸) */
+.bc-art-honor { position: absolute; top: 10px; right: 10px; padding: 2px 7px; border-radius: 999px;
+  background: rgba(255,255,255,.9); color: #1b1b1e; font-size: 10px; font-weight: 600;
+  white-space: nowrap; letter-spacing: .02em; }
+.bc-art-id { position: absolute; left: 13px; right: 14px; bottom: 13px; }
+.bc-art-id b { display: block; color: #ffffff; font-size: var(--fs-lg); font-weight: 600; letter-spacing: .01em; }
+.bc-art-id > span { display: block; margin-top: 2px; color: rgba(255,255,255,.72); font-size: var(--fs-xs); }
+/* 段位胶囊: 颜色由 JS 内联 (见 battle-card.js 的 TIER_HEX 注释) */
+.bc-rank { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
+  padding: 3px 8px 3px 5px; border-radius: 999px;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.24); }
+.bc-rank svg { flex: none; color: rgba(255,255,255,.8); }
+.bc-rank span { font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+
+/* ---- 右侧信息区 ---- */
+.bc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 15px 11px 13px; }
+
+.bc-top { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+.bc-state { flex: none; padding: 2px 8px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: 600;
+  color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--positive) 24%, transparent); }
+.bc-loss .bc-state { color: var(--negative);
+  background: color-mix(in srgb, var(--negative) 9%, transparent);
+  border-color: color-mix(in srgb, var(--negative) 22%, transparent); }
+.bc-sub { font-size: var(--fs-xs); color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 卡片右上角的玩家名: 这是发到群里的图, 必须一眼看出"是谁的战报"。
    右对齐 + 省略号, 长 Riot ID 不能把"胜利"挤走 (这块是 flex, 名字要能收缩)。 */
-.bc-owner { margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 45%;
+.bc-owner { margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 40%;
   font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
-.bc-hero { display: flex; align-items: center; gap: 12px; padding: 4px 0 12px; border-bottom: 1px solid var(--border); }
-.bc-champ { width: 46px; height: 46px; flex: none; border-radius: var(--radius); border: 1px solid var(--border); }
-.bc-heroinfo b { display: block; font-size: var(--fs-lg); font-weight: 600; color: var(--text-primary); }
-.bc-heroinfo span { font-size: var(--fs-xs); color: var(--text-muted); }
-.bc-kda { margin-left: auto; text-align: right; }
-.bc-kda b { font-size: var(--fs-2xl); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
-.bc-kda b i { font-style: normal; font-size: var(--fs-lg); color: var(--border-strong); }
-.bc-kda b em { font-style: normal; color: var(--negative); }
-.bc-kda span { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
-.bc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 12px 0;
+
+.bc-kda { display: flex; align-items: flex-end; gap: 11px; margin: 0 0 13px;
+  padding-bottom: 11px; border-bottom: 1px solid var(--border); }
+.bc-kda-num { font-size: 33px; font-weight: 600; line-height: 1; color: var(--text-primary);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.bc-kda-num i { font-style: normal; font-size: 19px; opacity: .45; }
+/* KDA 分级上色: 与首页战绩卡同一口径 (home.js kdaClass) —— ≥3 绿 / <2 红 / 其余蓝。
+   1.6.45 前是「死亡数单独标红」, 与首页不一致; 现在整串同色, 颜色只表达这局 KDA 好坏。 */
+.bc-kda-num.k-hi { color: var(--positive); }
+.bc-kda-num.k-lo { color: var(--negative); }
+.bc-kda-num.k-mid { color: var(--accent); }
+.bc-kda-sub { padding-bottom: 2px; min-width: 0; }
+.bc-kda-sub span { display: block; font-size: var(--fs-xs); color: var(--text-muted);
+  line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bc-kda-sub strong { font-size: var(--fs-sm); font-weight: 600; color: var(--text-secondary); }
+
+/* 2 列: 右侧可用宽只有 307px, 3 列会把 "24,180" 和 "补刀 6.8/分" 挤到换行 */
+.bc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin: 0 0 10px;
   background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .bc-cell { background: var(--bg-card); padding: 8px 10px; }
-.bc-cell b { display: block; font-size: var(--fs-md); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
-.bc-cell span { font-size: var(--fs-xs); color: var(--text-muted); }
-.bc-items { display: flex; gap: 4px; margin-bottom: 10px; }
-.bc-item { width: 26px; height: 26px; display: block; border-radius: var(--radius-xs); border: 1px solid var(--border); }
+/* 行高必须自己压: body 是 1.6, 两行字 + padding 会把每格撑到 63px, 三行下来
+   整张卡被拉长 40 多 px, 看着松垮。1.35 是两行紧贴但不至于黏在一起的位置。 */
+.bc-cell b { display: block; font-size: var(--fs-md); line-height: 1.35; font-weight: 600; color: var(--text-primary);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.bc-cell span { font-size: var(--fs-xs); line-height: 1.35; color: var(--text-muted); }
+
+.bc-items { display: flex; gap: 4px; margin-bottom: 9px; }
+.bc-item { width: 24px; height: 24px; display: block; border-radius: var(--radius-xs); border: 1px solid var(--border); }
 .bc-item-none { font-size: var(--fs-xs); color: var(--text-muted); }
-.bc-team { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
-.bc-team-label { width: 24px; flex: none; font-size: var(--fs-xs); color: var(--text-muted); }
-.bc-mates { display: flex; gap: 10px; flex: 1; }
-.bc-mate { display: inline-flex; align-items: center; gap: 4px; }
-.bc-mate img { width: 20px; height: 20px; display: block; border-radius: var(--radius-sm); }
-.bc-mate b { font-size: var(--fs-xs); font-weight: 500; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* 队伍行不再画分隔线: 每行 5 个"头像+KDA", 两条线会把这块切得很碎。
+   5 个人用 grid 均分而不是 flex + gap —— 右侧可用宽只有 307px,
+   flex 下 5 组 "6/5/12" 会溢出并裁掉最后一个人的数据 (实测过)。 */
+.bc-team { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.bc-team-label { width: 22px; flex: none; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.bc-mates { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; flex: 1; min-width: 0; }
+.bc-mate { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.bc-mate img { width: 15px; height: 15px; flex: none; display: block; border-radius: var(--radius-xs); }
+.bc-mate b { font-size: 10px; font-weight: 500; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums; letter-spacing: -.03em; white-space: nowrap; }
 .bc-mate.is-me b { font-weight: 600; color: var(--text-primary); }
-.bc-mate.is-me img { outline: 1px solid var(--accent); outline-offset: 1px; }
-.bc-foot { display: flex; justify-content: space-between; margin-top: 10px; font-size: var(--fs-xs); color: var(--text-muted); }
+.bc-mate.is-me img { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+.bc-foot { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
 
 /* 对局详情里的操作行（战报卡入口） */
 .ogd-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 6px; }

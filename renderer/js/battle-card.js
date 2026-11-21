@@ -10,6 +10,26 @@
   'use strict';
 
   const CARD_W = 460;
+  // 竖幅原画: 战报卡左侧那条。ddragon 的 loading 图是 308x560 竖构图, 正好铺一条竖栏。
+  const SPLASH_CDN = 'https://ddragon.leagueoflegends.com/cdn/img/champion/loading/';
+  // 段位色: 与 v4.css §33 的**深色档**同源。原画区永远是深底, 只取深色那套;
+  // 不能读 --tier-* —— 导出渲染只注入 style/extras/dark/premium/ui-polish,
+  // v4.css 不参与, 令牌在离屏窗口里根本不存在, 出图会变成继承色。
+  const TIER_HEX = {
+    IRON: '#9BA3AD', BRONZE: '#C98A5C', SILVER: '#A9B6C4', GOLD: '#E3B455',
+    PLATINUM: '#2FBFA8', EMERALD: '#2BC98B', DIAMOND: '#6FA5FF',
+    MASTER: '#B583F8', GRANDMASTER: '#F26376', CHALLENGER: '#F0C24F'
+  };
+  // 与 home.js 的 TIER_ICON 同一套图标名, 两处不一致会显得段位有两套视觉
+  const TIER_ICON_NAME = {
+    IRON: 'rock', BRONZE: 'medal', SILVER: 'medal', GOLD: 'medal',
+    PLATINUM: 'shield', EMERALD: 'shield', DIAMOND: 'gem',
+    MASTER: 'gem', GRANDMASTER: 'crown', CHALLENGER: 'crown'
+  };
+  // 卡片上所有图片 url -> dataURL。导出走离屏窗口且只等 600ms, 外链根本来不及下载:
+  // 实测不内联时装备格是 7 个空白方块、队伍行头像缺一半 —— 导出的是一张"成品图",
+  // 这种缺图比版式难看严重得多, 所以原画/装备/头像统一走这一份缓存。
+  const IMG_CACHE = new Map();
   // 强化图标缓存: url -> dataURL。导出用的是主进程离屏窗口, 它只等 600ms 就截图,
   // 直接引外链很可能还没下载完 —— 表现为"图上有名字没图标"。先在渲染层下载成
   // dataURL 再内联, 离屏窗口就不需要联网了 (CORS: communitydragon 允许 *)。
@@ -26,6 +46,14 @@
 
   function num(n) { return Number(n || 0).toLocaleString('en-US'); }
 
+  // 经济类数字用 k 缩写: 460px 宽的卡上 "15,240" 与 "对位经济" 挤在一格里会换行
+  function kFmt(n) {
+    const v = Number(n || 0);
+    if (!Number.isFinite(v)) return '—';
+    if (Math.abs(v) < 1000) return String(Math.round(v));
+    return (v / 1000).toFixed(1) + 'k';
+  }
+
   function champOf(p) {
     const hit = (typeof champNumMap === 'object' && champNumMap) ? champNumMap[String(p.championId)] : null;
     return { id: hit && hit.id ? hit.id : '', name: (hit && hit.name) || p.championName || ('英雄#' + p.championId) };
@@ -33,8 +61,108 @@
 
   function imgOf(p) {
     const c = champOf(p);
-    if (c.id && typeof champImg === 'function') return champImg(c.id);
+    if (c.id) return inline(headUrl(c.id));
     return typeof placeholder === 'function' ? placeholder('?') : '';
+  }
+
+  // 走产品自己的 champImg (它内部会用 allChampions[key].image.full, 个别英雄的
+  // 文件名和 key 不一致), 拿不到才退回按 key 拼
+  function headUrl(champKey) {
+    if (typeof champImg === 'function') {
+      try { const u = champImg(champKey); if (u) return u; } catch (e) {}
+    }
+    const cdn = typeof CDN !== 'undefined' && CDN ? CDN : 'https://ddragon.leagueoflegends.com/cdn';
+    const v = typeof version !== 'undefined' ? version : '';
+    return cdn + '/' + v + '/img/champion/' + champKey + '.png';
+  }
+
+  function itemUrl(id) {
+    const cdn = typeof CDN !== 'undefined' && CDN ? CDN : 'https://ddragon.leagueoflegends.com/cdn';
+    const v = typeof version !== 'undefined' ? version : '';
+    return cdn + '/' + v + '/img/item/' + id + '.png';
+  }
+
+  // 命中缓存就用 dataURL, 没命中就退回外链 (界面上预览时外链是够用的)
+  function inline(url) { return (url && IMG_CACHE.get(url)) || url || ''; }
+
+  // 竖幅原画地址。拿不到英雄 key (资料还没加载) 就返回空 —— 宁可露深色底, 也不猜一个错的英雄。
+  function splashOf(p) {
+    const c = champOf(p);
+    if (!c.id) return '';
+    return inline(SPLASH_CDN + encodeURIComponent(c.id) + '_0.jpg');
+  }
+
+  async function inlineImg(url) {
+    if (!url || IMG_CACHE.has(url) || !/^https?:/i.test(url)) return 0;
+    try {
+      const r = await fetch(url, { cache: 'force-cache' });
+      if (!r.ok) return 0;
+      const blob = await r.blob();
+      const dataUrl = await new Promise(resolve => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result || ''));
+        fr.onerror = () => resolve('');
+        fr.readAsDataURL(blob);
+      });
+      if (dataUrl) { IMG_CACHE.set(url, dataUrl); return 1; }
+    } catch (e) { /* 取不到就用外链 */ }
+    return 0;
+  }
+
+  // 一次性把这张卡要用的图全部落成本地 dataURL: 主角原画 + 10 个头像 + 7 件装备 + 强化图标。
+  // 返回成功张数 (0 也有意义: 离线时会全失败, 但卡片仍能出, 只是图缺)。
+  async function warmImages(norm, ownerPuuid) {
+    if (typeof fetch !== 'function') return 0;
+    const ps = Array.isArray(norm && norm.participants) ? norm.participants : [];
+    const me = ps.find(p => p.puuid && p.puuid === ownerPuuid) || ps.find(p => p.win) || ps[0];
+    const urls = new Set();
+    if (me) {
+      const c = champOf(me);
+      if (c.id) urls.add(SPLASH_CDN + encodeURIComponent(c.id) + '_0.jpg');
+    }
+    for (const p of ps) {
+      const c = champOf(p);
+      if (c.id) urls.add(headUrl(c.id));
+      for (const id of (p && Array.isArray(p.items) ? p.items : []).slice(0, 7)) {
+        if (id) urls.add(itemUrl(id));
+      }
+    }
+    const list = [...urls];
+    const results = await Promise.all(list.map(u => inlineImg(u)));
+    return results.reduce((a, b) => a + b, 0);
+  }
+
+  // 兼容旧名 (save 里原来只预热原画)
+  const warmSplash = warmImages;
+
+  // 段位胶囊: 只摆查得到的。rankCache / rankedEntryOf 都在 home.js 的顶层作用域,
+  // 经典 script 共享全局, 这里直接读; 沙箱里没有这两个就整块不出 (不编段位)。
+  function rankBadge(puuid) {
+    try {
+      if (typeof rankCache !== 'object' || !rankCache || !puuid) return '';
+      const qm = rankCache[puuid];
+      if (!qm) return '';
+      const q = typeof rankedEntryOf === 'function' ? rankedEntryOf(qm) : null;
+      if (!q || !q.tier) return '';
+      const tier = String(q.tier).toUpperCase();
+      const color = TIER_HEX[tier];
+      if (!color) return '';
+      const cn = typeof rankTierCN === 'function' ? rankTierCN(tier) : tier;
+      const div = q.division && !['NA', ''].includes(q.division) ? ' ' + q.division : '';
+      const lp = q.leaguePoints != null ? ' ' + q.leaguePoints : '';
+      const iconName = TIER_ICON_NAME[tier];
+      const icon = (iconName && typeof poroIcon === 'function')
+        ? poroIcon(iconName, 11) : '';
+      return `<div class="bc-rank">${icon}<span style="color:${color}">${escapeHtml(cn)}${escapeHtml(div)}${escapeHtml(lp)}</span></div>`;
+    } catch (e) { return ''; }
+  }
+
+  // KDA 分级: 与首页战绩卡同一口径 (home.js kdaClass) —— ≥3 绿 / <2 红 / 其余蓝。
+  // 原先是把"死亡数"单独标红, 与首页不一致; 现在整串同色, 颜色只表达这局 KDA 好坏。
+  function kdaTone(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || !n) return '';
+    return n >= 3 ? ' k-hi' : (n < 2 ? ' k-lo' : ' k-mid');
   }
 
   function fmtDur(sec) {
@@ -153,37 +281,64 @@
     const csMin = mins > 0 ? Math.round((+me.cs || 0) / mins * 10) / 10 : 0;
     const c = champOf(me);
     const pos = hasRealPositions(norm) ? (POS_CN[me.position] || '') : '';
+    // 对位经济: 同分路的敌方玩家。没有真实分路 (乱斗/斗魂) 或对位缺失时该格显示 —,
+    // 不拿"经济占比"之类换了口径的数值顶上 —— 格子标题写什么就得是什么。
+    const laneFoe = (hasRealPositions(norm) && me.position)
+      ? foes.find(p => String(p.position) === String(me.position)) : null;
+    const laneGold = laneFoe ? ((+me.gold || 0) - (+laneFoe.gold || 0)) : null;
+    const laneCell = laneGold == null
+      ? '—'
+      : (laneGold >= 0 ? '+' : '−') + kFmt(Math.abs(laneGold));
     const items = (me.items || []).filter(Boolean).slice(0, 7);
     const itemHtml = items.length
-      ? items.map(id => `<img class="bc-item" src="https://ddragon.leagueoflegends.com/cdn/${typeof version !== 'undefined' ? version : ''}/img/item/${id}.png" alt="" onerror="this.style.visibility='hidden'">`).join('')
+      ? items.map(id => `<img class="bc-item" src="${inline(itemUrl(id))}" alt="" onerror="this.style.visibility='hidden'">`).join('')
       : '<span class="bc-item-none">装备数据缺失</span>';
     const cell = (v, label) => `<div class="bc-cell"><b>${v}</b><span>${label}</span></div>`;
+    const splash = splashOf(me);
+    const rankHtml = rankBadge(me.puuid);
+    // 一血/多杀做成原画右上角的角标。原先塞在头部那行里, 会和「模式·时长」「玩家名」
+    // 抢同一行的宽度, 最后三样全部被省略号截断 —— 荣誉标记放到原画上反而更醒目。
+    const honor = [me.fb ? '一血' : '', me.multi ? String(me.multi) : ''].filter(Boolean).join(' · ');
 
-    return `<div class="bc-pad"><div class="bc-card ${me.win ? 'bc-win' : 'bc-loss'}">
-  <div class="bc-band"></div>
-  <div class="bc-top">
-    <span class="bc-logo">P</span>
-    <div class="bc-meta"><b>${me.win ? '胜利' : '失败'}</b><span>${escapeHtml(norm.mode || '对局')} · ${fmtDur(norm.dur)} · ${fmtWhen(norm.time)}</span></div>
-    ${ownerName ? `<span class="bc-owner" title="${escapeHtml(ownerName)}">${escapeHtml(ownerName)}</span>` : ''}
+    return `<div class="bc-pad"><div class="bc-card bc-cardA ${me.win ? 'bc-win' : 'bc-loss'}">
+  <div class="bc-art">
+    ${splash ? `<img class="bc-art-img" src="${splash}" alt="" onerror="this.style.visibility='hidden'">` : ''}
+    <span class="bc-art-fade"></span><span class="bc-art-edge"></span>
+    ${honor ? `<span class="bc-art-honor">${escapeHtml(honor)}</span>` : ''}
+    <div class="bc-art-id">
+      <b>${escapeHtml(c.name)}</b>
+      <span>${pos ? pos + ' · ' : ''}${me.level || 1} 级</span>
+      ${rankHtml}
+    </div>
   </div>
-  <div class="bc-hero">
-    <img class="bc-champ" src="${imgOf(me)}" alt="" onerror="this.style.visibility='hidden'">
-    <div class="bc-heroinfo"><b>${escapeHtml(c.name)}</b><span>${pos ? pos + ' · ' : ''}${me.level || 1} 级${me.multi ? ' · ' + escapeHtml(me.multi) : ''}${me.fb ? ' · 一血' : ''}</span></div>
-    <div class="bc-kda"><b>${me.k}<i>/</i><em>${me.d}</em><i>/</i>${me.a}</b><span>${kda.toFixed(1)} KDA · 参团 ${part}%</span></div>
+  <div class="bc-body">
+    <div class="bc-top">
+      <span class="bc-state">${me.win ? '胜利' : '失败'}</span>
+      <span class="bc-sub">${escapeHtml(norm.mode || '对局')} · ${fmtDur(norm.dur)}</span>
+      ${ownerName ? `<span class="bc-owner" title="${escapeHtml(ownerName)}">${escapeHtml(ownerName)}</span>` : ''}
+    </div>
+    <div class="bc-kda">
+      <b class="bc-kda-num${kdaTone(kda)}">${me.k}<i>/</i>${me.d}<i>/</i>${me.a}</b>
+      <div class="bc-kda-sub">
+        <span><strong>${kda.toFixed(1)}</strong> KDA</span>
+        <span>参团 ${part}%</span>
+        <span>伤害占比 ${dmgShare}%</span>
+      </div>
+    </div>
+    <div class="bc-grid">
+      ${cell(num(me.dmg), '伤害')}
+      ${cell(me.cs || 0, '补刀（' + csMin + '/分）')}
+      ${cell(me.gold ? kFmt(me.gold) : '—', '经济')}
+      ${cell(me.visionScore || 0, '视野得分')}
+      ${cell(conv + '%', '伤害转化')}
+      ${cell(laneCell, '对位经济')}
+    </div>
+    <div class="bc-items">${itemHtml}</div>
+    ${augmentRow(me, norm.mode)}
+    ${teamBlock(team, me, '我方')}
+    ${foes.length ? teamBlock(foes, me, '对方') : ''}
+    <div class="bc-foot"><span>Poro · 英雄联盟游戏助手</span><span>${fmtWhen(norm.time)}</span></div>
   </div>
-  <div class="bc-grid">
-    ${cell(num(me.dmg), '伤害')}
-    ${cell(dmgShare + '%', '伤害占比')}
-    ${cell(me.cs || 0, '补刀（' + csMin + '/分）')}
-    ${cell(me.visionScore || 0, '视野得分')}
-    ${cell(num(me.gold), '经济')}
-    ${cell(conv + '%', '伤害转化')}
-  </div>
-  <div class="bc-items">${itemHtml}</div>
-  ${augmentRow(me, norm.mode)}
-  ${teamBlock(team, me, '我方')}
-  ${foes.length ? teamBlock(foes, me, '对方') : ''}
-  <div class="bc-foot"><span>Poro · 英雄联盟游戏助手</span><span>${escapeHtml(c.name)} 战报</span></div>
 </div></div>`;
   }
 
@@ -284,6 +439,9 @@
       // 图标内联: 离屏窗口只等 600ms, 外链很可能来不及下载
       if (hasAug) await warmAugmentIcons(norm);
     } catch (e) {}
+    // 卡片上的图全部内联: 离屏窗口只等 600ms, 外链的原画/装备/头像一个都下载不完。
+    // 实测不内联时装备格是 7 个空白方块、队伍行头像缺一半 —— 这是"成品图"级别的事故。
+    try { await warmImages(norm, ownerPuuid); } catch (e) {}
     const html = build(norm, ownerPuuid, o);
     if (!html) { if (typeof showToast === 'function') showToast('这局没有可用的玩家数据', 'negative'); return; }
     const size = measure(html);
@@ -296,5 +454,5 @@
     if (typeof showToast === 'function') showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
   }
 
-  root.PoroBattleCard = { build, save, preview, measure, warmAugmentIcons, augIconSrc };
+  root.PoroBattleCard = { build, save, preview, measure, warmAugmentIcons, warmImages, warmSplash, augIconSrc };
 })(typeof window !== 'undefined' ? window : this);
