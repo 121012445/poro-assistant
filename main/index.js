@@ -2562,6 +2562,9 @@ ipcMain.handle('game-live:board', async (e, payload) => {  if (!mainWindow || ma
 // 卡片样式写在 renderer/css 里，这里把应用 CSS 一起注入离屏页面。
 // 之前只传卡片 HTML，导出的图是没有任何样式的裸排版 —— 样式全在外部样式表里。
 let SHARE_CARD_CSS = null;
+// 内联图片后的卡片 HTML 上限。旧值 500KB 会被"图多的局"撞破 (实测 520KB),
+// 导致同样操作一半成功一半失败。8MB 足够容纳 60+ 张重编码图。
+const SHARE_CARD_MAX_HTML = 8 * 1024 * 1024;
 function shareCardCss() {
   if (SHARE_CARD_CSS !== null) return SHARE_CARD_CSS;
   let out = '';
@@ -2573,21 +2576,56 @@ function shareCardCss() {
   return out;
 }
 
+// 复用同一个离屏窗口来渲染所有分享卡。
+// 实测 (Electron 44 / 本机): 「新建 → destroy → 再新建」时第二次 loadURL 稳定报
+// ERR_FAILED, 而且整个进程随后退出 —— 这正是用户看到的"第一张卡能出、之后开始失败"。
+// 同一个窗口反复 loadURL 连测 4 次全部正常, 所以改成常驻复用, 不再每次销毁。
+let shareCardWin = null;
+
+function dropShareCardWin() {
+  const win = shareCardWin;
+  shareCardWin = null;
+  try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
+}
+
+function acquireShareCardWin(w, h, dark) {
+  if (shareCardWin && shareCardWin.isDestroyed()) shareCardWin = null;
+  if (shareCardWin) {
+    try {
+      const [cw, ch] = shareCardWin.getContentSize();
+      if (cw !== w || ch !== h) shareCardWin.setContentSize(w, h);
+    } catch (e) { /* 尺寸没设上也不影响 capturePage 的 clip 裁剪 */ }
+    return shareCardWin;
+  }
+  const win = new BrowserWindow({
+    width: w, height: h, show: false, frame: false, transparent: false,
+    // 底色只是窗口创建时的空白填充。明暗主题完全由页面里的 reset 背景决定,
+    // 所以深色卡片不需要重建窗口 —— 之前"主题变了就重建"正好踩回 ERR_FAILED 那个坑。
+    backgroundColor: dark ? '#14151a' : '#fafafa', resizable: false, skipTaskbar: true,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: false }
+  });
+  win.on('closed', () => { if (shareCardWin === win) shareCardWin = null; });
+  shareCardWin = win;
+  return win;
+}
+
 // 战报/周报卡: 只做离屏渲染成 PNG, 不弹保存框 —— 先把图给渲染层预览, 用户点「保存到…」再落盘。
 // 旧实现是渲染完直接 showSaveDialog(默认桌面), 用户看不到要存的是什么, 体感上就是"点一下直接跳文件夹"。
 async function renderShareCardPng(html, width, height, opts) {
   const w = Math.max(200, Math.min(1600, Number(width) || 460));
   const h = Math.max(200, Math.min(2400, Number(height) || 760));
-  if (typeof html !== 'string' || !html.length || html.length > 500000) throw new Error('内容无效');
+  // 上限 8MB: 卡片上的图全部内联成 dataURL 后, 单张 460x412 的战报卡实测约 200~520KB
+  // (18 张图), 原来卡在 500KB 会让"图多的局"随机失败 —— 表现为有的局能出图、有的局
+  // 直接弹"内容无效"。这里只防呆, 不是安全边界 (html 由本应用渲染层生成)。
+  if (typeof html !== 'string' || !html.length) throw new Error('内容无效');
+  if (html.length > SHARE_CARD_MAX_HTML) {
+    throw new Error('卡片内容过大 (' + Math.round(html.length / 1024) + 'KB)');
+  }
   const o = (opts && typeof opts === 'object') ? opts : {};
   const dark = o.theme === 'dark';
   let win = null;
   try {
-    win = new BrowserWindow({
-      width: w, height: h, show: false, frame: false, transparent: false,
-      backgroundColor: dark ? '#14151a' : '#fafafa', resizable: false, skipTaskbar: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: false }
-    });
+    win = acquireShareCardWin(w, h, dark);
     // 渲染层只允许引用 ddragon 图片; html 由本应用渲染层生成, 再包一层基础 CSP。
     // body 在应用里是 grid 布局（左侧导航占一列），离屏窗口里必须重置成块级，
     // 否则卡片会被挤进第一列、右半边被裁掉。
@@ -2610,9 +2648,13 @@ async function renderShareCardPng(html, width, height, opts) {
     await new Promise(resolve => setTimeout(resolve, 600)); // 等图片解码
     const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: h });
     return image.toPNG();
-  } finally {
-    try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
+  } catch (err) {
+    // 窗口已经不可用 (渲染进程崩过 / 被系统回收): 丢掉它, 下次重建。
+    // 不丢的话后续每次都会在同一具尸体上失败, 直到用户重启客户端。
+    dropShareCardWin();
+    throw err;
   }
+  // 注意: 这里不再 finally-destroy。窗口留着重用, 原因见 acquireShareCardWin 的注释。
 }
 
 const SHARE_CARD_MAX_DATA_URL = 32 * 1024 * 1024;   // 防呆: 正常截图几百 KB
@@ -2629,10 +2671,21 @@ function shareCardFileName(opts) {
   return prefix + '-' + new Date().toISOString().slice(0, 10) + '.png';
 }
 
+// 所有战报卡导出串行排队。两个理由:
+//   1) 连点「卡」会同时开两个离屏窗口, 本机实测第二个稳定 ERR_FAILED —— 这是"有的局
+//      生成失败"的第二个来源, 与图片体积无关。
+//   2) 每次导出都要注入 300KB 样式并解码十几张图, 并发只会互相拖慢。
+let shareCardChain = Promise.resolve();
+function enqueueShareCard(fn) {
+  const run = shareCardChain.then(fn, fn);   // 前一个失败也必须继续, 否则队列永久卡死
+  shareCardChain = run.then(() => {}, () => {});
+  return run;
+}
+
 ipcMain.handle('share-card:render', async (e, html, width, height, opts) => {
   if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
   try {
-    const png = await renderShareCardPng(html, width, height, opts || {});
+    const png = await enqueueShareCard(() => renderShareCardPng(html, width, height, opts || {}));
     return { ok: true, dataUrl: 'data:image/png;base64,' + png.toString('base64') };
   } catch (error) {
     logErr('[SHARE CARD] render failed: ' + error.message);
@@ -3325,5 +3378,7 @@ app.on('will-quit', () => {
   try { hotkeyPoller.stop(); } catch (e) {}
   try { stopAugmentOcrWorker(); } catch (e) {}
   try { stopChatOcrWorker(); } catch (e) {}
+  // 常驻的分享卡离屏窗口: 不主动销毁会让 will-quit 挂在这里
+  try { dropShareCardWin(); } catch (e) {}
 });
 app.on('activate', () => { if (mainWindow) mainWindow.show(); });

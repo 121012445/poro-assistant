@@ -93,8 +93,9 @@ function norm(over) {
   const html = Card.build(norm(), 'p0', { name: 'A#1' });
   assert.ok(/class="bc-art"/.test(html), '必须有左侧原画条');
   assert.ok(/class="bc-art-img"[^>]*loading\//.test(html), '原画条里要放 ddragon 竖幅 loading 图');
-  // 11/3/9 = 6.67 KDA -> 高于 3, 走 k-hi (绿)
-  assert.ok(/class="bc-kda-num k-hi"/.test(html), 'KDA>=3 要打 k-hi (与首页同口径)');
+  // 11/3/9 = 6.67 KDA -> 高于 3, 比值那行打 k-hi (绿)
+  assert.ok(/class="bc-kda-num"/.test(html), '大字号 KDA 必须是纯主色 (不带分级 class)');
+  assert.ok(/<strong class="k-hi">6\.7<\/strong> KDA/.test(html), 'KDA>=3 时比值要打 k-hi (与首页同口径)');
   // 对位经济: 同分路敌人 12000 vs 自己 12000 -> +0
   assert.ok(/对位经济/.test(html), '数据格要有对位经济');
   // 沙箱没有 rankCache, 段位必须整块不出 —— 不许编一个段位出来
@@ -110,21 +111,25 @@ function norm(over) {
     { puuid: 'p0', teamId: 100, championId: '86', k: 1, d: 9, a: 2, win: false, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' },
     { puuid: 'p1', teamId: 200, championId: '64', k: 5, d: 2, a: 3, win: true, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' }
   ] });
-  assert.ok(/bc-kda-num k-lo/.test(Card.build(lo, 'p0', {})), 'KDA<2 要打 k-lo (红)');
+  assert.ok(/<strong class="k-lo">/.test(Card.build(lo, 'p0', {})), 'KDA<2 比值要打 k-lo (红)');
   const mid = norm({ participants: [
     { puuid: 'p0', teamId: 100, championId: '86', k: 2, d: 2, a: 2, win: true, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' },
     { puuid: 'p1', teamId: 200, championId: '64', k: 5, d: 2, a: 3, win: false, dmg: 1, gold: 1, cs: 1, items: [], position: 'TOP' }
   ] });
-  assert.ok(/bc-kda-num k-mid/.test(Card.build(mid, 'p0', {})), '2<=KDA<3 要打 k-mid (蓝)');
+  assert.ok(/<strong class="k-mid">/.test(Card.build(mid, 'p0', {})), '2<=KDA<3 比值要打 k-mid (蓝)');
+  // 大字不许出现任何分级 class —— 这是"每次点卡颜色不一样"的根因
+  for (const h of [Card.build(lo, 'p0', {}), Card.build(mid, 'p0', {})]) {
+    assert.ok(!/bc-kda-num k-(hi|mid|lo)/.test(h), '11/3/9 大字不能随 KDA 变色');
+  }
 }
 
 // 5d. 样式: 三档色必须落在 premium.css (导出只注入 style/extras/dark/premium/ui-polish,
 //     v4.css 的 --data-* 在离屏窗口里不存在, 写那边等于没上色)
 {
-  const i = css.indexOf('.bc-kda-num.k-hi');
-  assert.ok(i > 0, 'premium.css 里必须有 KDA 分级色');
+  const i = css.indexOf('.bc-kda-sub strong.k-hi');
+  assert.ok(i > 0, 'premium.css 里必须有 KDA 比值分级色');
   for (const [cls, tok] of [['k-hi', '--positive'], ['k-lo', '--negative'], ['k-mid', '--accent']]) {
-    const at = css.indexOf('.bc-kda-num.' + cls);
+    const at = css.indexOf('.bc-kda-sub strong.' + cls);
     const block = css.slice(at, css.indexOf('}', at) + 1);
     assert.ok(block.includes('var(' + tok + ')'), cls + ' 要用 ' + tok);
   }
@@ -181,8 +186,14 @@ function norm(over) {
   assert.ok(/inline\(itemUrl\(id\)\)/.test(src), '装备图要过 inline()');
   // 预热范围要覆盖 10 个头像 + 装备, 不能只顾主角原画
   const warm = src.slice(src.indexOf('async function warmImages'), src.indexOf('const warmSplash = warmImages'));
-  assert.ok(/urls\.add\(headUrl/.test(warm), 'warmImages 要收全员头像');
-  assert.ok(/urls\.add\(itemUrl/.test(warm), 'warmImages 要收装备图');
+  assert.ok(/urls\.set\(headUrl/.test(warm), 'warmImages 要收全员头像');
+  assert.ok(/urls\.set\(itemUrl/.test(warm), 'warmImages 要收装备图');
+  // 每张图都按卡上的实际显示尺寸重编码: 120px 头像原样内联会把 HTML 撑到 520KB,
+  // 撞破主进程上限后表现为"有的局生成失败"。原画走 jpeg, 头像/装备必须留 png (透明)。
+  assert.ok(/maxW:\s*276[^}]*image\/jpeg/.test(warm), '原画要按 276px 重编码成 jpeg');
+  assert.ok(/urls\.set\(headUrl\(c\.id\),\s*\{[^}]*maxW:\s*\d+[^}]*image\/png/.test(warm),
+    '头像要按显示尺寸重编码且保留 png 透明通道');
+  assert.ok(/urls\.set\(itemUrl\(id\),\s*\{[^}]*image\/png/.test(warm), '装备同理保留 png');
 }
 
 // 5g. 段位色与 v4.css §33 的深色档必须一致 —— 两边各存一份色值, 最容易悄悄跑偏
@@ -200,6 +211,39 @@ function norm(over) {
     assert.strictEqual(inJs[1].toUpperCase(), m[1].toUpperCase(),
       t + ' 段位色两边不一致 (v4 ' + m[1] + ' / js ' + inJs[1] + ')');
   }
+}
+
+// 5h. 1.6.46 修的两个真实故障, 都要留门禁防止退回去
+{
+  const src = fs.readFileSync(SRC, 'utf8');
+  // (a) 大字 KDA 不许随局变色 —— 用户报告的"每次点卡 kd 颜色不一样"
+  const card = Card.build(norm(), 'p0', {});
+  const m = card.match(/<b class="([^"]*)">11<i>/);
+  assert.ok(!!m, 'KDA 大字要能定位到');
+  assert.ok(!/k-(hi|mid|lo)/.test(m[1]), 'KDA 大字不能带分级 class (会随局变色)');
+
+  // (b) 内联图必须按显示尺寸重编码 —— 原样内联时单卡 520KB, 撞破主进程上限
+  assert.ok(/shrinkAsDataUrl/.test(src), '必须按显示尺寸重编码图片');
+  assert.ok(/function readAsDataUrl/.test(src), '重编码失败时要有原图 base64 兜底');
+
+  // (c) 渲染入口互斥: 连点不能并发发两次导出
+  assert.ok(/let saving = false/.test(src), 'save 要有互斥锁');
+  assert.ok(/if \(saving\)/.test(src), '重复点击要直接挡掉');
+
+  // (d) 主进程: HTML 上限必须远大于实测 520KB, 且导出要串行
+  const mainSrc = fs.readFileSync(path.join(__dirname, 'main/index.js'), 'utf8');
+  const cap = mainSrc.match(/SHARE_CARD_MAX_HTML = (\d+)\s*\*\s*1024\s*\*\s*1024/);
+  assert.ok(!!cap, '主进程要有明确的 HTML 体积上限常量');
+  assert.ok(Number(cap[1]) >= 2, 'HTML 上限至少 2MB (旧值 500KB 会让图多的局随机失败)');
+  assert.ok(!/html\.length > 500000/.test(mainSrc), '旧的 500KB 硬限制必须去掉');
+  assert.ok(/enqueueShareCard/.test(mainSrc), '离屏导出要串行排队 (并发开窗口会 ERR_FAILED)');
+  // (e) 离屏窗口必须复用: 「新建 → destroy → 再新建」第 2 次 loadURL 必报 ERR_FAILED
+  //     且进程随后退出, 这是"第一张卡能出、之后全失败"的根因 (实测复现)。
+  assert.ok(/function acquireShareCardWin/.test(mainSrc), '离屏窗口要复用, 不能每次新建');
+  const rsc = mainSrc.slice(mainSrc.indexOf('async function renderShareCardPng'),
+    mainSrc.indexOf('// 所有战报卡导出串行排队'));
+  assert.ok(!/finally\s*\{[^}]*win\.destroy\(\)/.test(rsc), '渲染完不许销毁窗口 (会踩 ERR_FAILED)');
+  assert.ok(!/shareCardDark/.test(mainSrc), '主题切换不许重建窗口 (页面自带背景)');
 }
 
 console.log('test_battle_card: all assertions passed');

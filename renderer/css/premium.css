@@ -1671,10 +1671,11 @@ body.dark .bc-card.bc-cardA { background: var(--bg-card); border-color: var(--bo
   font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .bc-kda-num i { font-style: normal; font-size: 19px; opacity: .45; }
 /* KDA 分级上色: 与首页战绩卡同一口径 (home.js kdaClass) —— ≥3 绿 / <2 红 / 其余蓝。
-   1.6.45 前是「死亡数单独标红」, 与首页不一致; 现在整串同色, 颜色只表达这局 KDA 好坏。 */
-.bc-kda-num.k-hi { color: var(--positive); }
-.bc-kda-num.k-lo { color: var(--negative); }
-.bc-kda-num.k-mid { color: var(--accent); }
+   只给「KDA 比值」那行小字上色。大字号 11/3/9 保持主文字色: 一局绿一局蓝会被
+   误读成"出图不稳定", 战绩卡本身也是比分主色 + 比值分档。 */
+.bc-kda-sub strong.k-hi { color: var(--positive); }
+.bc-kda-sub strong.k-lo { color: var(--negative); }
+.bc-kda-sub strong.k-mid { color: var(--accent); }
 .bc-kda-sub { padding-bottom: 2px; min-width: 0; }
 .bc-kda-sub span { display: block; font-size: var(--fs-xs); color: var(--text-muted);
   line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; }
