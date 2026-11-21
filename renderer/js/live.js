@@ -1318,21 +1318,47 @@ function liveRecordText(total, wins, emptyText) {
   return total ? `近${total}场 ${wins}胜${total - wins}负` : emptyText;
 }
 
-// 「展开全部战绩」: 默认两队挤在一屏内、战绩在卡片里滚动；展开后每人完整显示最近 10 场，页面整体滚动。
+// 「全部收起 / 全部展开」: 默认两队挤在一屏内、战绩在卡片里滚动；展开后每人完整显示最近 20 场，页面整体滚动。
 // 只切换 #page-live 上的样式类，不重绘，所以和实时刷新互不影响。
+// 1.6.40: ① 两队标题栏各挂一个 (滚到红方也能收起来) ② 选择记住 (下一局进来还是上次的档)
+//          ③ 文案改成「全部展开 / 全部收起」—— 之前叫「展开全部战绩」, 一是不像开关, 二是只挂了蓝方。
 let liveRecentExpanded = false;
+// 注意: persist.js 排在 live.js **后面**, 顶层直接 storeGet 会拿到 undefined (函数还不存在),
+// 档位就永远读不回来。所以延迟到第一次渲染时再读一次 (那时 persist.js 已就位)。
+let _liveExpandPrefLoaded = false;
+function loadLiveExpandPref() {
+  if (_liveExpandPrefLoaded) return;
+  _liveExpandPrefLoaded = true;
+  try {
+    if (typeof storeGet === 'function') liveRecentExpanded = storeGet('liveRecentExpanded') === '1';
+  } catch (e) {}
+}
 function syncLiveExpandButton(show) {
-  const btn = document.getElementById('liveExpandBtn');
-  if (!btn) return;
-  if (typeof show === 'boolean') btn.hidden = !show;
-  btn.textContent = liveRecentExpanded ? '收起战绩' : '展开全部战绩';
-  btn.classList.toggle('is-selected', liveRecentExpanded);
-  btn.setAttribute('aria-pressed', String(liveRecentExpanded));
+  const btns = [];
+  if (typeof document.querySelectorAll === 'function') {
+    const list = document.querySelectorAll('#page-live .lp-expand-btn');
+    for (let i = 0; i < list.length; i++) btns.push(list[i]);
+  }
+  const legacy = document.getElementById ? document.getElementById('liveExpandBtn') : null;
+  if (legacy && btns.indexOf(legacy) < 0) btns.push(legacy);
+  btns.forEach(btn => {
+    if (typeof show === 'boolean') btn.hidden = !show;
+    btn.textContent = liveRecentExpanded ? '全部收起' : '全部展开';
+    btn.classList.toggle('is-selected', liveRecentExpanded);
+    btn.setAttribute('aria-pressed', String(liveRecentExpanded));
+  });
 }
 function toggleLiveRecentExpanded(force) {
   liveRecentExpanded = typeof force === 'boolean' ? force : !liveRecentExpanded;
   const page = document.getElementById('page-live');
   page?.classList.toggle('live-expanded', liveRecentExpanded);
+  // 记住选择: 一局里翻几次、下一局进来都保持同一档 (玩家嫌 7 场太少时只需要点一次)
+  try { if (typeof storeSet === 'function') storeSet('liveRecentExpanded', liveRecentExpanded ? '1' : ''); } catch (e) {}
+  // 展开后把视线拉回顶部: 展开的是"从第一场开始看全", 停在半截会看不出发生了什么
+  if (liveRecentExpanded) {
+    const host = document.getElementById('liveGameArea');
+    if (host) host.scrollTop = 0;
+  }
   syncLiveExpandButton();
   // 1.5.150: 提示行文案随展开态切换 (先展示 6 场 ⇄ 全部), 战绩行重新收口/解除隐藏
   if (page && typeof page.querySelectorAll === 'function') page.querySelectorAll('.lp-row').forEach(row => {
@@ -1988,11 +2014,14 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       ? `<span class="lp-team-rate${rateCls}">${rate}%</span><span class="lp-team-kda">KDA <b>${kda}</b></span>`
       : '<span class="lp-team-kda">战绩加载中</span>';
     const slots = Math.max(0, 5 - list.length);
-    // 「展开全部战绩」放在队伍标题栏最右端: 页头那一行已经去掉 (标题纯占高度),
+    // 「全部展开 / 全部收起」放在队伍标题栏最右端: 页头那一行已经去掉 (标题纯占高度),
     // 而这个开关只管战绩列表的展开, 贴在列表上方的队伍栏里正好, 且不额外占一行高度。
+    // 1.6.40: 两队各挂一个 —— 展开后页面能滚到几千 px, 只有蓝方栏里有按钮的话,
+    // 看完红方想收起还得滚回顶上, 这是实打实的弯路。id 只留蓝方那一个, 避免重复 id。
     const expandBtn = withExpand
-      ? '<button type="button" class="lp-expand-btn" id="liveExpandBtn" onclick="toggleLiveRecentExpanded()"' +
-        ' title="默认让两队挤在一屏内，每人只露出几场；展开后每人完整显示最近 10 场，页面可滚动">展开全部战绩</button>'
+      ? '<button type="button" class="lp-expand-btn"' + (withExpand === 'primary' ? ' id="liveExpandBtn"' : '') +
+        ' onclick="toggleLiveRecentExpanded()"' +
+        ' title="全部展开: 每人完整显示最近 20 场, 页面可滚; 全部收起: 恢复两队一屏">全部展开</button>'
       : '';
     // 「推荐出装」和「展开全部战绩」共用队伍标题栏这一行: 页头那行已经去掉了,
     // 而这一行本来就只放了名字+人数, 右边是空的, 塞两个按钮不额外占任何高度。
@@ -2033,7 +2062,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   const pageHtml = `
     ${typeof PoroScout !== 'undefined' ? PoroScout.html(PoroScout.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('scoutCollapsed') === '1') }) : ''}
     ${enemyIntelHtml(data, selfPuuid)}
-    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', true, canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', false, canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
+    <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', 'primary', canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', 'mirror', canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
   // 不再拆掉整个 DOM 重建 (重建会让全部头像重载、滚动位置归零 —— 表现为整页闪烁)。
   // 注意比对的是**上一次写进去的模板字符串**, 不能用 body.innerHTML: 紧随其后的
@@ -2043,6 +2072,11 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     _livePageHtml = pageHtml;
     body.innerHTML = pageHtml;
   }
+  // 1.6.40: 展开档位是持久化的 —— 重进对局 / 关掉重开时页面要先回到上次的档,
+  // 否则「全部展开」看起来像没记住 (按钮文案同步在 syncLiveExpandButton 里做)。
+  loadLiveExpandPref();
+  const livePageEl = document.getElementById('page-live');
+  if (livePageEl) livePageEl.classList.toggle('live-expanded', liveRecentExpanded);
   diagLiveHeadOnce();
   scheduleLiveRowAlignment();
   // F9 战报浮窗: 选人阶段为浮窗准备数据 (进对局后浮窗随时可呼出)

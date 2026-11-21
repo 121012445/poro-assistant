@@ -26,9 +26,14 @@ function makeEl(id) {
 const els = { liveExpandBtn: makeEl('liveExpandBtn'), 'page-live': makeEl('page-live') };
 els.liveExpandBtn.hidden = true;
 
+// 1.6.40: 展开档位记在 store 里 (字符串), 这里用最小实现验证读写
+const store = {};
 const context = vm.createContext({
   console, performance: { now: () => 0 }, window: {},
-  document: { getElementById: id => els[id] || null, querySelector: () => null, querySelectorAll: () => [] },
+  storeGet: k => (k in store ? store[k] : undefined),
+  storeSet: (k, v) => { store[k] = String(v); },
+  document: { getElementById: id => els[id] || null, querySelector: () => null,
+    querySelectorAll: sel => (String(sel).includes('.lp-expand-btn') ? (els.liveExpandBtn ? [els.liveExpandBtn] : []) : []) },
   lolAPI: { lcuStatus: async () => ({ summoner: { puuid: 'me' } }) },
   // renderLiveTeams 的外部依赖 (来自 blacklist/social/utils/home/champions 等模块)
   checkBlacklist: () => {}, isKnownPlayerName: () => false, addEncounter: () => {},
@@ -92,24 +97,26 @@ const body = makeEl('liveGameArea');
   // ---------- ③ 展开/收起 ----------
   const btn = els.liveExpandBtn, page = els['page-live'];
   assert.strictEqual(btn.hidden, false, '渲染出阵容后应显示「展开全部战绩」按钮');
-  assert.strictEqual(btn.textContent, '展开全部战绩');
+  assert.strictEqual(btn.textContent, '全部展开');
   assert.strictEqual(page.classList.contains('live-expanded'), false, '默认不展开');
   assert.strictEqual(btn.attrs['aria-pressed'], 'false');
 
   context.toggleLiveRecentExpanded();
   assert.strictEqual(page.classList.contains('live-expanded'), true, '点击后页面应进入展开模式');
-  assert.strictEqual(btn.textContent, '收起战绩');
+  assert.strictEqual(store.liveRecentExpanded, '1', '展开档位要落盘, 下一局进来保持');
+  assert.strictEqual(btn.textContent, '全部收起');
   assert.strictEqual(btn.classList.contains('is-selected'), true, '展开时按钮应为选中态');
   assert.strictEqual(btn.attrs['aria-pressed'], 'true');
 
   // 实时刷新会整块重绘 #liveGameArea: 展开状态是挂在 #page-live 上的, 必须不受影响
   await context.renderLiveTeams(body, data, null, null);
   assert.strictEqual(page.classList.contains('live-expanded'), true, '实时重绘不得把展开状态冲掉');
-  assert.strictEqual(btn.textContent, '收起战绩', '重绘后按钮文案应与状态一致');
+  assert.strictEqual(btn.textContent, '全部收起', '重绘后按钮文案应与状态一致');
 
   context.toggleLiveRecentExpanded();
   assert.strictEqual(page.classList.contains('live-expanded'), false, '再次点击应收起');
-  assert.strictEqual(btn.textContent, '展开全部战绩');
+  assert.strictEqual(store.liveRecentExpanded, '', '收起同样要落盘');
+  assert.strictEqual(btn.textContent, '全部展开');
   context.toggleLiveRecentExpanded(true);
   context.toggleLiveRecentExpanded(true);
   assert.strictEqual(page.classList.contains('live-expanded'), true, '显式传 true 应幂等，不是翻转');
@@ -124,15 +131,28 @@ const body = makeEl('liveGameArea');
   assert.doesNotThrow(() => { els.liveExpandBtn = null; context.syncLiveExpandButton(true); }, '按钮缺失时不得抛错');
   els.liveExpandBtn = btn;
 
+  // 1.6.40: persist.js 排在 live.js 后面, 顶层读档位会拿到 undefined —— 必须延迟到首次渲染。
+  // 这里模拟"上次退出时是展开档", 重置读取标记后重新渲染, 页面要直接回到展开态。
+  store.liveRecentExpanded = '1';
+  run('_liveExpandPrefLoaded = false; liveRecentExpanded = false;');
+  assert.strictEqual(page.classList.contains('live-expanded'), false, '重置后先回到折叠');
+  await context.renderLiveTeams(body, data, null, null);
+  assert.strictEqual(page.classList.contains('live-expanded'), true, '启动后应读回上次的展开档位');
+  assert.strictEqual(btn.textContent, '全部收起', '读回展开档后按钮文案要跟着变');
+  context.toggleLiveRecentExpanded(false);
+  store.liveRecentExpanded = '';
+
   // 接线: 按钮由 live.js 渲染进蓝方队伍栏 (页头那行已经删掉, 不能再占一行高度);
   // 默认隐藏的属性不再需要 —— 没有阵容时按钮根本不存在。
-  assert.ok(/<button[^>]*class="lp-expand-btn"[^>]*id="liveExpandBtn"[^>]*onclick="toggleLiveRecentExpanded\(\)"/.test(liveSrc), '「展开全部战绩」应由 live.js 渲染进队伍栏');
+  assert.ok(/<button[^>]*class="lp-expand-btn"[^>]*onclick="toggleLiveRecentExpanded\(\)"/.test(liveSrc), '「全部展开」应由 live.js 渲染进队伍栏');
   assert.ok(!/id="liveExpandBtn"/.test(html), 'index.html 里不应再有展开按钮 (否则会重新占一行高度)');
   assert.ok(!/id="page-live"[\s\S]{0,400}<h2>实时对局<\/h2>/.test(html), '实时对局页不应再有重复的页面标题');
   // 1.5.121 起 teamPanel 多了第 5 个参数 (withBuild: 「推荐出装」按钮挂在自己那一队),
   // 所以这里不再写死右括号, 改成分别校验蓝方带展开、红方不带 —— 比原来只匹配蓝方一处更严格。
-  assert.ok(/withExpand/.test(liveSrc) && /teamPanel\(blue, '蓝方', 'lp-blue', true[,)]/.test(liveSrc), '展开按钮只挂在第一个队伍栏上');
-  assert.ok(/teamPanel\(red, '红方', 'lp-red', false[,)]/.test(liveSrc), '红方队伍栏不应挂「展开全部战绩」');
+  // 1.6.40: 两队标题栏各挂一个 —— 展开后页面能滚很长, 只有蓝方有按钮的话看完红方还得滚回去收起
+  assert.ok(/teamPanel\(blue, '蓝方', 'lp-blue', 'primary'/.test(liveSrc), '蓝方队伍栏要挂「全部展开」');
+  assert.ok(/teamPanel\(red, '红方', 'lp-red', 'mirror'/.test(liveSrc), '红方队伍栏也要挂「全部展开」');
+  assert.ok((liveSrc.match(/id="liveExpandBtn"/g) || []).length === 1, 'id 只能给蓝方那一个, 否则出现重复 id');
   assert.ok(liveSrc.includes('syncLiveExpandButton(false);'), '离开对局时应隐藏按钮');
   assert.ok(/syncLiveExpandButton\(!!body\.querySelector\('\.lp-wrap'\)\)/.test(liveSrc), '渲染结束后应按是否有阵容校准按钮');
 
@@ -153,7 +173,8 @@ const body = makeEl('liveGameArea');
     return any ? [...props].map(([k, v]) => k + ': ' + v).join('; ') : null;
   };
   const px = (decl, prop) => { const m = new RegExp('(?:^|[;\\s])' + prop + '\\s*:\\s*([^;]+)').exec(decl || ''); return m ? m[1].trim() : null; };
-  const compact = rule(premium.slice(premium.indexOf('实时对局：紧凑布局')), '#liveExpandBtn');
+  const BTN = '#page-live .lp-expand-btn';   // 必须带 #page-live: 光靠 class 斗不过全局 button 的 38px 最小高度
+  const compact = rule(premium.slice(premium.indexOf('实时对局：紧凑布局')), BTN);
   assert.ok(compact, '应有实时对局的页头按钮样式块');
   // 1.5.57 起实时对局的尺寸/配色由 style.css 的「实时对局」区块统一负责 (按 Akari 版式重排),
   // premium.css 只保留作战计划面板与展开按钮 —— 两处同时定义尺寸会互相覆盖, 这里守住这个分工。
@@ -163,10 +184,10 @@ const body = makeEl('liveGameArea');
   assert.strictEqual(px(rule(block, '.lp-row'), 'padding'), '6px 8px');
   assert.strictEqual(px(rule(block, '.lp-champ'), 'width'), '38px');
   const btnBlock = premium.slice(premium.indexOf('实时对局：紧凑布局'));
-  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高队伍栏');
-  assert.strictEqual(px(rule(btnBlock, '#liveExpandBtn'), 'height'), '18px', '按钮要压到 18px 才塞得进 28px 的队伍栏');
-  assert.ok(/#liveExpandBtn\[hidden\]\s*\{\s*display:\s*none/.test(btnBlock), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
-  assert.ok(/body\.dark #liveExpandBtn:hover/.test(premium), '深色下按钮 hover 要单独提亮');
+  assert.strictEqual(px(rule(btnBlock, BTN), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高队伍栏');
+  assert.strictEqual(px(rule(btnBlock, BTN), 'height'), '18px', '按钮要压到 18px 才塞得进 28px 的队伍栏 (20px 会顶掉每卡一场战绩)');
+  assert.ok(/\.lp-expand-btn\[hidden\]\s*\{\s*display:\s*none/.test(btnBlock), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
+  assert.ok(/body\.dark #page-live \.lp-expand-btn:hover/.test(premium), '深色下按钮 hover 要单独提亮');
 
   // 展开模式: 去掉"一屏内"的约束
   for (const [sel, prop, val] of [['.lp-wrap', 'overflow', 'visible'], ['.lp-recent', 'overflow', 'visible'], ['.lp-row', 'height', 'auto'], ['.lp-recent', 'flex', '0 0 auto']]) {
