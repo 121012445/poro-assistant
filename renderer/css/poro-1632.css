@@ -248,3 +248,21 @@ body.dark #page-live .lp-expand-btn:hover {
 body.dark #page-live .lp-expand-btn.is-selected {
   color: #0b1220; border-color: transparent; background: var(--accent);
 }
+
+/* ---------- 实时对局「好抓」标签 (1.6.42) ----------
+   它和其它特殊标签 (小代/大腿/本命) 的区别是: 那些是"注意这个人", 这个是"去打这个人" ——
+   一条直接给动作的结论。所以用实心深青绿 + 白字, 比周围的淡底标签重一档,
+   十张卡里只在对面两三个人身上出现, 不会变成一片彩色噪点。
+   写在这张最后加载的表里: v4.css 的 .lp-metric 基础规则 (surface-3 底 + ink-2 字)
+   特异性与这里相同, 写在前面会被盖掉 (1.6.41 的按钮就吃过这个亏)。 */
+#page-live .lp-profile-line .lp-tag-gank {
+  --pill-c: #0f766e;
+  background: #0f766e !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+  letter-spacing: .2px;
+}
+body.dark #page-live .lp-profile-line .lp-tag-gank {
+  background: #14b8a6 !important;
+  color: #06231f !important;
+}

@@ -1863,6 +1863,12 @@ function liveRankedEntryOf(puuid, queueId) {
   } catch (e) { return null; }
 }
 
+function isEnemyPlayer(p) {
+  const my = Number(window._poroSelfTeam) || 0;
+  const t = Number(p && p.team) || 0;
+  return my > 0 && t > 0 && t !== my;
+}
+
 function buildLivePills(p, premadeGroupId) {
   const premadeTag = premadeGroupId ? `<span class="lp-premade lp-pg-${((premadeGroupId - 1) % 6) + 1}" title="该玩家与本队其他成员有共同对局，推断为开黑组 ${premadeGroupId}">组${premadeGroupId}</span>` : '';
   // 1.6.21: 小代 (排位专属) —— 战绩与段位明显不符, 判定逻辑与阈值在 smurf-tags.js
@@ -1880,7 +1886,18 @@ function buildLivePills(p, premadeGroupId) {
   const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
   const games = p.recent.length;
   const specialTags = [];
-  // 小代排在最前: 它是"这个人要注意"的信号, 比大腿/本命更需要第一眼看到。
+  // 1.6.42: 「好抓」—— 只贴敌方, 只在召唤师峡谷 (匹配/排位同口径), 判定与阈值全在 gank-tags.js。
+  // 排在小代前面: 小代是"小心这个人", 好抓是"去打这个人", 后者是本局直接要执行的动作。
+  // 折叠态标签行只有一行, 所以这个位置决定了它能不能被第一眼看到。
+  const gank = (typeof window !== 'undefined' && window.PoroGank)
+    ? window.PoroGank.tagInfo(p.recent, {
+        enemy: isEnemyPlayer(p),
+        family: liveModeFamily,
+        position: p.position || p.teamPosition || ''
+      })
+    : null;
+  if (gank) specialTags.push(`<span class="lp-metric lp-tag-gank" title="${escapeHtml(gank.tip)}">${gank.label}</span>`);
+  // 小代排在大腿/本命之前: 它是"这个人要注意"的信号, 比大腿/本命更需要第一眼看到。
   // 放进 specialTags 而不是单开一段 —— 标签行的拼接顺序/占位约定只有一套, 不另起分支。
   if (smurfTag) specialTags.push(smurfTag);
   if (winRate != null && winRate >= 65 && games >= 14) {
@@ -2052,6 +2069,9 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   // 「推荐出装」只挂在自己那一队的标题栏: 挂对面没有意义, 而且两边都挂会让两个面板宽度不一致。
   const selfPlayer = selfPuuid ? data.find(p => p.puuid === selfPuuid) : null;
   const selfTeamNum = selfPlayer ? Number(selfPlayer.team) : 0;
+  // 1.6.42: 「好抓」标签只贴敌方, 需要知道"我在哪一边"。拿不到 (LCU 状态失败 / 自己不在名单)
+  // 就写 0 —— isEnemyPlayer 会因此全判 false, 标签整批不出现, 而不是给全十个人乱贴。
+  window._poroSelfTeam = selfTeamNum || 0;
   // 装备库没就绪时不出按钮, 避免点开是个空壳 (Data Dragon 首次加载有延迟)
   const canBuild = !!(selfPlayer && Number(selfPlayer.championId) > 0
     && typeof poroBuildEngine !== 'undefined' && poroBuildEngine && poroBuildEngine.itemDatabase);
