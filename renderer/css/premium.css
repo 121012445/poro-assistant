@@ -1670,12 +1670,20 @@ body.dark .bc-card.bc-cardA { background: var(--bg-card); border-color: var(--bo
 .bc-kda-num { font-size: 33px; font-weight: 600; line-height: 1; color: var(--text-primary);
   font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .bc-kda-num i { font-style: normal; font-size: 19px; opacity: .45; }
-/* KDA 分级上色: 与首页战绩卡同一口径 (home.js kdaClass) —— ≥3 绿 / <2 红 / 其余蓝。
-   只给「KDA 比值」那行小字上色。大字号 11/3/9 保持主文字色: 一局绿一局蓝会被
-   误读成"出图不稳定", 战绩卡本身也是比分主色 + 比值分档。 */
-.bc-kda-sub strong.k-hi { color: var(--positive); }
-.bc-kda-sub strong.k-lo { color: var(--negative); }
-.bc-kda-sub strong.k-mid { color: var(--accent); }
+/* KDA 着色 = 首页战绩卡原样: 击杀绿 / 死亡红 / 助攻蓝, 斜杠保持灰 (home.js 的 .v-k/.v-d/.v-n)。
+   色值必须写死, 不能引 --positive/--accent:
+     · 首页的 --pos/--neg/--brand 定义在 v4.css, 导出只注入 5 个 CSS, 离屏窗口里根本不存在;
+     · 注入进来的 premium --positive 是 #16a34a, 与首页 #0E8A4F 不是一个绿 ——
+       同一张卡上会同时出现两种绿。
+   下面三组正好是 v4.css 新浅色/深色那套值 (采样自首页战绩卡实际渲染像素)。
+   比值那行小字按 KDA 数值分档 (≥3 绿 / <2 红 / 其余蓝), 与大字共用同一组色值,
+   也就是截图里 "14.50 显示绿" 的口径。 */
+.bc-kda-num .k-k, .bc-kda-sub strong.k-hi { color: #0E8A4F; }
+.bc-kda-num .k-d, .bc-kda-sub strong.k-lo { color: #D02F27; }
+.bc-kda-num .k-a, .bc-kda-sub strong.k-mid { color: #2065D6; }
+body.dark .bc-kda-num .k-k, body.dark .bc-kda-sub strong.k-hi { color: #26C281; }
+body.dark .bc-kda-num .k-d, body.dark .bc-kda-sub strong.k-lo { color: #EF5350; }
+body.dark .bc-kda-num .k-a, body.dark .bc-kda-sub strong.k-mid { color: #4F8FF7; }
 .bc-kda-sub { padding-bottom: 2px; min-width: 0; }
 .bc-kda-sub span { display: block; font-size: var(--fs-xs); color: var(--text-muted);
   line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; }

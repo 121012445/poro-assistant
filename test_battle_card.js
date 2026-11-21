@@ -81,7 +81,8 @@ function norm(over) {
 // 5. 基础内容没被这次改动破坏
 {
   const html = Card.build(norm(), 'p0', { name: 'A#1' });
-  assert.ok(html.includes('11<i>/</i>3<i>/</i>9'), 'KDA 要按 k/d/a 渲染');
+  assert.ok(html.includes('<span class="k-k">11</span><i>/</i><span class="k-d">3</span><i>/</i><span class="k-a">9</span>'),
+    'KDA 三个数字要各自包 span (击杀绿/死亡红/助攻蓝, 与首页战绩卡同款式)');
   assert.ok(!/<em>\d+<\/em>/.test(html), '死亡数不再单独标红 —— 整串同色才和首页战绩卡一致');
   assert.ok(html.includes('盖伦'), '英雄名要在卡上');
   assert.ok(/bc-grid/.test(html) && /bc-mates/.test(html), '数据格与双方阵容都还在');
@@ -123,15 +124,41 @@ function norm(over) {
   }
 }
 
-// 5d. 样式: 三档色必须落在 premium.css (导出只注入 style/extras/dark/premium/ui-polish,
-//     v4.css 的 --data-* 在离屏窗口里不存在, 写那边等于没上色)
+// 5d. 样式: KDA 三色必须落在 premium.css, 且色值要与首页战绩卡逐值一致。
+//     导出只注入 style/extras/dark/premium/ui-polish —— 首页用的 --pos/--neg/--brand
+//     定义在 v4.css 里, 离屏窗口根本拿不到; 而 premium 的 --positive 是 #16a34a,
+//     与首页的 #0E8A4F 不是一个绿。所以必须写死 hex, 这里连"来源正确"一起守。
 {
-  const i = css.indexOf('.bc-kda-sub strong.k-hi');
-  assert.ok(i > 0, 'premium.css 里必须有 KDA 比值分级色');
-  for (const [cls, tok] of [['k-hi', '--positive'], ['k-lo', '--negative'], ['k-mid', '--accent']]) {
-    const at = css.indexOf('.bc-kda-sub strong.' + cls);
+  const v4 = fs.readFileSync(path.join(__dirname, 'renderer/css/v4.css'), 'utf8');
+  const WANT = {
+    'k-k': { light: '#0E8A4F', dark: '#26C281', tok: '--pos' },
+    'k-d': { light: '#D02F27', dark: '#EF5350', tok: '--neg' },
+    'k-a': { light: '#2065D6', dark: '#4F8FF7', tok: '--brand' }
+  };
+  for (const [cls, w] of Object.entries(WANT)) {
+    const at = css.indexOf('.bc-kda-num .' + cls);
+    assert.ok(at > 0, 'premium.css 缺 .bc-kda-num .' + cls + ' (大写 KDA 要按位着色)');
     const block = css.slice(at, css.indexOf('}', at) + 1);
-    assert.ok(block.includes('var(' + tok + ')'), cls + ' 要用 ' + tok);
+    assert.ok(block.includes(w.light), cls + ' 浅色应为 ' + w.light + ' (与首页同色)');
+    assert.ok(!/var\(--(positive|negative|accent)\)/.test(block),
+      cls + ' 不能引 --positive/--accent: 导出窗口里与首页不是同一种绿');
+
+    const dAt = css.indexOf('body.dark .bc-kda-num .' + cls);
+    assert.ok(dAt > 0, 'premium.css 缺深色 .bc-kda-num .' + cls);
+    const dBlock = css.slice(dAt, css.indexOf('}', dAt) + 1);
+    assert.ok(dBlock.includes(w.dark), cls + ' 深色应为 ' + w.dark);
+
+    // 这两个 hex 必须真的能在 v4.css 里找到对应的语义令牌, 防止随手编色值
+    assert.ok(new RegExp(w.tok + ':\\s*' + w.light).test(v4), w.light + ' 必须等于 v4.css 浅色 ' + w.tok);
+    assert.ok(new RegExp(w.tok + ':\\s*' + w.dark).test(v4), w.dark + ' 必须等于 v4.css 深色 ' + w.tok);
+  }
+  // 比值那行小字与大字共用同一组色值 (截图里 "14.50 显示绿" 就是这里)
+  for (const cls of ['k-hi', 'k-lo', 'k-mid']) {
+    const at = css.indexOf('.bc-kda-sub strong.' + cls);
+    assert.ok(at > 0, 'premium.css 缺比值分级色 .bc-kda-sub strong.' + cls);
+    const block = css.slice(at, css.indexOf('}', at) + 1);
+    assert.ok(!/var\(--(positive|negative|accent)\)/.test(block),
+      '比值分级色也必须写死, 与大字同源');
   }
   const art = css.slice(css.indexOf('.bc-art {'), css.indexOf('}', css.indexOf('.bc-art {')) + 1);
   assert.ok(/width:\s*138px/.test(art), '原画条宽 138px');
@@ -216,11 +243,15 @@ function norm(over) {
 // 5h. 1.6.46 修的两个真实故障, 都要留门禁防止退回去
 {
   const src = fs.readFileSync(SRC, 'utf8');
-  // (a) 大字 KDA 不许随局变色 —— 用户报告的"每次点卡 kd 颜色不一样"
+  // (a) 大字 KDA 不许整体随局变档 —— 用户报告的"每次点卡 kd 颜色不一样"。
+  //     正解是按位固定色 (击杀绿/死亡红/助攻蓝), 所以容器不能挂 k-hi/k-mid/k-lo 这类
+  //     整串分级 class; 但只要按位着色落地了, 三个数字必然各自有 span。
   const card = Card.build(norm(), 'p0', {});
-  const m = card.match(/<b class="([^"]*)">11<i>/);
-  assert.ok(!!m, 'KDA 大字要能定位到');
-  assert.ok(!/k-(hi|mid|lo)/.test(m[1]), 'KDA 大字不能带分级 class (会随局变色)');
+  const m = card.match(/<b class="([^"]*)"><span class="k-k">11<\/span>/);
+  assert.ok(!!m, 'KDA 大字要能定位到 (且击杀必须是 k-k)');
+  assert.ok(!/k-(hi|mid|lo)/.test(m[1]), 'KDA 大字容器不能带整串分级 class (会随局整体变色)');
+  assert.ok(/<span class="k-d">3<\/span><i>\/<\/i><span class="k-a">9<\/span>/.test(card),
+    '死亡/助攻必须各自独立 span —— 否则做不到和首页一样的三位分色');
 
   // (b) 内联图必须按显示尺寸重编码 —— 原样内联时单卡 520KB, 撞破主进程上限
   assert.ok(/shrinkAsDataUrl/.test(src), '必须按显示尺寸重编码图片');

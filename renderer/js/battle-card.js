@@ -356,7 +356,7 @@
       ${ownerName ? `<span class="bc-owner" title="${escapeHtml(ownerName)}">${escapeHtml(ownerName)}</span>` : ''}
     </div>
     <div class="bc-kda">
-      <b class="bc-kda-num">${me.k}<i>/</i>${me.d}<i>/</i>${me.a}</b>
+      <b class="bc-kda-num"><span class="k-k">${me.k}</span><i>/</i><span class="k-d">${me.d}</span><i>/</i><span class="k-a">${me.a}</span></b>
       <div class="bc-kda-sub">
         <span><strong class="${kdaTone(kda).trim()}">${kda.toFixed(1)}</strong> KDA</span>
         <span>参团 ${part}%</span>
