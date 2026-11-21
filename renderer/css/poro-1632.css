@@ -179,3 +179,72 @@ body.splash-on.splash-page .main-content { background: transparent; }
 .sidebar-footer .version { margin-left: auto; white-space: nowrap; }
 body.nav-collapsed .sidebar-extras { flex-direction: column; gap: 6px; justify-content: center; }
 body.nav-collapsed .sidebar-footer .version { margin-left: 0; }
+
+/* ---------- 实时对局: 标签可以「全部折叠 / 全部展开」(1.6.41) ----------
+   实测 (1500x980, 10 人卡, 全是真数据) 折叠前的纵向构成:
+     lp-card-head 61 | lp-profile-line 17 (原本铺开是 47) | pk-row 47 | lp-habit-line 15
+     | lp-recent 212 —— 标签类信息一共吃掉 79px, 等于压掉 3 场战绩, 每卡只剩 5~6 场。
+   用户的原话是"标签可以全部折叠/展开, 现在战绩被压得太少", 所以两档:
+     折叠(默认): 标签只留一行 + 位置KPI/习惯行不占位, 省出的 79px 全给战绩 (→ 9 场);
+     展开: 三行全部铺开 (标签最多 5 行, 80px 安全网), 战绩同时显示完整 20 场。
+   复用 live-expanded 这个类, 和战绩展开共用一个开关: 一次点击要么全收、要么全放,
+   玩家不用记住两个按钮。 */
+#page-live:not(.live-expanded) .lp-profile-line {
+  flex-wrap: nowrap;
+  height: 17px;
+  min-height: 17px;
+  max-height: 17px;
+  overflow: hidden;
+  align-items: center;
+  align-content: center;
+  white-space: nowrap;
+  /* 右侧渐隐: 一行放不下 8 个指标, 不给提示的话看起来像"这个玩家没数据" */
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+}
+#page-live:not(.live-expanded) .pk-row,
+#page-live:not(.live-expanded) .lp-habit-line { display: none; }
+#page-live.live-expanded .lp-profile-line {
+  flex-wrap: wrap;
+  height: auto;
+  max-height: 80px;
+  overflow: hidden;
+  align-items: flex-start;
+  align-content: flex-start;
+  white-space: normal;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* ---------- 队伍栏「全部展开 / 全部折叠」按钮 (1.6.41) ----------
+   必须写在最后加载的表里: v4.css 的 ghost 规则会把它压成灰按钮, 玩家根本注意不到
+   (这正是"不知道能展开"的直接原因)。做成 accent 小胶囊, 18px 高塞进 21px 队伍栏。 */
+#page-live .lp-expand-btn {
+  margin-left: 6px; min-height: 0; height: 18px; padding: 0 9px;
+  font-size: var(--fs-2xs); line-height: 1; font-weight: 700;
+  border-radius: 999px; cursor: pointer;
+  color: var(--accent-deep);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  transition: border-color .12s ease, color .12s ease, background .12s ease;
+}
+#page-live .lp-expand-btn:hover {
+  color: var(--accent-deep); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+#page-live .lp-expand-btn.is-selected {
+  color: #fff; border-color: transparent;
+  background: var(--accent);
+}
+#page-live .lp-expand-btn[hidden] { display: none; }
+body.dark #page-live .lp-expand-btn {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+body.dark #page-live .lp-expand-btn:hover {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+body.dark #page-live .lp-expand-btn.is-selected {
+  color: #0b1220; border-color: transparent; background: var(--accent);
+}

@@ -794,23 +794,9 @@ body.dark .lp-kda, body.dark .ri-kda, body.dark .gd-kda, body.dark .pr-val { col
 .live-decision { margin: 0 0 4px; }
 .live-decision summary { min-height: 30px; padding-top: 4px; padding-bottom: 4px; }
 
-/* 队伍栏右端的「全部展开 / 全部收起」: 全局按钮最小高度 38px, 直接放进来会把 28px 的
-   队伍栏撑高。压成 20px 的小胶囊按钮 —— 1.6.40 起给它一条常驻描边: 之前是全透明幽灵按钮,
-   玩家根本没发现有这么个开关, 只能忍着每卡 7 场。它仍然比「推荐出装」低调, 不抢焦点。
-   两队标题栏各挂一个 (.lp-expand-btn), id 只留给蓝方那一个做兼容。 */
-#page-live .lp-expand-btn {
-  margin-left: 6px; min-height: 0; height: 18px; padding: 0 10px;
-  font-size: var(--fs-2xs); line-height: 1; border-radius: 999px; cursor: pointer;
-  color: var(--text-muted); border: 1px solid var(--border); background: transparent;
-}
-#page-live .lp-expand-btn:hover { color: var(--text-primary); border-color: var(--border-strong); background: var(--bg-card); }
-#page-live .lp-expand-btn.is-selected {
-  color: var(--accent-deep); border-color: color-mix(in srgb, var(--accent) 46%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-#page-live .lp-expand-btn[hidden] { display: none; }
-body.dark #page-live .lp-expand-btn { border-color: rgba(255, 255, 255, .14); }
-body.dark #page-live .lp-expand-btn:hover { border-color: rgba(255, 255, 255, .26); background: rgba(255, 255, 255, .05); }
+/* 队伍栏右端的「全部展开 / 全部折叠」按钮样式 1.6.41 起挪到 poro-1632.css ——
+   v4.css 也定义了 #page-live .lp-expand-btn (ghost 灰按钮), 而且比 premium.css 后加载,
+   同特异性后者胜: 在这里写多少遍都被压成灰的。放在最后加载的那张表里才有效。 */
 
 /* 「推荐出装」: 和「展开全部战绩」并排在队伍标题栏, 不新增任何行高。
    用强调色区分主次 —— 出装是开局就要看的, 展开战绩是偶尔翻的。 */

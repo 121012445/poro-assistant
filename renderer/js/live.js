@@ -1343,7 +1343,7 @@ function syncLiveExpandButton(show) {
   if (legacy && btns.indexOf(legacy) < 0) btns.push(legacy);
   btns.forEach(btn => {
     if (typeof show === 'boolean') btn.hidden = !show;
-    btn.textContent = liveRecentExpanded ? '全部收起' : '全部展开';
+    btn.textContent = liveRecentExpanded ? '全部折叠' : '全部展开';
     btn.classList.toggle('is-selected', liveRecentExpanded);
     btn.setAttribute('aria-pressed', String(liveRecentExpanded));
   });
@@ -2021,7 +2021,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
     const expandBtn = withExpand
       ? '<button type="button" class="lp-expand-btn"' + (withExpand === 'primary' ? ' id="liveExpandBtn"' : '') +
         ' onclick="toggleLiveRecentExpanded()"' +
-        ' title="全部展开: 每人完整显示最近 20 场, 页面可滚; 全部收起: 恢复两队一屏">全部展开</button>'
+        ' title="全部展开: 标签铺开 + 每人完整显示最近 20 场(页面可滚); 全部折叠: 标签只留一行, 战绩多露 3 场">全部展开</button>'
       : '';
     // 「推荐出装」和「展开全部战绩」共用队伍标题栏这一行: 页头那行已经去掉了,
     // 而这一行本来就只放了名字+人数, 右边是空的, 塞两个按钮不额外占任何高度。

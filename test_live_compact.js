@@ -9,6 +9,7 @@ const liveSrc = fs.readFileSync('renderer/js/live.js', 'utf8');
 const html = fs.readFileSync('renderer/index.html', 'utf8');
 const style = fs.readFileSync('renderer/css/style.css', 'utf8');
 const premium = fs.readFileSync('renderer/css/premium.css', 'utf8');
+const p1632 = fs.readFileSync('renderer/css/poro-1632.css', 'utf8');   // 最后加载, 展开按钮样式在这
 
 // ---------- 最小 DOM: 够 renderLiveTeams / toggle / sync 用 ----------
 function makeEl(id) {
@@ -104,14 +105,14 @@ const body = makeEl('liveGameArea');
   context.toggleLiveRecentExpanded();
   assert.strictEqual(page.classList.contains('live-expanded'), true, '点击后页面应进入展开模式');
   assert.strictEqual(store.liveRecentExpanded, '1', '展开档位要落盘, 下一局进来保持');
-  assert.strictEqual(btn.textContent, '全部收起');
+  assert.strictEqual(btn.textContent, '全部折叠');
   assert.strictEqual(btn.classList.contains('is-selected'), true, '展开时按钮应为选中态');
   assert.strictEqual(btn.attrs['aria-pressed'], 'true');
 
   // 实时刷新会整块重绘 #liveGameArea: 展开状态是挂在 #page-live 上的, 必须不受影响
   await context.renderLiveTeams(body, data, null, null);
   assert.strictEqual(page.classList.contains('live-expanded'), true, '实时重绘不得把展开状态冲掉');
-  assert.strictEqual(btn.textContent, '全部收起', '重绘后按钮文案应与状态一致');
+  assert.strictEqual(btn.textContent, '全部折叠', '重绘后按钮文案应与状态一致');
 
   context.toggleLiveRecentExpanded();
   assert.strictEqual(page.classList.contains('live-expanded'), false, '再次点击应收起');
@@ -138,7 +139,7 @@ const body = makeEl('liveGameArea');
   assert.strictEqual(page.classList.contains('live-expanded'), false, '重置后先回到折叠');
   await context.renderLiveTeams(body, data, null, null);
   assert.strictEqual(page.classList.contains('live-expanded'), true, '启动后应读回上次的展开档位');
-  assert.strictEqual(btn.textContent, '全部收起', '读回展开档后按钮文案要跟着变');
+  assert.strictEqual(btn.textContent, '全部折叠', '读回展开档后按钮文案要跟着变');
   context.toggleLiveRecentExpanded(false);
   store.liveRecentExpanded = '';
 
@@ -174,7 +175,8 @@ const body = makeEl('liveGameArea');
   };
   const px = (decl, prop) => { const m = new RegExp('(?:^|[;\\s])' + prop + '\\s*:\\s*([^;]+)').exec(decl || ''); return m ? m[1].trim() : null; };
   const BTN = '#page-live .lp-expand-btn';   // 必须带 #page-live: 光靠 class 斗不过全局 button 的 38px 最小高度
-  const compact = rule(premium.slice(premium.indexOf('实时对局：紧凑布局')), BTN);
+  const btnCss = p1632;                      // 1.6.41: 按钮自身样式挪到最后的表 (v4 的 ghost 规则会盖掉 premium)
+  const compact = rule(btnCss, BTN);
   assert.ok(compact, '应有实时对局的页头按钮样式块');
   // 1.5.57 起实时对局的尺寸/配色由 style.css 的「实时对局」区块统一负责 (按 Akari 版式重排),
   // premium.css 只保留作战计划面板与展开按钮 —— 两处同时定义尺寸会互相覆盖, 这里守住这个分工。
@@ -183,11 +185,14 @@ const body = makeEl('liveGameArea');
   assert.strictEqual(px(rule(block, '.lp-team-head'), 'min-height'), '28px', '队伍标题栏应为 28px');
   assert.strictEqual(px(rule(block, '.lp-row'), 'padding'), '6px 8px');
   assert.strictEqual(px(rule(block, '.lp-champ'), 'width'), '38px');
-  const btnBlock = premium.slice(premium.indexOf('实时对局：紧凑布局'));
-  assert.strictEqual(px(rule(btnBlock, BTN), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高队伍栏');
-  assert.strictEqual(px(rule(btnBlock, BTN), 'height'), '18px', '按钮要压到 18px 才塞得进 28px 的队伍栏 (20px 会顶掉每卡一场战绩)');
-  assert.ok(/\.lp-expand-btn\[hidden\]\s*\{\s*display:\s*none/.test(btnBlock), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
-  assert.ok(/body\.dark #page-live \.lp-expand-btn:hover/.test(premium), '深色下按钮 hover 要单独提亮');
+  const btnBlock = premium.slice(premium.indexOf('实时对局：紧凑布局'));   // 展开模式 (.live-expanded .lp-wrap 等) 仍在 premium
+  assert.strictEqual(px(rule(btnCss, BTN), 'min-height'), '0', '按钮必须覆盖全局 38px 最小高度，否则会撑高队伍栏');
+  assert.strictEqual(px(rule(btnCss, BTN), 'height'), '18px', '按钮要压到 18px 才塞得进 28px 的队伍栏 (20px 会顶掉每卡一场战绩)');
+  assert.ok(/\.lp-expand-btn\[hidden\]\s*\{\s*display:\s*none/.test(btnCss), '[hidden] 必须真的隐藏 (btn-secondary 可能设置了 display)');
+  assert.ok(/body\.dark #page-live \.lp-expand-btn:hover/.test(p1632), '深色下按钮 hover 要单独提亮');
+  // 1.6.41: 样式曾被 v4.css 的 ghost 灰按钮压掉 (同特异性且后加载), 玩家因此看不到开关
+  assert.ok(!/color:\s*var\(--ink-2\)/.test(compact || ''), '按钮不能是 v4 那套 ink-2 灰: 样式必须写在最后加载的表里');
+  assert.ok(/color:\s*var\(--accent-deep\)/.test(compact || ''), '按钮要用 accent 色, 才在第一眼能被找到');
 
   // 展开模式: 去掉"一屏内"的约束
   for (const [sel, prop, val] of [['.lp-wrap', 'overflow', 'visible'], ['.lp-recent', 'overflow', 'visible'], ['.lp-row', 'height', 'auto'], ['.lp-recent', 'flex', '0 0 auto']]) {
