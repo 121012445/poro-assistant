@@ -2412,7 +2412,11 @@ function buildHomeGameCard(g, s) {
           <div class="ako-teamcol">${rosterCol(tids[0])}</div>
           ${tids[1] ? `<div class="ako-teamcol">${rosterCol(tids[1])}</div>` : ''}
         </div>
-        <div class="ako-expand">‹</div>
+        <div class="ako-side">
+          <button class="ako-share" type="button" title="生成本局战报卡（可复制或保存图片）"
+            onclick="event.stopPropagation();shareHomeGameCard(${inlineArg(g.gid)})"><span>卡</span></button>
+          <div class="ako-expand">‹</div>
+        </div>
         <div class="og-game-detail" style="display:none"></div>
       </div>`;
 }
@@ -3496,6 +3500,29 @@ async function loadHomeStats(force, opts) {
 }
 
 function fmtNumLocal(n) { return Number(n || 0).toLocaleString('en-US'); }
+// 战绩行右侧的「战报卡」按钮: 直接从已加载的数据出图, 不再走「展开详情 → 滚到底部 → 点保存」三步。
+// 首页缓存的 homeGamesData 每一项就是 normalizeGame() 的输出, 与详情浮窗里的 norm 同构,
+// 所以这里不需要再发一次网络请求 —— 点一下就是离屏截图, 1~2 秒出图。
+async function shareHomeGameCard(gid) {
+  const g = (homeGamesData || []).find(x => String(x.gid) === String(gid));
+  if (!g) { if (typeof showToast === 'function') showToast('这局已不在当前列表里，请刷新后再试', 'negative'); return; }
+  if (!window.PoroBattleCard || typeof window.PoroBattleCard.save !== 'function') {
+    if (typeof showToast === 'function') showToast('战报卡模块未就绪', 'negative');
+    return;
+  }
+  // 卡上的名字: 与对局详情同一个口径 (当前查看的档案主人)。已有 #tag 时不再拼一遍。
+  const base = String((profileOverride && profileOverride.name)
+    || homeGamesOwnerLabel
+    || (cachedSummoner && (cachedSummoner.displayName || cachedSummoner.gameName))
+    || '').trim();
+  const tag = String((profileOverride && profileOverride.tagLine) || '').trim();
+  const ownerName = (base && tag && base.indexOf('#') < 0) ? base + '#' + tag : base;
+  try {
+    await window.PoroBattleCard.save(g, homeGamesOwner, { name: ownerName });
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('生成战报卡失败: ' + ((e && e.message) || e), 'negative');
+  }
+}
 // 展开对局详情
 async function expandOpggGame(el, gameId) {
   const detail = el.querySelector('.og-game-detail');

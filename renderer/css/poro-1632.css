@@ -266,3 +266,47 @@ body.dark #page-live .lp-profile-line .lp-tag-gank {
   background: #14b8a6 !important;
   color: #06231f !important;
 }
+
+/* ---------- 首页战绩行右侧「战报卡」按钮 (1.6.44) ----------
+   原来想晒一局要走「点开这局 → 等详情浮窗渲染 → 滚到浮窗底部 → 点保存战报卡」,
+   三步而且入口藏在浮窗里, 等于没有。现在把 26px 的展开竖条拆成两格:
+   上面一格出图, 下面仍是展开箭头。不改卡片高度、不占横向空间。
+   为什么带 #homeGamesList: premium.css 的全局按钮规则写成
+     button:not(.win-btn):not(.item):not(.btn-primary):not(.nav-toggle)...
+   特异性是 (0,7,1) —— 纯 class 选择器 (0,2,0) 根本压不住, 会得到 38px 最小高度 +
+   左右 16px 内边距, 竖条直接被撑成 58px 宽、38px 高, 把卡片撑高。这是 1.6.41
+   按钮被覆盖的同一个坑, 那次是同特异性后加载, 这次是特异性不足, 只能用 ID 压。 */
+#homeGamesList .ako-card .ako-side {
+  display: flex; flex-direction: column;
+  width: 26px; flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: rgba(0, 0, 0, .02);
+}
+/* 竖条里的箭头不再自己撑边框/背景, 交给 .ako-side 统一画 */
+#homeGamesList .ako-card .ako-side .ako-expand {
+  flex: 1 1 auto; width: auto; min-width: 0;
+  border-left: 0; background: transparent;
+}
+#homeGamesList .ako-card .ako-share {
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box;
+  min-height: 0; height: 26px; width: 100%;
+  margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+/* 竖条只有 26px 宽: 这里放文字而不是图标。poroIcon 里最接近的 cards 图标在 14px 下
+   就是一个空心小方框, 放大看都认不出是"卡片", 中文单字反而一眼就懂。 */
+#homeGamesList .ako-card .ako-share span {
+  font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: 0;
+  transform: translateY(-.5px);   /* 中文字形的重心偏下, 微调一格让它在 26px 里视觉居中 */
+}
+#homeGamesList .ako-card .ako-share:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 0;
+}
+#homeGamesList .ako-card .ako-share:active { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+body.dark #homeGamesList .ako-card .ako-side { background: rgba(255, 255, 255, .03); }
+body.dark #homeGamesList .ako-card .ako-share { color: var(--text-secondary); }
+body.dark #homeGamesList .ako-card .ako-share:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
