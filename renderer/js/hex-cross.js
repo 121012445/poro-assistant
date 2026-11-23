@@ -15,6 +15,9 @@
   'use strict';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  // 内联到 onclick="..." 里的字符串参数: 必须把 JSON 的双引号转成 &quot;, 否则属性会被截断成
+  // onclick="fn(" —— 点击直接 SyntaxError, 表现为"按钮没反应" (1.6.51 修)。
+  function arg(v) { return esc(JSON.stringify(String(v == null ? '' : v))); }
   function meta() { return (typeof window !== 'undefined' && window.PORO_AUG_META) || {}; }
 
   function searchAugments(query, limit) {
@@ -32,7 +35,7 @@
 
   function listHtml(rows) {
     if (!rows.length) return '';
-    return `<div class="hx-hits">${rows.map(r => `<button type="button" class="hx-hit" onclick="poroAugmentFit(${r.id},${JSON.stringify(r.name)})">
+    return `<div class="hx-hits">${rows.map(r => `<button type="button" class="hx-hit" onclick="poroAugmentFit(${r.id},${arg(r.name)})">
       ${r.local ? `<img src="${esc(r.local)}" alt="" onerror="this.style.visibility='hidden'">` : ''}
       <span>${esc(r.name)}</span><i>${esc(r.rarity)}</i></button>`).join('')}</div>`;
   }

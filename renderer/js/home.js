@@ -3431,6 +3431,11 @@ async function loadHomeStats(force, opts) {
     homeGameVisible = prevOwner === s.puuid
       ? Math.max(HOME_GAME_PAGE_SIZE, homeGameVisible || 0)
       : HOME_GAME_PAGE_SIZE;
+    // 1.6.51: 顺手把"记错的局"清掉 —— 旧版本在选人阶段会把上一局的 gameId 记成这一局,
+    // 造成"只碰过一次却显示 2 次"。用刚加载的战绩当证据, 只在能证伪时才删。
+    if (homeGamesOwnerIsSelf && typeof repairEncounterGameIds === 'function') {
+      try { repairEncounterGameIds(games, s.puuid); } catch (e) {}
+    }
     homeGameRemoteState = !isSelf && (dataSource === 'SGP' || profileOverflow.length) && games.length < 100 ? {
       source: dataSource,
       puuid: s.puuid,

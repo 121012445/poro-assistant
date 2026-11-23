@@ -17,6 +17,9 @@
   const KEY = 'replayMarks';
   const MAX = 200;
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  // 内联到 onclick="..." 里的字符串参数: 必须把 JSON 的双引号转成 &quot;, 否则属性会被截断成
+  // onclick="fn(" —— 点击直接 SyntaxError, 表现为"按钮没反应" (1.6.51 修)。
+  function arg(v) { return esc(JSON.stringify(String(v == null ? '' : v))); }
 
   function key() { return (typeof accountStoreKey === 'function') ? accountStoreKey(KEY) : KEY; }
 
@@ -73,9 +76,9 @@
       <span class="rm-min">${m.minute ? m.minute + "'" : '—'}</span>
       <span class="rm-gid">#${esc(m.gameId)}</span>
       <input class="rm-note" value="${esc(m.note)}" placeholder="记一句：这波为什么不该打"
-        onchange="editReplayMarkNote(${JSON.stringify(m.gameId)},${Number(m.minute) || 0},this.value)">
-      <button class="btn-secondary" onclick="openReplayMark(${JSON.stringify(m.gameId)},${JSON.stringify(m.platformId || '')})">看回放</button>
-      <button class="btn-secondary" onclick="dropReplayMark(${JSON.stringify(m.gameId)},${Number(m.minute) || 0})">删</button>
+        onchange="editReplayMarkNote(${Number(m.gameId) || 0},${Number(m.minute) || 0},this.value)">
+      <button class="btn-secondary" onclick="openReplayMark(${Number(m.gameId) || 0},${arg(m.platformId || '')})">看回放</button>
+      <button class="btn-secondary" onclick="dropReplayMark(${Number(m.gameId) || 0},${Number(m.minute) || 0})">删</button>
     </div>`).join('');
     return `<div class="rm-head"><b>回放书签</b><span>${list.length} 条 · 本机保存</span>
       <span class="rm-add"><input id="rmNewMinute" class="rm-min" placeholder="分钟" style="width:56px">

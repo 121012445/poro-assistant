@@ -17,6 +17,11 @@
   'use strict';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  // 内联到 onclick="..." 的字符串参数。不能直接用 JSON.stringify: 它产出的双引号会
+  // 提前结束属性, 浏览器拿到的处理器只剩 `showMarkModal(` —— 点击必报 SyntaxError,
+  // 用户看到的就是"编辑按钮没反应"(1.6.50 及以前)。转成 &quot; 后浏览器解码回原文,
+  // 参数语义不变。本地实现而不复用全局 inlineArg: 本文件会被 Node 单测直接 require。
+  function arg(v) { return esc(JSON.stringify(String(v == null ? '' : v))); }
   function known(name) { return !!(name && name !== '未知' && name !== '未知玩家'); }
 
   /**
@@ -75,7 +80,7 @@
       <span class="rp-count">再见 ${r.count} 次</span>
       <span class="rp-time">${r.lastSeen ? new Date(r.lastSeen).toLocaleDateString() : '—'}</span>
       <span class="rp-tags">${r.tags.map(t => `<i>${esc(t)}</i>`).join('')}${r.note ? `<em>${esc(r.note)}</em>` : ''}</span>
-      <button class="btn-secondary" onclick="showMarkModal(${JSON.stringify(r.puuid)},${JSON.stringify(r.name)})">编辑</button>
+      <button class="btn-secondary" onclick="showMarkModal(${arg(r.puuid)},${arg(r.name || '')})">编辑</button>
     </div>`).join('');
     return head + `<div class="rp-list">${rows}</div>`;
   }

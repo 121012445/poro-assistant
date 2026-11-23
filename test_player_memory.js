@@ -181,6 +181,99 @@ ok('v3 旧数据仍按“至少 1 次”折算', () => {
   assert.strictEqual(ctx.__read().map.old.count, 1);
 });
 
+// 1.6.51: 选人阶段拿到的 gameId 是上一局的 (LCU 在选人期间不更新 gameData),
+// 进游戏才换成真 id。两次写入之间阵容签名一致、间隔几分钟 —— 是同一局。
+console.log('— 1.6.51 选人阶段用错 gameId —');
+const SIG10 = 'AAA,BBB,CCC,DDD,EEE,FFF,GGG,HHH,III,JJJ';
+
+ok('选人 g:上一局 → 进游戏 g:本局（签名一致，3 分钟）只算一次', () => {
+  let t = Date.now() - 3 * 60 * 1000;
+  const ctx = makeContext(null, () => t);
+  ctx.addEncounter('u1', '小明', 'g:11486352806', SIG10);   // 选人页: 拿到的是上一局 id
+  t = Date.now();
+  ctx.addEncounter('u1', '小明', 'g:11486578526', SIG10);   // 进游戏: 真 id
+  const e = ctx.__map().u1;
+  assert.strictEqual(e.count, 1, 'count=' + e.count);
+  assert.deepStrictEqual([...e.seenGames], ['g:11486578526'], '应换成真 id: ' + JSON.stringify(e.seenGames));
+});
+
+ok('同一批人重开一局（签名一致但隔着整局 30 分钟）仍算两局', () => {
+  let t = Date.now() - 30 * 60 * 1000;
+  const ctx = makeContext(null, () => t);
+  ctx.addEncounter('u1', '小明', 'g:11486352806', SIG10);
+  t = Date.now();
+  ctx.addEncounter('u1', '小明', 'g:11486578526', SIG10);
+  assert.strictEqual(ctx.__map().u1.count, 2, '重赛不能被并成一局');
+});
+
+ok('阵容不同 → 再快也算两局', () => {
+  let t = Date.now() - 60 * 1000;
+  const ctx = makeContext(null, () => t);
+  ctx.addEncounter('u1', '小明', 'g:1', SIG10);
+  t = Date.now();
+  ctx.addEncounter('u1', '小明', 'g:2', 'AAA,BBB,ZZZ');
+  assert.strictEqual(ctx.__map().u1.count, 2);
+});
+
+ok('老数据没有签名时行为不变（g:→g: 仍算两局）', () => {
+  const ctx = makeContext();
+  ctx.addEncounter('u1', '小明', 'g:1');
+  ctx.addEncounter('u1', '小明', 'g:2');
+  assert.strictEqual(ctx.__map().u1.count, 2);
+});
+
+console.log('— 1.6.51 用战绩列表清理记错的局 —');
+// 清理用例要先把落盘的 map 灌进内存 (encounterMap 只由 loadEncounters 填充)
+function memCtx(payload) { const ctx = makeContext(payload); ctx.loadEncounters(); return ctx; }
+function game(gid, puuids) {
+  return { gid, participants: puuids.map(p => ({ puuid: p })) };
+}
+
+ok('证据充分时删掉假 id 并回退 count', () => {
+  const ctx = memCtx({ __v: 5, map: {
+    // 同一个人真碰过一次, 但 seenGames 里挂着两局, 其中一局他根本不在
+    u1: { name: '甲', count: 2, lastTime: 1, seenGames: ['g:111', 'g:222'] }
+  } });
+  const fixed = ctx.repairEncounterGameIds([
+    game('111', ['SELF', 'X1', 'X2', 'u1']),      // 他真在这局
+    game('222', ['SELF', 'X1', 'X2', 'X3'])       // 不在这局 → 假 id
+  ], 'SELF');
+  assert.strictEqual(fixed, 1, 'fixed=' + fixed);
+  const e = ctx.__read().map.u1;
+  assert.strictEqual(e.count, 1, 'count=' + e.count);
+  assert.deepStrictEqual(e.seenGames, ['g:111']);
+});
+
+ok('不在最近战绩里的老局不动', () => {
+  const ctx = memCtx({ __v: 5, map: {
+    u1: { name: '甲', count: 2, lastTime: 1, seenGames: ['g:111', 'g:999'] }
+  } });
+  const fixed = ctx.repairEncounterGameIds([game('111', ['SELF', 'u1'])], 'SELF');
+  assert.strictEqual(fixed, 0, '固定证据不足时不该删');
+  assert.strictEqual(ctx.__read().map.u1.count, 2);
+});
+
+ok('参与者 puuid 不全的局不当证据', () => {
+  const ctx = memCtx({ __v: 5, map: {
+    u1: { name: '甲', count: 2, lastTime: 1, seenGames: ['g:111', 'g:222'] }
+  } });
+  const partial = { gid: '222', participants: [{ puuid: 'SELF' }, { name: '无 puuid' }] };
+  const fixed = ctx.repairEncounterGameIds([game('111', ['SELF', 'u1']), partial], 'SELF');
+  assert.strictEqual(fixed, 0);
+  assert.strictEqual(ctx.__read().map.u1.count, 2);
+});
+
+ok('别人的战绩页不参与清理', () => {
+  const ctx = memCtx({ __v: 5, map: {
+    u1: { name: '甲', count: 2, lastTime: 1, seenGames: ['g:111', 'g:222'] }
+  } });
+  const fixed = ctx.repairEncounterGameIds([
+    game('111', ['SELF', 'u1']),
+    game('222', ['OTHER', 'X1'])                  // 没有 SELF 的局不算证据
+  ], 'SELF');
+  assert.strictEqual(fixed, 0);
+});
+
 console.log('');
 if (fail) { console.log(fail + ' 条失败'); process.exit(1); }
 console.log('玩家记忆断言全部通过');

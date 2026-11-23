@@ -174,6 +174,13 @@ let _currentGameKey = '';
 // g:<gameId>。若各算一局，只碰过一次的人会显示"遇见 2 次"（实测本机 230 人）。
 // 换键只可能发生在同一局内，所以留一个时间窗做兜底，超过窗口就按新的一局算。
 const ENCOUNTER_SAME_GAME_MS = 90 * 60 * 1000;
+// 1.6.51: 选人阶段 /lol-gameflow/v1/session 里的 gameData 还是**上一局**的 (LCU 要到
+// 真正进游戏才换成新 gameId)。旧代码在选人页就按 g:<上一局id> 记了一次, 进游戏后
+// 又按 g:<本局id> 再记一次 —— 于是"只碰过一次"的人显示 2 次 (本机实测: 11486352806
+// 这局里根本没有那三个人, 他们的 seenGames 却都带着这个 id)。
+// 判别办法: 阵容签名一致 + 相隔 < 10 分钟 = 同一局的两次写入。上限卡 10 分钟是因为
+// "同一批人重开一局"至少要隔一整局(最短也有 10 分钟以上), 不会被误并成一局。
+const ENCOUNTER_SAME_ROSTER_MS = 10 * 60 * 1000;
 function normalizeEncounterEntry(entry, migrateLegacyCount = false) {
   const value = entry && typeof entry === 'object' ? entry : {};
   const knownName = isKnownPlayerName(value.name) ? String(value.name).trim() : '';
@@ -194,7 +201,10 @@ function normalizeEncounterEntry(entry, migrateLegacyCount = false) {
     // count 仍由实时页 addEncounter 维护, 两套口径不混。
     lastResult: value.lastResult === 'win' || value.lastResult === 'loss' ? value.lastResult : '',
     lastSameTeam: typeof value.lastSameTeam === 'boolean' ? value.lastSameTeam : null,
-    lastGameTs: Math.max(0, Number(value.lastGameTs) || 0)
+    lastGameTs: Math.max(0, Number(value.lastGameTs) || 0),
+    // 1.6.51: 最后一次记进来的那局「阵容签名」(10 个人的 puuid 排序后拼串)。
+    // 用来判断两个不同的 gameKey 到底是不是同一局 —— 选人阶段拿到的 gameId 是上一局的。
+    lastSig: typeof value.lastSig === 'string' ? value.lastSig.slice(0, 240) : ''
   };
 }
 function setEncounterName(puuid, name) {
@@ -210,20 +220,25 @@ function setEncounterName(puuid, name) {
   }
   return changed;
 }
-function addEncounter(puuid, name, gameKey = _currentGameKey) {
+function addEncounter(puuid, name, gameKey = _currentGameKey, rosterSig = '') {
   if (!puuid || !isKnownPlayerName(name) || !gameKey) return false;
   const entry = normalizeEncounterEntry(encounterMap[puuid]);
   const nameChanged = !entry.name || entry.name !== String(name).trim();
   entry.name = String(name).trim();
   const key = String(gameKey);
+  const sig = String(rosterSig || '').slice(0, 240);
   const isNewGame = !entry.seenGames.includes(key);
   if (isNewGame) {
     const prev = entry.seenGames[entry.seenGames.length - 1] || '';
-    // 同一局换了标识：把上一条 p: 键直接改成 g: 键，不新增一局。
-    // 反向（g:→p:）多半是下一局 gameId 还没就绪，不能归一，否则会漏记。
-    const sameGame = prev.startsWith('p:') && key.startsWith('g:')
-      && Date.now() - entry.keyAt < ENCOUNTER_SAME_GAME_MS;
-    if (sameGame) {
+    const dt = Date.now() - entry.keyAt;
+    // 同一局换了标识：把上一条键直接改成新键，不新增一局。
+    //   · 阵容签名一致且相隔 < 10 分钟 —— 选人页拿到的是上一局的 gameId, 进游戏才
+    //     换成真 id, 这一跳不是新的一局 (见 ENCOUNTER_SAME_ROSTER_MS 的注释);
+    //   · 老数据没签名时, 沿用 p:->g: 的 90 分钟规则。反向 (g:->p:) 不归一:
+    //     那多半是下一局 gameId 还没就绪, 归一了会漏记。
+    const sameRoster = !!(sig && entry.lastSig && sig === entry.lastSig && dt < ENCOUNTER_SAME_ROSTER_MS);
+    const lateGameId = prev.startsWith('p:') && key.startsWith('g:') && dt < ENCOUNTER_SAME_GAME_MS;
+    if (sameRoster || lateGameId) {
       entry.seenGames[entry.seenGames.length - 1] = key;
     } else {
       entry.count++;
@@ -232,6 +247,7 @@ function addEncounter(puuid, name, gameKey = _currentGameKey) {
       entry.keyAt = Date.now();
     }
   }
+  if (sig) entry.lastSig = sig;
   entry.lastTime = Date.now();
   encounterMap[puuid] = entry;
   if (playerMarks[puuid] && !isKnownPlayerName(playerMarks[puuid].name)) {
@@ -279,6 +295,47 @@ function recordEncounterResults(games, selfPuuid) {
   }
   if (changed) saveEncounters();
   return changed;
+}
+
+// 1.6.51: 清理"记错的局"。旧版本在选人阶段会把上一局的 gameId 当成这一局写进去,
+// 表现为「明明只碰过一次, 遭遇库显示 2 次」。这里拿刚加载的战绩列表当证据:
+// 若某条 seenGames 里的 g:<id> 在列表里、而这个人并不在该局的参与者里, 就删掉这条
+// 并把 count 减回去。列表外的老局无法证伪, 一律不动 (宁可留着, 也不瞎删)。
+// 只认"参与者 puuid 齐全"的局 —— 缺 puuid 时"不在名单里"不构成证据。
+function repairEncounterGameIds(games, selfPuuid) {
+  if (!Array.isArray(games) || !games.length || !selfPuuid) return 0;
+  const roster = new Map();     // gid -> Set(puuid)
+  for (const g of games) {
+    if (!g || !g.gid || !Array.isArray(g.participants)) continue;
+    const ps = g.participants;
+    if (!ps.length || ps.some(p => !p || !p.puuid)) continue;      // 名单不全, 不拿来当证据
+    if (!ps.some(p => p.puuid === selfPuuid)) continue;            // 只认自己的局
+    roster.set(String(g.gid), new Set(ps.map(p => p.puuid)));
+  }
+  if (!roster.size) return 0;
+  let fixed = 0;
+  for (const puuid of Object.keys(encounterMap)) {
+    const entry = normalizeEncounterEntry(encounterMap[puuid]);
+    let dropped = 0;
+    const kept = entry.seenGames.filter(k => {
+      if (k.slice(0, 2) !== 'g:') return true;
+      const set = roster.get(k.slice(2));
+      if (!set) return true;                 // 不在最近战绩里, 无法证伪
+      if (set.has(puuid)) return true;       // 这个人确实在那局
+      dropped++;
+      return false;
+    });
+    if (!dropped) continue;
+    entry.seenGames = kept;
+    entry.count = Math.max(0, entry.count - dropped);
+    encounterMap[puuid] = entry;
+    fixed += dropped;
+  }
+  if (fixed) {
+    saveEncounters();
+    if (typeof logDebug === 'function') logDebug('[ENCOUNTER] 清掉记错的局 ' + fixed + ' 条');
+  }
+  return fixed;
 }
 
 // 1.5.136: 抽屉等处用的只读相遇信息 (归一化后, 无副作用)

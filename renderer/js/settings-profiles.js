@@ -13,6 +13,9 @@
   'use strict';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  // 内联到 onclick="..." 里的字符串参数: 必须把 JSON 的双引号转成 &quot;, 否则属性会被截断成
+  // onclick="fn(" —— 点击直接 SyntaxError, 表现为"按钮没反应" (1.6.51 修)。
+  function arg(v) { return esc(JSON.stringify(String(v == null ? '' : v))); }
   function has() { return !!(window.lolAPI && typeof lolAPI.listGameSettingSlots === 'function'); }
 
   function html(slots, status) {
@@ -20,8 +23,8 @@
     const rows = (slots || []).map(s => `<div class="gsp-item">
       <b>${esc(s.name)}</b>
       <span>${s.settingCount || 0} 项 · ${s.savedAt ? new Date(s.savedAt).toLocaleDateString() : '—'}</span>
-      <button class="btn-secondary" onclick="applyGsProfile(${JSON.stringify(s.name)})">应用</button>
-      <button class="btn-secondary" onclick="deleteGsProfile(${JSON.stringify(s.name)})">删除</button>
+      <button class="btn-secondary" onclick="applyGsProfile(${arg(s.name)})">应用</button>
+      <button class="btn-secondary" onclick="deleteGsProfile(${arg(s.name)})">删除</button>
     </div>`).join('');
     const saveBtn = ready
       ? '<button class="btn-secondary" onclick="saveGsProfile()">存为配置档</button>'

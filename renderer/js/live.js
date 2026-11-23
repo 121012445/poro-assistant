@@ -98,6 +98,8 @@ let liveRankedTier = false;
 let liveModeFamily = "other";
 // 1.6.21: 当前对局本人 puuid —— 小代标签不对自己贴
 let liveSelfPuuid = null;
+// 1.6.51: 最近一次渲染时的对局阶段 —— 遭遇记账要按阶段决定记不记 (选人阶段不记)
+let livePhase = '';
 // 玩家近期战绩缓存 (puuid 维度, TTL 10 分钟): 实时页跨局/首页切账号共用, 避免每局重拉 100 场
 const SGP_RECENT_CACHE_TTL = 10 * 60 * 1000;
 const sgpRecentCache = new Map(); // key = `${platformId}|${puuid}`
@@ -557,6 +559,7 @@ async function renderLiveFromGameflow(body, err, requestedPhase) {
     if (Array.isArray(pcs)) parts = pcs;
   }
   const phase = requestedPhase || session?.phase || '';
+  livePhase = phase;
   // 缓存键: 每局对局唯一标识 (gameId), 兜底用 phase+玩家数 — 避免跨局复用旧骨架
   let key = session?.gameData?.gameId ? String(session.gameData.gameId) : (phase + ':' + parts.length);
   // 遭遇计数用 key: gameId 优先, 兜底只用 puuid 集合 (不含 name, 避免名字解析进度影响)
@@ -1948,12 +1951,20 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   }));
   // 每次姓名补全后都允许重试；addEncounter 内部按 gameKey 持久去重，既不会漏记
   // 首次为空、稍后才解析出的姓名，也不会因实时页重复刷新而虚增次数。
-  const seen = new Set();
-  for (const p of data) {
-    if (!p.puuid || !isKnownPlayerName(p.name) || seen.has(p.puuid)) continue;
-    if (selfPuuid && p.puuid === selfPuuid) continue;
-    seen.add(p.puuid);
-    addEncounter(p.puuid, p.name, _currentGameKey);
+  // 1.6.51: 选人阶段**不记账** —— /lol-gameflow/v1/session 在选人期间给的 gameData
+  // 还是上一局的, 按它记会得到"g:<上一局id>", 进游戏后再按真 id 记一次, 同一个人
+  // 一局就被算成 2 次 (本机实测: 有人 seenGames 里挂着自己没参加过的局)。
+  // 顺带把语义拨正: 遭遇 = 真的同局打过, 而不是同处一个选人房 (选人还可能被秒退)。
+  const canCountEncounter = livePhase !== 'ChampSelect';
+  const encounterSig = data.map(p => (p && p.puuid) || '').filter(Boolean).sort().join(',');
+  if (canCountEncounter) {
+    const seen = new Set();
+    for (const p of data) {
+      if (!p.puuid || !isKnownPlayerName(p.name) || seen.has(p.puuid)) continue;
+      if (selfPuuid && p.puuid === selfPuuid) continue;
+      seen.add(p.puuid);
+      addEncounter(p.puuid, p.name, _currentGameKey, encounterSig);
+    }
   }
   const playerRow = p => {
     const c = champOfLive(p.championId);
