@@ -2713,19 +2713,11 @@ ipcMain.handle('share-card:save', async (e, dataUrl, opts) => {
   }
 });
 
-ipcMain.handle('share-card:copy', async (e, dataUrl) => {
-  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return { __error: '无效来源' };
-  try {
-    const buf = shareCardBufferOf(dataUrl);
-    if (!buf || !buf.length) return { __error: '图片数据无效' };
-    const { clipboard } = require('electron');
-    clipboard.writeImage(nativeImage.createFromBuffer(buf, { scaleFactor: 1 }));
-    return { ok: true };
-  } catch (error) {
-    logErr('[SHARE CARD] copy failed: ' + error.message);
-    return { __error: error.message };
-  }
-});
+// 注意: 这里曾经有个「分享卡复制」IPC 通道, 用主进程的 writeImage 写图片, 1.6.49 删掉了 ——
+// Electron 44 起主进程 clipboard 模块改成 Promise 化的 read()/write() 语义,
+// 写图片/读图片/写 Buffer 的旧方法全部移除 (has() 变成 Promise), 而 write() 只接受
+// ClipboardItem 数组、主进程又没有全局 ClipboardItem, 这条路在主进程根本走不通。
+// 图片复制改到渲染层用 Chromium 的 navigator.clipboard.write 完成, 见 battle-card.js copyImage()。
 
 // 主进程阶段联动: Electron 注册为第一通道，Win32 GetAsyncKeyState 为游戏吞键时的第二通道。
 function handlePhaseChange(phase) {
@@ -2845,7 +2837,9 @@ ipcMain.handle('augment:icon-data', async (e, ids) => {
 ipcMain.handle('clipboard:write', async (e, text) => {
   try {
     const { clipboard } = require('electron');
-    clipboard.writeText(String(text || '').substring(0, 10000));
+    // Electron 44 里 writeText 返回 Promise, 不 await 的话写失败会变成未捕获拒绝
+    // (以前同步版本吞掉异常, 现在会刷一屏 UnhandledPromiseRejection)。
+    await clipboard.writeText(String(text || '').substring(0, 10000));
     return true;
   } catch (err) { return false; }
 });

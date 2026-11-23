@@ -432,6 +432,43 @@
     }, 180);
   }
 
+  // dataURL -> Blob: Chromium 异步剪贴板只吃 Blob/Blob 数组, 不认 base64 字符串。
+  // 用 atob 逐字节拷进 Uint8Array 而不是 fetch(dataURL): 后者在 file:// 页面里
+  // 会被 CSP / 跨源拦掉, 而且多一次异步往返。
+  function dataUrlToBlob(dataUrl) {
+    const s = String(dataUrl || '');
+    const comma = s.indexOf(',');
+    if (comma < 0) return null;
+    const head = s.slice(0, comma);
+    const b64 = s.slice(comma + 1);
+    if (!/^data:image\/png;base64$/i.test(head)) return null;
+    let bin;
+    try { bin = atob(b64); } catch (e) { return null; }
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: 'image/png' });
+  }
+
+  // 复制到系统剪贴板 —— 必须在渲染层做, 不能走主进程。
+  // Electron 44 把主进程 clipboard 模块换成了 Promise 化的 read()/write() 语义:
+  // writeImage / readImage / writeBuffer / has() 全没了(has 变 Promise),
+  // 而 write() 只接受 ClipboardItem 数组, 主进程又没有全局 ClipboardItem。
+  // 所以旧代码的 `clipboard.writeImage(...)` 每次必然抛
+  // "clipboard.writeImage is not a function" —— 这就是「复制图片不生效」的全部原因
+  // (crash.log 里 1.6.48 及以前每次点击都留了一条 copy failed)。
+  // 渲染层这边是 Chromium 的异步剪贴板, 能力齐全, 手势由用户的点击提供。
+  async function copyImage(dataUrl) {
+    if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function' || typeof window.ClipboardItem !== 'function') {
+      throw new Error('当前环境不支持复制图片');
+    }
+    const blob = dataUrlToBlob(dataUrl);
+    if (!blob || !blob.size) throw new Error('图片数据无效');
+    // 只在用户手势内调用; Windows 上 Chromium 会另写一份位图格式,
+    // 微信 / QQ / 文档 都能直接 Ctrl+V 粘贴。
+    await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
+    return blob.size;
+  }
+
   function preview(dataUrl, opts) {
     const o = opts || {};
     const el = previewLayer();
@@ -453,10 +490,23 @@
       } finally { saveBtn.disabled = false; }
     };
     copyBtn.onclick = async () => {
-      const r = await lolAPI.copyShareCardImage(dataUrl)
-        .catch(e => ({ __error: (e && e.message) || String(e) }));
-      if (r && r.ok) showToast('已复制到剪贴板, 可直接粘贴', 'positive');
-      else showToast('复制失败: ' + ((r && r.__error) || '未知错误'), 'negative');
+      copyBtn.disabled = true;
+      const label = copyBtn.textContent;
+      copyBtn.textContent = '复制中…';
+      const toast = (m, t) => { if (typeof showToast === 'function') showToast(m, t); };
+      try {
+        const bytes = await copyImage(dataUrl);
+        toast('已复制到剪贴板 (' + Math.round(bytes / 1024) + ' KB), 直接 Ctrl+V 粘贴', 'positive');
+      } catch (e) {
+        // NotAllowedError 基本都是窗口没焦点 (Chromium 要求手势 + 焦点), 单独给一句人话
+        const msg = (e && e.name === 'NotAllowedError')
+          ? '窗口没有焦点, 点一下 Poro 窗口再复制'
+          : ((e && e.message) || String(e));
+        toast('复制失败: ' + msg, 'negative');
+      } finally {
+        copyBtn.disabled = false;
+        copyBtn.textContent = label;
+      }
     };
   }
 
@@ -505,5 +555,5 @@
     if (typeof showToast === 'function') showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
   }
 
-  root.PoroBattleCard = { build, save, preview, measure, warmAugmentIcons, warmImages, warmSplash, augIconSrc };
+  root.PoroBattleCard = { build, save, preview, measure, copyImage, warmAugmentIcons, warmImages, warmSplash, augIconSrc };
 })(typeof window !== 'undefined' ? window : this);

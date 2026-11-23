@@ -126,10 +126,10 @@ contextBridge.exposeInMainWorld('lolAPI', {
   ttsSynthesize: (text, opts) => ipcRenderer.invoke('tts:synthesize', text, opts),
   ttsVoices: () => ipcRenderer.invoke('tts:voices'),
   // 分享卡 (周报/战报): 主进程离屏渲染并保存 PNG; opts={title,prefix,theme}
-  // 战报/周报卡: 先 render 拿 dataUrl 在应用内预览, 用户确认后再 save / copy
+  // 战报/周报卡: 先 render 拿 dataUrl 在应用内预览, 用户确认后再 save
+  // (复制图片走渲染层 navigator.clipboard, 不经主进程 —— Electron 44 主进程已无 writeImage)
     renderShareCard: (html, width, height, opts) => ipcRenderer.invoke('share-card:render', html, width, height, opts),
     saveShareCardImage: (dataUrl, opts) => ipcRenderer.invoke('share-card:save', dataUrl, opts),
-    copyShareCardImage: (dataUrl) => ipcRenderer.invoke('share-card:copy', dataUrl),
   // 设置 (托盘/自启)
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setAutoLaunch: (on) => ipcRenderer.invoke('settings:autoLaunch', on),
