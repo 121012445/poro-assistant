@@ -1650,13 +1650,24 @@ body.dark .bc-card.bc-cardA { background: var(--bg-card); border-color: var(--bo
 .bc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 15px 11px 13px; }
 
 .bc-top { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+/* 「胜利 / 失败」胶囊必须与首页战绩卡同色。
+   注入进导出窗口的 premium --positive 是 #16a34a, 首页那套是 #0E8A4F —— 同一张卡上
+   会并排出两种绿 (胶囊一种、KDA 击杀数另一种)。这里与 KDA 同口径写死色值:
+   浅色取 v4 新浅色档, 深色取 v4 深色档。混色也必须跟着写死, 否则底色还会从
+   var(--positive) 里带出旧绿, 出现"字是新的绿、底是旧的绿"。 */
 .bc-state { flex: none; padding: 2px 8px; border-radius: 999px;
   font-size: var(--fs-xs); font-weight: 600;
-  color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--positive) 24%, transparent); }
-.bc-loss .bc-state { color: var(--negative);
-  background: color-mix(in srgb, var(--negative) 9%, transparent);
-  border-color: color-mix(in srgb, var(--negative) 22%, transparent); }
+  color: #0E8A4F; background: color-mix(in srgb, #0E8A4F 10%, transparent);
+  border: 1px solid color-mix(in srgb, #0E8A4F 24%, transparent); }
+.bc-loss .bc-state { color: #D02F27;
+  background: color-mix(in srgb, #D02F27 9%, transparent);
+  border-color: color-mix(in srgb, #D02F27 22%, transparent); }
+body.dark .bc-state { color: #26C281;
+  background: color-mix(in srgb, #26C281 13%, transparent);
+  border-color: color-mix(in srgb, #26C281 27%, transparent); }
+body.dark .bc-loss .bc-state { color: #EF5350;
+  background: color-mix(in srgb, #EF5350 12%, transparent);
+  border-color: color-mix(in srgb, #EF5350 24%, transparent); }
 .bc-sub { font-size: var(--fs-xs); color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 卡片右上角的玩家名: 这是发到群里的图, 必须一眼看出"是谁的战报"。
