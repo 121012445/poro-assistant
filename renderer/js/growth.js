@@ -52,7 +52,9 @@ function growthRecordGames(games, puuid) {
   if (!puuid || !Array.isArray(games) || !games.length) return;
   const prev = growthLedger();
   const r = PoroGrowth.mergeLedger(prev, games, puuid, typeof isExcludedGame === 'function' ? isExcludedGame : null, Date.now());
-  if (r.added > 0 || r.records.length !== prev.length) growthSaveLedger(r.records);
+  // filled > 0 也要落盘: 那是给历史记录补上了 dmg/kp (旧台账里是 null),
+  // 不存的话补出来的值下次打开就没了。
+  if (r.added > 0 || r.filled > 0 || r.records.length !== prev.length) growthSaveLedger(r.records);
   // 重复失误台账: 同一批战绩顺手判一遍 (纯本地计算, 不发请求; 按 gid 去重, 重复调用无害)
   try {
     if (typeof window !== 'undefined' && window.PoroMistakes) window.PoroMistakes.recordGames(games, puuid);
@@ -319,8 +321,12 @@ function growthHistoryHtml(ledger) {
     const date = new Date(+r.t || 0);
     const when = (date.getMonth() + 1) + '-' + String(date.getDate()).padStart(2, '0');
     const kda = `${+r.k || 0}/${+r.d || 0}/${+r.a || 0}`;
-    const dmg = Number.isFinite(+r.dmg) ? (+r.dmg + '%') : '—';
-    const kp = Number.isFinite(+r.kp) ? (+r.kp + '%') : '—';
+    // 这里的 null 是"这一局拿不到分母"(数据结构不认识 / 单人数据), 不是 0。
+    // 坑: +null === 0 且 Number.isFinite(0) 为真 —— 直接用 +r.dmg 判断会把
+    // 整列缺失数据画成「0%」, 看起来像"伤害占比真的是 0", 掩盖了上游字段失配。
+    const pct = v => (v == null || !Number.isFinite(+v)) ? '—' : (+v + '%');
+    const dmg = pct(r.dmg);
+    const kp = pct(r.kp);
     return `<div class="gw-hist-row ${r.w ? 'is-win' : 'is-loss'}">
       <img class="gw-hist-champ" src="${growthChampImg(+r.c)}" alt="">
       <span class="gw-hist-main"><b>${escapeHtml(growthChampName(+r.c))}</b><small>${fam} · ${when} · ${r.w ? '胜' : '负'}</small></span>

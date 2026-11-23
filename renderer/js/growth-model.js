@@ -254,9 +254,20 @@
     if (!me) return null;
     const t = +game.time || 0;
     if (!t) return null;
-    const team = Array.isArray(game.participants)
-      ? game.participants.filter(x => x && +x.team === +me.team)
-      : [me];
+    // 阵营字段: 历史战绩 (LCU) 给的是 teamId, 实时对局给的是 team —— 只认其中一个,
+    // 另一套数据就会全员失配 (NaN === NaN 恒 false), team 变空数组,
+    // 下面 teamDmg/teamKills/teamGold 全为 0, 伤害占比与参团率一律算成 null。
+    // 1.6.48 修: 两套字段都认; 都拿不到就返回空数组 (宁可没数据, 也不猜一个 100%)。
+    // 0 也算未知: 上游归一化在拿不到阵营时会写 `|| 0` (home.js), 若把 0 当"一队",
+    // 十个队员会全算进本队分母, 伤害占比直接算成 10% 左右 —— 比留空更误导。
+    const sideOf = p => {
+      const v = p.teamId != null ? +p.teamId : +p.team;
+      return (Number.isFinite(v) && v !== 0) ? v : null;
+    };
+    const mySide = sideOf(me);
+    const team = mySide == null
+      ? []
+      : game.participants.filter(x => x && sideOf(x) === mySide);
     const teamDmg = team.reduce((s, x) => s + (+x.dmg || 0), 0);
     const teamGold = team.reduce((s, x) => s + (+x.gold || 0), 0);
     const teamKills = team.reduce((s, x) => s + (+x.k || 0), 0);
@@ -286,9 +297,20 @@
   function mergeLedger(existing, games, puuid, isExcluded, now) {
     const t0 = +now || Date.now();
     const map = new Map();
+    // 同 id 只"补空", 不覆盖: 老台账 (1.5.161 之前) 没有 dmg/kp/gld, 存进去是 null,
+    // 而历史战绩重新算能补出来 —— 不补的话那批旧局永远显示 0% (见 growth.js 的 null 判断)。
+    // 也不反向覆盖: 已有有效值的记录保留原值, 避免两套口径互相改历史。
+    const FILL = ['dmg', 'kp', 'gld', 'vis', 'p'];
+    let filled = 0;
     const push = rec => {
       if (!rec || !rec.id) return;
-      if (!map.has(rec.id)) map.set(rec.id, rec);
+      const cur = map.get(rec.id);
+      if (!cur) { map.set(rec.id, rec); return; }
+      let touched = 0;
+      for (const k of FILL) {
+        if (cur[k] == null && rec[k] != null) { cur[k] = rec[k]; touched++; }
+      }
+      if (touched) filled++;
     };
     for (const r of Array.isArray(existing) ? existing : []) {
       if (r && r.id && +r.t) push(r);
@@ -304,7 +326,7 @@
       .filter(r => r.t >= t0 - LEDGER_KEEP_DAYS * DAY)
       .sort((a, b) => b.t - a.t)
       .slice(0, LEDGER_CAP);
-    return { records: rows, added };
+    return { records: rows, added, filled };
   }
 
   // ---------- 长期趋势 ----------

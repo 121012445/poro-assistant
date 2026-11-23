@@ -43,12 +43,16 @@
     if (!n) return { n: 0, wins: 0, wr: null, kda: null, dAvg: null, dmgN: 0, dmgAvg: null, kpN: 0, kpAvg: null, visN: 0, visAvg: null };
     let wins = 0, k = 0, d = 0, a = 0, dur = 0;
     const dmg = [], kp = [], vis = [];
+    // 判"有没有这个值"必须先看 null/undefined: +null === 0 且 isFinite(0) 为真,
+    // 只判 isFinite(+字段) 会把整列缺失当成一堆 0, 均值算出来就是 0%。
+    const num = v => (v == null || !Number.isFinite(+v)) ? null : +v;
     for (const r of list) {
       if (r.w) wins++;
       k += +r.k || 0; d += +r.d || 0; a += +r.a || 0; dur += +r.dur || 0;
-      if (Number.isFinite(+r.dmg)) dmg.push(+r.dmg);
-      if (Number.isFinite(+r.kp)) kp.push(+r.kp);
-      if (Number.isFinite(+r.vis)) vis.push(+r.vis);
+      const dv = num(r.dmg), kv = num(r.kp), vv = num(r.vis);
+      if (dv != null) dmg.push(dv);
+      if (kv != null) kp.push(kv);
+      if (vv != null) vis.push(vv);
     }
     return {
       n, wins,
