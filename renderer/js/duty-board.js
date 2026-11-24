@@ -269,6 +269,7 @@
         kda: e.kda == null ? null : e.kda,
         s: num(e.wr),          // 沙盘强度 = 胜率百分点, 与分档同源
         tier,
+        s5: recent5Of(p),      // 最近 5 把的胜负数与总 KDA (聊天消息里的逐人数据)
         copy: copyOf(p.puuid || p.name || '', tier.key),
         reasons: Array.isArray(e.reasons) ? e.reasons.slice(0, 3) : []
       };
@@ -294,12 +295,43 @@
       cross: { wins: cross.wins, losses: cross.losses, evens: cross.evens, n: cross.n, plan: cross.plan.map(strip) },
       gain: cross.wins - direct.wins
     };
-    rank.chatText = chatTextOf(rank);
+    rank.chatLines = chatLinesOf(rank);
+    rank.chatText = rank.chatLines.join('\n');
+    rank.chatFlat = rank.chatLines.join(' ｜ ');
     return rank;
   }
 
-  function chatTextOf(rank) {
-    if (!rank || !rank.ready) return '';
+  // 1.6.64: 选人消息改成"每人一行" —— 档位 + 名字 + 最近 5 把战绩 + 总 KDA,
+  // 对齐 Sona 助手那种"逐人摆数据"的写法。原来的单行统计只有各档人数,
+  // 收到消息的人看不出"这个大神到底怎么个大神法"。
+  const RECENT_N = 5;
+  function recent5Of(p) {
+    const src = Array.isArray(p && p.recent) ? p.recent : [];
+    const rows = src.slice(0, RECENT_N);
+    const s = { n: rows.length, wins: 0, k: 0, d: 0, a: 0 };
+    for (const r of rows) {
+      if (!r) continue;
+      if (r.win === true || r.win === 'Win') s.wins++;
+      s.k += num(r.k) || 0;
+      s.d += num(r.d) || 0;
+      s.a += num(r.a) || 0;
+    }
+    s.losses = s.n - s.wins;
+    // KDA 口径与评分模块一致: (K+A)/max(1,D), 死 0 场不会炸成 Infinity
+    s.kda = s.n ? Math.round((s.k + s.a) / Math.max(1, s.d) * 10) / 10 : null;
+    return s;
+  }
+
+  // 一行一个人: "大神 风会停 近5局 4胜1负 KDA 3.5"
+  function lineOf(m) {
+    const s = m && m.s5;
+    const head = `${m.tier.label} ${m.name}`;
+    if (!s || !s.n) return `${head} 近${RECENT_N}局 无样本`;
+    return `${head} 近${s.n}局 ${s.wins}胜${s.losses}负 KDA ${s.kda == null ? '-' : s.kda.toFixed(1)}`;
+  }
+
+  function chatLinesOf(rank) {
+    if (!rank || !rank.ready) return [];
     const c = rank.counts || {};
     const parts = [];
     for (const key of ['carry', 'hold', 'slack']) {
@@ -312,8 +344,18 @@
     const tail = [];
     if (best) tail.push(`最能带 ${best.name}`);
     if (worst && worst !== best) tail.push(`最需照看 ${worst.name}`);
-    const cmp = `硬碰硬赢 ${rank.direct.wins}/${rank.direct.n}，错位能赢 ${rank.cross.wins}/${rank.cross.n}`;
-    return `${head}｜${tail.join(' · ')}｜${cmp}（玩梗，非胜率预测）`;
+    const cmp = `硬碰硬赢 ${rank.direct.wins}/${rank.direct.n}，错位能赢 ${rank.cross.wins}/${rank.cross.n}（玩梗，非胜率预测）`;
+    // 逐人按胜率从高到低, 没样本的垫底 —— 收到消息的人第一眼看到最能指望的那个
+    const rows = rank.mates.slice()
+      .sort((a, b) => (b.s == null ? -1 : b.s) - (a.s == null ? -1 : a.s))
+      .map(lineOf);
+    return [head].concat(rows, `${tail.join(' · ')}｜${cmp}`);
+  }
+
+  // 多行是首选 (聊天窗口里一人一行最像 Sona 那套), 但 LCU 万一不收换行,
+  // live.js 会退回 chatFlat 的单行版, 不至于整条发不出去。
+  function chatTextOf(rank) {
+    return chatLinesOf(rank).join('\n');
   }
 
   // 对阵表里"占优/五五开/弃路"的措辞
@@ -342,10 +384,15 @@
       const why = (m.wr == null || m.games < MIN_GAMES)
         ? `近期样本 ${m.games} 场，不足 ${MIN_GAMES} 场`
         : `近 ${m.games} 场 ${m.wr}% 胜率${m.kda == null ? '' : ` · KDA ${m.kda}`}`;
+      // 第三列跟聊天消息里那行完全同源, 免得"预览看到的"和"发出去的"对不上
+      const s5 = m.s5 || {};
+      const detail = !s5.n
+        ? `近${RECENT_N}局 无样本`
+        : `近${s5.n}局 ${s5.wins}胜${s5.losses}负 · KDA ${s5.kda == null ? '-' : s5.kda.toFixed(1)}`;
       return `<div class="fd-pv-row" title="${esc(why)}">
         <b class="fd-badge fd-${m.tier.cls}">${esc(m.tier.label)}</b>
         <span class="fd-pv-name">${esc(m.name)}${m.isSelf ? '<i class="fd-you">自己</i>' : ''}</span>
-        <span class="fd-pv-copy">${esc(m.copy)}</span>
+        <span class="fd-pv-copy">${esc(detail)}</span>
       </div>`;
     }).join('');
     return `<div class="fd-pv">${head}
@@ -405,8 +452,8 @@
   }
 
   return {
-    build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf,
-    previewHtml, legendHtml,
+    build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf, chatLinesOf, lineOf, recent5Of,
+    previewHtml, legendHtml, RECENT_N,
     labelOf, setLabels, getLabels, resetLabels, labelsAreDefault,
     TIERS, UNKNOWN_TIER, DEFAULT_LABELS, LABEL_KEYS, LABEL_MAX, EDGE
   };

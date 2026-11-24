@@ -2267,9 +2267,19 @@ async function sendDutyChat() {
     if (!payload.fromId || !payload.fromPid || !payload.fromSummonerId) {
       if (typeof showToast === 'function') showToast('聊天身份还没就绪', 'negative'); return;
     }
-    const r = await lolAPI.lcuRequest('POST', `/lol-chat/v1/conversations/${encodeURIComponent(room.id)}/messages`, payload);
+    // 1.6.64: 消息改成一人一行。LCU 一般收换行, 但万一这版客户端把它判成非法
+    // 请求, 就退回用 " ｜ " 连起来的单行版, 不能因为格式问题让人以为功能坏了。
+    const post = body => lolAPI.lcuRequest('POST', `/lol-chat/v1/conversations/${encodeURIComponent(room.id)}/messages`, body);
+    let r = await post(payload);
+    let sentText = text;
+    if (r && r.__error && text.indexOf('\n') >= 0) {
+      sentText = (window._poroDutyRank && window._poroDutyRank.chatFlat) || text.split('\n').join(' ｜ ');
+      if (_dutyChatSentFor === room.id + '|' + sentText) { if (typeof showToast === 'function') showToast('这局已经发过了', 'neutral'); return; }
+      r = await post(buildLcuChatMessage(room.id, sentText, chatSelf, 'chat'));
+      try { lolAPI.debugLog('[DUTY] multiline rejected, flat fallback'); } catch (e) {}
+    }
     if (r && r.__error) { if (typeof showToast === 'function') showToast('发送失败', 'negative'); return; }
-    _dutyChatSentFor = room.id + '|' + text;
+    _dutyChatSentFor = room.id + '|' + sentText;
     if (typeof showToast === 'function') showToast('分工表已发到选人聊天', 'positive');
     try { lolAPI.debugLog('[DUTY] chat sent room=' + room.id); } catch (e) {}
   } catch (e) {
