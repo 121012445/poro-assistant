@@ -66,7 +66,9 @@ assert.strictEqual(s.kde, 1.67, 'kde = (10/20) ÷ (30000/100000) ≈ 1.67');
 assert.strictEqual(s.kp, 75, '既有 kp 口径不受影响');
 
 // 1.5.141: 特色标签 (大腿/本命) + 标签专属配色 (§23) + 组队色轮换
-assert.ok(live.includes('lp-tag-hiwr') && live.includes(">大腿</span>"), '应有高胜率「大腿」特色标签');
+// 1.6.60: 大腿判定从"只看胜率"改成加权 KDA (thigh-tag.js), 类名随之改为 lp-tag-thigh
+assert.ok(live.includes('lp-tag-thigh') && live.includes(">大腿</span>"), '应有「大腿」特色标签 (加权 KDA 口径)');
+assert.ok(live.includes('PoroThigh.judge'), '判定必须委托给 thigh-tag.js, 不再内联胜率阈值');
 assert.ok(live.includes('lp-tag-main') && live.includes(">本命</span>"), '应有本命英雄特色标签');
 assert.ok(live.includes('specialTags.length'), '特色标签应计入 reservedSlots');
 assert.ok(!live.includes('toggleLiveMetricsPop'), '指标浮层死代码应随收纳一起删除 (1.5.142)');

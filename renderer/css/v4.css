@@ -2075,8 +2075,8 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
 #page-live .lp-profile-line .lp-metric-kdelo, .lp-metric-kdelo { background: #8a3030; color: #fff; border-color: transparent; }
 #page-live .lp-profile-line .lp-metric-winstreak, .lp-metric-winstreak { background: #18571c; color: #fff; border-color: transparent; }
 #page-live .lp-profile-line .lp-metric-lossstreak, .lp-metric-lossstreak { background: #893b3b; color: #fff; border-color: transparent; }
-/* 特色标签: 大腿 (高胜率) / 本命 (重复英雄) / 小代 (排位专属, 战绩与段位不符) */
-.lp-tag-hiwr { background: #8a2c8e !important; color: #fff !important; font-weight: 700 !important; }
+/* 特色标签: 大腿 (加权 KDA) / 本命 (重复英雄) / 小代 (排位专属, 战绩与段位不符) */
+.lp-tag-thigh { background: #8a2c8e !important; color: #fff !important; font-weight: 700 !important; }
 .lp-tag-main { background: #c2621d !important; color: #fff !important; font-weight: 700 !important; }
 /* 小代用最抢眼的一档暖红, 与大腿(紫)/本命(橙)区分: 这是"注意这个人"的信号, 不是夸赞 */
 .lp-tag-smurf { background: #b01f45 !important; color: #fff !important; font-weight: 700 !important; }
@@ -2912,7 +2912,7 @@ body.dark .scp-head, body.dark .scp-foot { border-color:rgba(255,255,255,.09); }
 #page-live .lp-profile-line .lp-metric-lossstreak { --pill-c: #9a3b3b; }
 #page-live .lp-profile-line .lp-metric-kdehi { --pill-c: #0d6b52; }
 #page-live .lp-profile-line .lp-metric-kdelo { --pill-c: #9a3b3b; }
-#page-live .lp-profile-line .lp-tag-hiwr { --pill-c: #8a2c8e; background: color-mix(in srgb, #8a2c8e 12%, transparent) !important; color: #8a2c8e !important; }
+#page-live .lp-profile-line .lp-tag-thigh { --pill-c: #8a2c8e; background: color-mix(in srgb, #8a2c8e 12%, transparent) !important; color: #8a2c8e !important; }
 #page-live .lp-profile-line .lp-tag-main { --pill-c: #b4561a; background: color-mix(in srgb, #b4561a 12%, transparent) !important; color: #b4561a !important; }
 #page-live .lp-profile-line .lp-tag-smurf { --pill-c: #b01f45; background: color-mix(in srgb, #b01f45 14%, transparent) !important; color: #b01f45 !important; }
 #page-live .lp-profile-line .lp-behavior-bad { --pill-c: #9a3b3b; }

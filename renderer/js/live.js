@@ -1885,8 +1885,6 @@ function buildLivePills(p, premadeGroupId) {
         division: (rankedEntry && rankedEntry.division) || ''
       })
     : '';
-  const wins = p.recent.filter(r => r.win === true || r.win === "Win").length;
-  const winRate = p.recent.length ? Math.round(wins / p.recent.length * 100) : null;
   const games = p.recent.length;
   const specialTags = [];
   // 1.6.42: 「好抓」—— 只贴敌方, 只在召唤师峡谷 (匹配/排位同口径), 判定与阈值全在 gank-tags.js。
@@ -1903,8 +1901,13 @@ function buildLivePills(p, premadeGroupId) {
   // 小代排在大腿/本命之前: 它是"这个人要注意"的信号, 比大腿/本命更需要第一眼看到。
   // 放进 specialTags 而不是单开一段 —— 标签行的拼接顺序/占位约定只有一套, 不另起分支。
   if (smurfTag) specialTags.push(smurfTag);
-  if (winRate != null && winRate >= 65 && games >= 14) {
-    specialTags.push(`<span class="lp-metric lp-tag-hiwr" title="近 ${games} 场 ${wins} 胜，胜率 ${winRate}% — 高胜率玩家，前期多照顾他一路">大腿</span>`);
+  // 1.6.60: 大腿从"只看胜率"改成加权 KDA 判定 —— 胜率高但战绩差的人以前也会被贴,
+  // 照着它打反而吃亏。判定与阈值全在 thigh-tag.js (助攻按半次计, 胜率仅作兜底)。
+  const thigh = (typeof window !== 'undefined' && window.PoroThigh)
+    ? window.PoroThigh.judge(p.recent)
+    : null;
+  if (thigh && thigh.hit) {
+    specialTags.push(`<span class="lp-metric lp-tag-thigh" title="${escapeHtml(thigh.tip)}">大腿</span>`);
   }
   const champCounts = {};
   for (const r of p.recent) champCounts[r.champId] = (champCounts[r.champId] || 0) + 1;

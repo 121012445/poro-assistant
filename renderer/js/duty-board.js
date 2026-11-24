@@ -17,14 +17,16 @@
 })(typeof window !== 'undefined' ? window : this, function () {
   'use strict';
 
-  // score 由 PoroScout.evalPlayer 给出: 中性起点 3.0, 段位与战绩各自加减
-  // 三档对应"能带 / 够用 / 拖后腿", 阈值取值让大部分正常号落在「正常人」
+  // 1.6.60: 分档口径改成"近期胜率"(用户定的): >70 大神, 40~70 正常人, <40 人机。
+  // 原来的 PoroScout 状态分 (段位+KDA+连胜加权) 不再参与分档, 但仍随 detail 保留备查。
+  // 样本不足一律「待定」—— 1 场赢就封神没有意义, 5 场是最低可读样本。
+  const MIN_GAMES = 5;
   const TIERS = [
-    { key: 'carry', min: 5.2, label: '大神', cls: 'carry' },
-    { key: 'hold', min: 2.4, label: '正常人', cls: 'hold' },
-    { key: 'slack', min: -999, label: '人机', cls: 'slack' }
+    { key: 'carry', label: '大神', cls: 'carry', test: n => n > 70 },
+    { key: 'hold', label: '正常人', cls: 'hold', test: n => n >= 40 },
+    { key: 'slack', label: '人机', cls: 'slack', test: () => true }
   ];
-  const UNKNOWN_TIER = { key: 'unknown', min: -999, label: '待定', cls: 'unknown' };
+  const UNKNOWN_TIER = { key: 'unknown', label: '待定', cls: 'unknown' };
 
   // 同一档多条文案, 用 puuid 哈希取一条 —— 刷新时不变, 换人时才换
   const COPY = {
@@ -86,10 +88,13 @@
     return h >>> 0;
   }
 
-  function tierOf(score) {
-    const n = num(score);
+  // winRate 是百分数 (65 = 65%), games 是样本局数
+  function tierOf(winRate, games) {
+    const n = num(winRate);
+    const g = num(games);
     if (n == null) return UNKNOWN_TIER;
-    for (const t of TIERS) if (n >= t.min) return t;
+    if (g == null || g < MIN_GAMES) return UNKNOWN_TIER;
+    for (const t of TIERS) if (t.test(n)) return t;
     return TIERS[TIERS.length - 1];
   }
 
@@ -98,8 +103,11 @@
     return list[hashOf(seed) % list.length];
   }
 
-  // 对阵: 差值 >= 0.4 才算占优/吃亏, 中间算五五开 —— 与侦察卡的"强度差"阈值一致
-  const EDGE = 0.4;
+  // 对阵: 胜率差 8 个百分点以上才算占优/吃亏, 中间算五五开。
+  // 1.6.60: 强度口径与分档统一为胜率 (原来用 0-10 的状态分, 会出现
+  // "胜率 75% 判大神、沙盘却说这条路吃亏"的自相矛盾)。
+  const EDGE = 8;
+  const NEUTRAL_RATE = 50;   // 没有样本时沙盘按 50% 中性参与, 不参与"谁强谁弱"的宣称
   function outcomeOf(a, b) {
     const d = a - b;
     if (d >= EDGE) return 'win';
@@ -190,7 +198,9 @@
     };
     const wrap = p => {
       const e = evalPlayer(p, o) || {};
-      const tier = tierOf(e.score);
+      const games = num(e.games) || 0;
+      const wr = num(e.wr);
+      const tier = tierOf(wr, games);
       const isSelf = !!(o.selfPuuid && p.puuid === o.selfPuuid);
       return {
         name: p.name || '未知',
@@ -203,6 +213,7 @@
         games: num(e.games) || 0,
         wr: num(e.wr),
         kda: e.kda == null ? null : e.kda,
+        s: num(e.wr),          // 沙盘强度 = 胜率百分点, 与分档同源
         tier,
         copy: copyOf(p.puuid || p.name || '', tier.key),
         reasons: Array.isArray(e.reasons) ? e.reasons.slice(0, 3) : []
@@ -210,8 +221,8 @@
     };
     const mates = list.filter(p => Number(p.team) === selfTeam).map(wrap);
     const enemies = list.filter(p => Number(p.team) !== selfTeam).map(wrap);
-    // 沙盘里未知档按中性 3.0 参与, 只是不参与"谁强谁弱"的宣称
-    const asPawns = rows => rows.map(r => ({ ref: r, s: r.score == null ? 3.0 : r.score }));
+    // 沙盘里没有样本的人按 50% 中性参与
+    const asPawns = rows => rows.map(r => ({ ref: r, s: r.s == null ? NEUTRAL_RATE : r.s }));
     const allyPawns = asPawns(mates), enemyPawns = asPawns(enemies);
 
     const direct = pairDirect(allyPawns, enemyPawns);
@@ -242,8 +253,8 @@
       const t = TIERS.find(x => x.key === key);
       parts.push(`${t.label}${c[key]}`);
     }
-    const best = rank.mates.filter(m => m.score != null).sort((a, b) => b.score - a.score)[0];
-    const worst = rank.mates.filter(m => m.score != null).sort((a, b) => a.score - b.score)[0];
+    const best = rank.mates.filter(m => m.s != null).sort((a, b) => b.s - a.s)[0];
+    const worst = rank.mates.filter(m => m.s != null).sort((a, b) => a.s - b.s)[0];
     const head = `【Poro·分工表】我方 ${parts.join(' ')}`;
     const tail = [];
     if (best) tail.push(`最能带 ${best.name}`);
@@ -268,9 +279,9 @@
         return `<span class="fd-dist-item" title="${t.label} ${c[k]} 人"><i class="fd-dot fd-${t.cls}"></i>${t.label}${c[k]}</span>`;
       }).join('');
     const rows = rank.mates.map(m => {
-      const why = m.score == null
-        ? `样本 ${m.games} 场`
-        : `状态分 ${m.score.toFixed(1)}${m.wr == null ? '' : ` · 近 ${m.games} 场 ${m.wr}%`}${m.kda == null ? '' : ` · KDA ${m.kda}`}`;
+      const why = (m.wr == null || m.games < MIN_GAMES)
+        ? `近期样本 ${m.games} 场，不足 ${MIN_GAMES} 场`
+        : `近 ${m.games} 场 ${m.wr}% 胜率${m.kda == null ? '' : ` · KDA ${m.kda}`}${m.score == null ? '' : ` · 状态分 ${m.score.toFixed(1)}`}`;
       return `<div class="fd-row">
         <span class="fd-badge fd-${m.tier.cls}">${m.tier.label}</span>
         <span class="fd-name" title="${esc(why)}">${esc(m.name)}${m.isSelf ? '<i class="fd-you">自己</i>' : ''}</span>
