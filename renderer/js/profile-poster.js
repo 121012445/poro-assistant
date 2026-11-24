@@ -449,10 +449,11 @@
 
     const recent = s.recent.map(r => '<i class="pp-dot ' + (r.win ? 'w' : 'l') + '"></i>').join('');
 
+    // 六个高光各配一色，跟参考图一样一眼能分（不再是清一色金）
     const highs = [
-      ['五杀', s.multi.p], ['四杀', s.multi.q], ['三杀', s.multi.t], ['双杀', s.multi.d],
-      ['一血', s.fb], ['单场最高击杀', s.bestK]
-    ].map(([label, v]) => '<div class="pp-high"><b>' + num(v) + '</b><span>' + label + '</span></div>').join('');
+      ['五杀', s.multi.p, 'c1'], ['四杀', s.multi.q, 'c2'], ['三杀', s.multi.t, 'c3'],
+      ['双杀', s.multi.d, 'c4'], ['一血', s.fb, 'c5'], ['单场最高击杀', s.bestK, 'c6']
+    ].map(([label, v, cls]) => '<div class="pp-high ' + cls + '"><b>' + num(v) + '</b><span>' + label + '</span></div>').join('');
 
     const wrOf = x => (x && x.n ? Math.round(x.wins / x.n * 100) : 0);
     const wrCls = wr => (wr >= 60 ? 'good' : wr >= 45 ? 'mid' : 'bad');
@@ -541,9 +542,10 @@
     const RING_R = 25, RING_C = 2 * Math.PI * RING_R;
     const winW = s.n ? (s.wins / s.n * 100) : 0;
     const ringDash = (winW / 100 * RING_C).toFixed(1);
-    const ringOn = o.dark ? '#2AC67F' : '#0E8A4F';
-    const ringOff = o.dark ? '#28313D' : '#E3E8EF';
-    const ringTxt = o.dark ? '#F2F5F8' : '#16202B';
+    // 海报固定深蓝紫底、不跟 app 主题走，环形色也固定深色系，浅色主题下不跳
+    const ringOn = '#2fc98a';
+    const ringOff = '#313c5e';
+    const ringTxt = '#f4f6fb';
     const ring = '<svg class="pp-ring" viewBox="0 0 60 60" width="58" height="58" aria-hidden="true">'
       + '<circle cx="30" cy="30" r="' + RING_R + '" fill="none" stroke="' + ringOff + '" stroke-width="7"/>'
       + '<circle cx="30" cy="30" r="' + RING_R + '" fill="none" stroke="' + ringOn + '" stroke-width="7"'
@@ -805,6 +807,7 @@
         + '<button type="button" class="pp-close" title="关闭 (Esc)">×</button></div>'
         + '<div class="pp-scroll"><div id="ppHolder"></div></div>'
         + '<div class="pp-dfoot"><span class="pp-hint"></span>'
+        + '<button type="button" class="btn-secondary pp-copy">复制图片</button>'
         + '<button type="button" class="btn-primary pp-go">生成图片</button></div></div>';
       document.body.appendChild(el);
       el.querySelector('.pp-close').addEventListener('click', close);
@@ -818,6 +821,7 @@
         renderHolder();
       });
       el.querySelector('.pp-go').addEventListener('click', () => { exportPng(); });
+      el.querySelector('.pp-copy').addEventListener('click', () => { copyPng(); });
     }
     el.hidden = false;
     requestAnimationFrame(() => el.classList.add('show'));
@@ -826,40 +830,47 @@
   }
 
   // ---------- 出图 ----------
-  async function exportPng() {
+  // 渲染出 dataUrl（离屏截图），生成预览 / 直接复制共用这一步。
+  async function renderDataUrl() {
     const st = state();
-    if (st.busy) { showToast('上一张还在生成, 稍等一下', 'info'); return; }
     const games = (typeof homeGamesData !== 'undefined' && Array.isArray(homeGamesData)) ? homeGamesData : [];
     const info = ownerInfo();
     const sum = collect(filteredGames(games, st.mode), info.puuid);
-    if (!sum.n) { showToast('这个模式下没有对局', 'negative'); return; }
+    if (!sum.n) { showToast('这个模式下没有对局', 'negative'); return null; }
     sum.avatar = info.avatar;
+    // 离屏窗口只等 600ms：外链图必须先落成本地 dataURL，否则导出的图上装备/头像全是空格
+    await warmImages(sum);
+    const html = build(sum, {
+      name: info.name, tag: info.tag, puuid: info.puuid, level: info.level, avatar: info.avatar,
+      modeLabel: st.mode === 'all' ? '全部模式' : st.mode,
+      dark: document.body.classList.contains('dark')
+    });
+    if (!html) { showToast('没有可用的对局数据', 'negative'); return null; }
+    const size = measure(html);
+    const theme = document.body.classList.contains('dark') ? 'dark' : 'light';
+    const renderOpts = { title: '生涯海报预览', saveTitle: '保存生涯海报', prefix: 'Poro生涯', theme };
+    const r = await lolAPI.renderShareCard(html, size.width, size.height, renderOpts)
+      .catch(e => ({ __error: (e && e.message) || String(e) }));
+    if (r && r.ok && r.dataUrl) return { dataUrl: r.dataUrl, opts: renderOpts };
+    showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
+    return null;
+  }
+
+  // 生成图片 → 预览层（能再保存 / 复制）
+  async function exportPng() {
+    const st = state();
+    if (st.busy) { showToast('上一张还在生成, 稍等一下', 'info'); return; }
     st.busy = true;
     const go = document.querySelector('#poroPoster .pp-go');
     if (go) { go.disabled = true; go.textContent = '生成中…'; }
     try {
-      // 离屏窗口只等 600ms：外链图必须先落成本地 dataURL，否则导出的图上装备/头像全是空格
-      await warmImages(sum);
-      const html = build(sum, {
-        name: info.name, tag: info.tag, puuid: info.puuid, level: info.level, avatar: info.avatar,
-        modeLabel: st.mode === 'all' ? '全部模式' : st.mode,
-        dark: document.body.classList.contains('dark')
-      });
-      if (!html) { showToast('没有可用的对局数据', 'negative'); return; }
-      const size = measure(html);
-      const theme = document.body.classList.contains('dark') ? 'dark' : 'light';
-      const renderOpts = { title: '生涯海报预览', saveTitle: '保存生涯海报', prefix: 'Poro生涯', theme };
       showToast('正在生成图片…', 'info');
-      const r = await lolAPI.renderShareCard(html, size.width, size.height, renderOpts)
-        .catch(e => ({ __error: (e && e.message) || String(e) }));
-      if (r && r.ok && r.dataUrl) {
-        close();
-        if (root.PoroBattleCard && typeof root.PoroBattleCard.preview === 'function') {
-          root.PoroBattleCard.preview(r.dataUrl, renderOpts);
-        }
-        return;
+      const out = await renderDataUrl();
+      if (!out) return;
+      close();
+      if (root.PoroBattleCard && typeof root.PoroBattleCard.preview === 'function') {
+        root.PoroBattleCard.preview(out.dataUrl, out.opts);
       }
-      showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
     } catch (e) {
       showToast('生成图片失败: ' + ((e && e.message) || e), 'negative');
     } finally {
@@ -868,8 +879,35 @@
     }
   }
 
+  // 复制图片 → 直接进系统剪贴板，不用先弹预览再找那个小按钮
+  async function copyPng() {
+    const st = state();
+    if (st.busy) { showToast('上一张还在生成, 稍等一下', 'info'); return; }
+    if (!root.PoroBattleCard || typeof root.PoroBattleCard.copyImage !== 'function') {
+      showToast('当前版本不支持直接复制, 请用「生成图片」', 'negative'); return;
+    }
+    st.busy = true;
+    const btn = document.querySelector('#poroPoster .pp-copy');
+    if (btn) { btn.disabled = true; btn.textContent = '复制中…'; }
+    try {
+      const out = await renderDataUrl();
+      if (!out) return;
+      const bytes = await root.PoroBattleCard.copyImage(out.dataUrl);
+      showToast('已复制到剪贴板 (' + Math.round(bytes / 1024) + ' KB), 直接 Ctrl+V 粘贴', 'positive');
+      close();
+    } catch (e) {
+      const msg = (e && e.name === 'NotAllowedError')
+        ? '窗口没有焦点, 点一下 Poro 窗口再复制'
+        : ((e && e.message) || String(e));
+      showToast('复制失败: ' + msg, 'negative');
+    } finally {
+      st.busy = false;
+      if (btn) { btn.disabled = false; btn.textContent = '复制图片'; }
+    }
+  }
+
   root.PoroProfilePoster = {
-    open, close, collect, modesOf, build, measure, exportPng, warmImages,
+    open, close, collect, modesOf, build, measure, exportPng, copyPng, warmImages,
     _format: { num, bigNum, durText, durShort, median }, _CARD_W: CARD_W
   };
 })(typeof window !== 'undefined' ? window : this);

@@ -242,4 +242,19 @@ games.sort((a, b) => b.time - a.time);
   assert.strictEqual(M._format.median([1, 2, 3]), 2);
 }
 
-console.log('生涯海报: 10 组用例全部通过');
+// ---------- 11. 弹窗复制按钮 + 配色写死 ----------
+{
+  const fs = require('fs'), path = require('path');
+  const js = fs.readFileSync(path.join(__dirname, 'renderer/js/profile-poster.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, 'renderer/css/premium.css'), 'utf8');
+  assert.ok(js.includes('btn-secondary pp-copy') && js.includes('复制图片'), '弹窗要有复制图片按钮');
+  assert.ok(js.includes('function copyPng') && js.includes('PoroBattleCard.copyImage'),
+    '复制走渲染层剪贴板，不依赖预览层小按钮');
+  assert.ok(js.includes('function renderDataUrl'), '渲染与预览/复制要共用出图逻辑');
+  assert.ok(js.includes('exportPng, copyPng'), 'copyPng 必须导出到全局');
+  assert.ok(/pp-high\.c1 b[\s\S]{0,300}pp-high\.c6 b/.test(css), '六个高光要有分色类');
+  assert.ok(css.includes('radial-gradient(120% 60% at 50% 0%'), '海报底要写死深蓝紫渐变');
+  assert.ok(js.includes("const ringOn = '#2fc98a'"), '胜率环形固定深色系，不跟 app 主题跳');
+}
+
+console.log('生涯海报: 11 组用例全部通过');

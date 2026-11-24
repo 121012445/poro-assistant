@@ -1768,20 +1768,29 @@ body.dark .gw-plan-warn { color: #f0c674; background: rgba(240, 198, 116, .10); 
    所以这里一律用这五份里已有的令牌 + 写死的数据色，不引 --brand / --pos /
    --tier-*（v4.css 不参与导出，那些令牌在离屏窗口里根本不存在）。
    ============================================================ */
-.pp-wrap { width: 680px; padding: 14px; box-sizing: border-box; background: var(--bg-primary); }
+/* 底与数据色全部写死：导出窗口只有五份 CSS，主题的 --bg-* 在深浅之间跳，
+   海报要的是参考图那种稳定的深蓝紫 + 高饱和数据色，所以不跟主题变量走。 */
+.pp-wrap { width: 680px; padding: 16px; box-sizing: border-box;
+  background: radial-gradient(120% 60% at 50% 0%, #20294a 0%, #151b34 45%, #101629 100%); }
 .pp-card {
-  --pp-win: #0E8A4F; --pp-lose: #D02F27;
-  --pp-gold: #a97a1f; --pp-blue: #2c6fd1; --pp-teal: #157d72; --pp-rose: #c2425c;
-  --pp-fill: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
-  --pp-line: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  position: relative; padding: 20px 20px 14px; border-radius: 20px;
-  background: var(--bg-card); border: 1px solid var(--border);
+  --pp-win: #2fc98a; --pp-lose: #f0646c;
+  --pp-gold: #f0c674; --pp-blue: #74b4f5; --pp-teal: #57d6c5; --pp-rose: #f597b2;
+  --pp-purple: #b79bf5; --pp-orange: #f5a559;
+  --pp-fill: rgba(255, 255, 255, .045);
+  --pp-line: rgba(176, 196, 255, .13);
+  --pp-ink: #f4f6fb; --pp-ink-2: #c3cee4; --pp-ink-3: #8b99bb;
+  position: relative; padding: 22px 22px 16px; border-radius: 18px;
+  background: linear-gradient(170deg, rgba(38, 48, 82, .92), rgba(24, 31, 56, .96));
+  border: 1px solid rgba(176, 196, 255, .2);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .06);
+  color: var(--pp-ink);
 }
 body.dark .pp-card {
-  --pp-gold: #e0b76a; --pp-blue: #6aa9f0; --pp-teal: #4ecdc4; --pp-rose: #ee93a8;
-  --pp-win: #26C281; --pp-lose: #EF5350;
+  --pp-win: #2fc98a; --pp-lose: #f0646c;
+  --pp-gold: #f0c674; --pp-blue: #74b4f5; --pp-teal: #57d6c5; --pp-rose: #f597b2;
+  --pp-purple: #b79bf5; --pp-orange: #f5a559;
 }
-body.dark .pp-wrap { background: var(--bg-primary); }
+body.dark .pp-wrap { background: radial-gradient(120% 60% at 50% 0%, #20294a 0%, #151b34 45%, #101629 100%); }
 
 /* ---- 头部 ---- */
 .pp-head { display: flex; align-items: center; gap: 14px; }
@@ -1791,11 +1800,11 @@ body.dark .pp-wrap { background: var(--bg-primary); }
   border: 1px solid color-mix(in srgb, var(--pp-gold) 62%, transparent);
   box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--pp-gold) 12%, transparent); }
 .pp-id { min-width: 0; }
-.pp-name { font-size: 22px; font-weight: 800; letter-spacing: -.015em; line-height: 1.25; color: var(--text-primary); }
-.pp-name i { font-style: normal; font-size: 13px; font-weight: 500; color: var(--text-muted); margin-left: 6px; }
-.pp-sub { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.pp-name { font-size: 22px; font-weight: 800; letter-spacing: -.015em; line-height: 1.25; color: var(--pp-ink); }
+.pp-name i { font-style: normal; font-size: 13px; font-weight: 500; color: var(--pp-ink-3); margin-left: 6px; }
+.pp-sub { font-size: 12px; color: var(--pp-ink-2); margin-top: 3px; }
 .pp-rank { font-weight: 700; }
-.pp-dim { color: var(--text-muted); }
+.pp-dim { color: var(--pp-ink-3); }
 .pp-mode { margin-left: auto; flex: none; font-size: 12px; font-weight: 600; color: var(--pp-gold);
   background: color-mix(in srgb, var(--pp-gold) 11%, transparent);
   border: 1px solid color-mix(in srgb, var(--pp-gold) 30%, transparent);
@@ -1806,8 +1815,12 @@ body.dark .pp-wrap { background: var(--bg-primary); }
   padding: 12px 6px; border-radius: 14px; background: var(--pp-fill); }
 .pp-kpi { text-align: center; }
 .pp-kpi b { display: block; font-size: 24px; font-weight: 800; letter-spacing: -.025em;
-  font-variant-numeric: tabular-nums; color: var(--text-primary); line-height: 1.2; }
-.pp-kpi span { font-size: 11.5px; color: var(--text-muted); }
+  font-variant-numeric: tabular-nums; color: var(--pp-ink); line-height: 1.2; }
+.pp-kpi span { font-size: 11.5px; color: var(--pp-ink-3); }
+.pp-kpi:nth-child(1) b { color: var(--pp-ink); }
+.pp-kpi:nth-child(2) b { color: var(--pp-win); }
+.pp-kpi:nth-child(3) b { color: var(--pp-blue); }
+.pp-kpi:nth-child(4) b { color: var(--pp-gold); }
 .pp-kpi b.pp-wr { color: var(--pp-win); }
 
 .pp-recent { display: flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 11px; }
@@ -1819,41 +1832,47 @@ body.dark .pp-wrap { background: var(--bg-primary); }
 /* ---- 区块 ---- */
 .pp-sec { margin-top: 15px; }
 .pp-sec > h4 { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700;
-  letter-spacing: .03em; color: var(--text-secondary); margin-bottom: 9px; }
+  letter-spacing: .03em; color: var(--pp-ink-2); margin-bottom: 9px; }
 .pp-sec > h4::before { content: ''; width: 3px; height: 12px; border-radius: 2px;
   background: linear-gradient(180deg, var(--pp-gold), color-mix(in srgb, var(--pp-gold) 45%, transparent)); }
-.pp-empty { padding: 14px 0; text-align: center; font-size: 11.5px; color: var(--text-muted); }
+.pp-empty { padding: 14px 0; text-align: center; font-size: 11.5px; color: var(--pp-ink-3); }
 
 /* ---- 高光时刻 ---- */
 .pp-highs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .pp-high { padding: 10px 4px; border-radius: 12px; text-align: center;
   background: var(--pp-fill); border: 1px solid var(--pp-line); }
-.pp-high b { display: block; font-size: 20px; font-weight: 800; letter-spacing: -.02em;
+.pp-high b { display: block; font-size: 21px; font-weight: 800; letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; color: var(--pp-gold); line-height: 1.25; }
-.pp-high span { font-size: 10.5px; color: var(--text-muted); }
+.pp-high span { font-size: 10.5px; color: var(--pp-ink-3); }
+.pp-high.c1 b { color: #f5a559; }  /* 五杀 橙 */
+.pp-high.c2 b { color: #f07ba6; }  /* 四杀 粉 */
+.pp-high.c3 b { color: #b79bf5; }  /* 三杀 紫 */
+.pp-high.c4 b { color: #74b4f5; }  /* 双杀 蓝 */
+.pp-high.c5 b { color: #57d6c5; }  /* 一血 青 */
+.pp-high.c6 b { color: var(--pp-gold); } /* 最高击杀 金 */
 
 /* ---- 战绩总览 ---- */
 .pp-ov { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .pp-ovc { display: flex; flex-direction: column; padding: 13px 13px 11px; border-radius: 14px;
   background: var(--pp-fill); border: 1px solid var(--pp-line); }
-.pp-ovt { font-size: 11.5px; color: var(--text-muted); }
+.pp-ovt { font-size: 11.5px; color: var(--pp-ink-3); }
 .pp-ovn { font-size: 21px; font-weight: 800; letter-spacing: -.025em; margin: 3px 0 7px;
-  font-variant-numeric: tabular-nums; color: var(--text-primary); line-height: 1.2; }
+  font-variant-numeric: tabular-nums; color: var(--pp-ink); line-height: 1.2; }
 .pp-ovn.pp-wr { color: var(--pp-win); }
 .pp-ovn.pp-gold { color: var(--pp-gold); }
 .pp-wbar { height: 5px; border-radius: 3px; overflow: hidden;
-  background: color-mix(in srgb, var(--text-primary) 11%, transparent); }
+  background: color-mix(in srgb, var(--pp-ink) 11%, transparent); }
 .pp-wbar i { display: block; height: 100%; border-radius: 3px;
   background: linear-gradient(90deg, #0E8A4F, #2BC98B); }
 body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
-.pp-ovs { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
-.pp-ovs b { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.pp-ovs { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--pp-ink-3); }
+.pp-ovs b { color: var(--pp-ink-2); font-variant-numeric: tabular-nums; }
 .pp-ovr { margin-top: auto; padding-top: 4px; }
 .pp-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-  font-size: 11.5px; color: var(--text-muted); padding: 2.5px 0;
+  font-size: 11.5px; color: var(--pp-ink-3); padding: 2.5px 0;
   border-top: 1px dashed var(--pp-line); }
 .pp-row:first-child { border-top: 0; }
-.pp-row b { color: var(--text-secondary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pp-row b { color: var(--pp-ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ---- 两栏 ---- */
 .pp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; }
@@ -1862,22 +1881,22 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
   background: var(--pp-fill); border: 1px solid var(--pp-line); }
 .pp-trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; text-align: center; }
 .pp-trio b { display: block; font-size: 15px; font-weight: 800; letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; color: var(--text-primary); line-height: 1.3; }
-.pp-trio span { font-size: 10.5px; color: var(--text-muted); }
+  font-variant-numeric: tabular-nums; color: var(--pp-ink); line-height: 1.3; }
+.pp-trio span { font-size: 10.5px; color: var(--pp-ink-3); }
 .pp-rose { color: var(--pp-rose) !important; }
 .pp-blue { color: var(--pp-blue) !important; }
 .pp-teal { color: var(--pp-teal) !important; }
 .pp-gold { color: var(--pp-gold) !important; }
 .pp-big { text-align: center; margin: 10px 0 4px; }
-.pp-big b { font-size: 25px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--text-primary); }
-.pp-big span { font-size: 11px; color: var(--text-muted); margin-left: 5px; }
+.pp-big b { font-size: 25px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--pp-ink); }
+.pp-big span { font-size: 11px; color: var(--pp-ink-3); margin-left: 5px; }
 .pp-bars { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 6px; }
 .pp-bar { display: grid; grid-template-columns: 26px 1fr 40px; align-items: center; gap: 7px;
-  font-size: 10.5px; color: var(--text-muted); }
+  font-size: 10.5px; color: var(--pp-ink-3); }
 .pp-bar i { display: block; height: 5px; border-radius: 3px; overflow: hidden;
-  background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+  background: color-mix(in srgb, var(--pp-ink) 10%, transparent); }
 .pp-bar em { display: block; height: 100%; border-radius: 3px; }
-.pp-bar b { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.pp-bar b { text-align: right; color: var(--pp-ink-2); font-variant-numeric: tabular-nums; }
 
 /* ---- 英雄 ---- */
 .pp-champs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -1886,9 +1905,9 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
 .pp-champ img, .pp-champ-ph { flex: none; width: 34px; height: 34px; border-radius: 10px;
   object-fit: cover; background: var(--pp-line); }
 .pp-champ-t { min-width: 0; }
-.pp-champ-t b { display: block; font-size: 12px; font-weight: 600; color: var(--text-primary);
+.pp-champ-t b { display: block; font-size: 12px; font-weight: 600; color: var(--pp-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
-.pp-champ-t span { font-size: 10.5px; color: var(--text-muted); }
+.pp-champ-t span { font-size: 10.5px; color: var(--pp-ink-3); }
 .pp-champ-t i { font-style: normal; }
 .pp-champ-t i.good { color: var(--pp-win); }
 .pp-champ-t i.bad { color: var(--pp-lose); }
@@ -1898,7 +1917,7 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
 .pp-item { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 6px;
   border-radius: 12px; background: var(--pp-fill); border: 1px solid var(--pp-line); }
 .pp-item img { width: 38px; height: 38px; border-radius: 9px; object-fit: cover; background: var(--pp-line); }
-.pp-item b { font-size: 10.5px; font-weight: 600; color: var(--text-muted); }
+.pp-item b { font-size: 10.5px; font-weight: 600; color: var(--pp-ink-3); }
 
 /* ---- 同队 / 对手 ---- */
 .pp-plist { padding: 7px 12px; }
@@ -1906,8 +1925,8 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
   padding: 4.5px 0; border-top: 1px dashed var(--pp-line); font-size: 11.5px; }
 .pp-prow:first-child { border-top: 0; }
 .pp-prow em { font-style: normal; font-size: 10px; font-weight: 700; color: var(--pp-gold); }
-.pp-prow span { color: var(--text-secondary); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.pp-prow b { font-size: 11px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.pp-prow span { color: var(--pp-ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pp-prow b { font-size: 11px; font-weight: 600; color: var(--pp-ink-3); font-variant-numeric: tabular-nums; }
 
 /* ---- 强化 ---- */
 .pp-augs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
@@ -1917,12 +1936,12 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
   background: var(--pp-line); }
 .pp-aug-t { min-width: 0; }
 .pp-aug-t b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  font-size: 11px; font-weight: 600; line-height: 1.3; color: var(--text-primary); }
-.pp-aug-t span { font-size: 10px; color: var(--text-muted); }
+  font-size: 11px; font-weight: 600; line-height: 1.3; color: var(--pp-ink); }
+.pp-aug-t span { font-size: 10px; color: var(--pp-ink-3); }
 
 /* ---- 页脚 ---- */
 .pp-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; padding-top: 10px;
-  border-top: 1px solid var(--pp-line); font-size: 10.5px; color: var(--text-muted); }
+  border-top: 1px solid var(--pp-line); font-size: 10.5px; color: var(--pp-ink-3); }
 
 /* ---- 弹窗 ---- */
 .pp-modal { position: fixed; inset: 0; z-index: 2400; display: flex; align-items: center; justify-content: center;
@@ -1957,14 +1976,14 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
    英雄胜率条 / 相遇胜率 / 强化描述」。颜色仍只用 pp-card 那几个自定义属性，
    离屏导出窗口没有 v4.css 的主题变量，别在这里引 --pos/--neg/--tier-*。
    ============================================================ */
-.pp-uuid { margin-top: 3px; font-size: 9.5px; letter-spacing: -.01em; color: var(--text-muted);
+.pp-uuid { margin-top: 3px; font-size: 9.5px; letter-spacing: -.01em; color: var(--pp-ink-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.pp-recent-r { margin-left: auto; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.pp-recent-r { margin-left: auto; color: var(--pp-ink-3); font-variant-numeric: tabular-nums; }
 .pp-h4r { margin-left: auto; font-style: normal; font-weight: 500; font-size: 10.5px; letter-spacing: 0;
-  color: var(--text-muted); }
+  color: var(--pp-ink-3); }
 .pp-card .good { color: var(--pp-win) !important; }
 .pp-card .bad { color: var(--pp-lose) !important; }
-.pp-card .mid { color: var(--text-secondary) !important; }
+.pp-card .mid { color: var(--pp-ink-2) !important; }
 
 /* 胜率卡：左边圆环，右边场次与胜负 */
 .pp-ovc-wr { flex-direction: row; align-items: center; gap: 10px; }
@@ -1982,10 +2001,10 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
   background: var(--pp-fill); border: 1px solid var(--pp-line); }
 .pp-bra { width: 22px; height: 22px; border-radius: 7px; object-fit: cover; background: var(--pp-line); }
 .pp-brt { min-width: 0; }
-.pp-brt span { display: block; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
-.pp-brt i { display: block; font-size: 9.5px; font-style: normal; color: var(--text-secondary);
+.pp-brt span { display: block; font-size: 10px; color: var(--pp-ink-3); white-space: nowrap; }
+.pp-brt i { display: block; font-size: 9.5px; font-style: normal; color: var(--pp-ink-2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pp-brv { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.pp-brv { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--pp-ink); }
 .pp-brw { font-size: 9.5px; font-style: normal; font-weight: 700; text-align: center; }
 .pp-brw.w { color: var(--pp-win); }
 .pp-brw.l { color: var(--pp-lose); }
@@ -1996,17 +2015,17 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
   border-radius: 10px; background: var(--pp-fill); border: 1px solid var(--pp-line); }
 .pp-spell img, .pp-spell-ph { flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--pp-line); }
 .pp-spell-t { min-width: 0; }
-.pp-spell-t b { display: block; font-size: 11px; color: var(--text-primary);
+.pp-spell-t b { display: block; font-size: 11px; color: var(--pp-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pp-spell-t span { display: block; font-size: 9.5px; color: var(--text-muted); white-space: nowrap; }
+.pp-spell-t span { display: block; font-size: 9.5px; color: var(--pp-ink-3); white-space: nowrap; }
 
 /* 装备：前 10 件，按次数优先、胜率次优先排序 */
 .pp-items { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .pp-item { gap: 3px; padding: 9px 4px; }
 .pp-item img { width: 40px; height: 40px; border-radius: 9px; }
-.pp-item b { display: block; max-width: 100%; font-size: 9.5px; font-weight: 600; color: var(--text-secondary);
+.pp-item b { display: block; max-width: 100%; font-size: 9.5px; font-weight: 600; color: var(--pp-ink-2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pp-item span { font-size: 9.5px; color: var(--text-muted); white-space: nowrap; }
+.pp-item span { font-size: 9.5px; color: var(--pp-ink-3); white-space: nowrap; }
 .pp-item i { font-style: normal; }
 
 /* 英雄榜：头像 + 名字 + 场次条 + 场次 + 胜率 */
@@ -2016,12 +2035,12 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
   gap: 5px; padding: 4px 0; border-top: 1px dashed var(--pp-line); }
 .pp-crow:nth-child(-n+2) { border-top: 0; }
 .pp-cra { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; background: var(--pp-line); }
-.pp-crn { font-size: 10.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-crn { font-size: 10.5px; color: var(--pp-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pp-crb { display: block; height: 4px; border-radius: 2px; overflow: hidden; background: var(--pp-line); }
 .pp-crb em { display: block; height: 100%; border-radius: 2px; background: #8895a5; }
 .pp-crb em.good { background: var(--pp-win); }
 .pp-crb em.bad { background: var(--pp-lose); }
-.pp-crc { font-size: 9.5px; color: var(--text-muted); text-align: right; white-space: nowrap; }
+.pp-crc { font-size: 9.5px; color: var(--pp-ink-3); text-align: right; white-space: nowrap; }
 .pp-crw { font-size: 10.5px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* 相遇榜：加一列同队/相遇时的胜率 */
@@ -2033,18 +2052,18 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
 /* 海克斯：描边按稀有度，卡片里放名称、说明、次数、胜率 */
 .pp-augs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .pp-aug { position: relative; flex-direction: column; align-items: stretch; gap: 6px; padding: 9px 10px; }
-.pp-aug-rk { position: absolute; top: 5px; right: 8px; font-size: 10px; font-weight: 800; color: var(--text-muted); }
+.pp-aug-rk { position: absolute; top: 5px; right: 8px; font-size: 10px; font-weight: 800; color: var(--pp-ink-3); }
 .pp-aug-h { display: flex; align-items: center; gap: 8px; }
 .pp-aug-t b { -webkit-line-clamp: 1; font-size: 11.5px; }
-.pp-aug-d { margin: 0; font-size: 10px; line-height: 1.45; color: var(--text-muted);
+.pp-aug-d { margin: 0; font-size: 10px; line-height: 1.45; color: var(--pp-ink-3);
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pp-aug-m { display: flex; align-items: center; gap: 7px; margin: 3px 0 1px; }
-.pp-aug-m > span { flex: none; font-size: 9.5px; color: var(--text-muted); white-space: nowrap; }
+.pp-aug-m > span { flex: none; font-size: 9.5px; color: var(--pp-ink-3); white-space: nowrap; }
 .pp-aug-share { display: block; flex: 1; min-width: 0; height: 5px; border-radius: 3px; overflow: hidden;
   background: var(--pp-line); }
 .pp-aug-share em { display: block; height: 100%; border-radius: 3px;
   background: linear-gradient(90deg, #a97a1f, #e0b76a); }
 body.dark .pp-aug-share em { background: linear-gradient(90deg, #8a6420, #e0b76a); }
 .pp-aug-f { display: flex; justify-content: space-between; align-items: center; font-size: 10px; }
-.pp-aug-f b { color: var(--text-secondary); }
+.pp-aug-f b { color: var(--pp-ink-2); }
 .pp-aug-f i { font-style: normal; }
