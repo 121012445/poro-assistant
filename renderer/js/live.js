@@ -2092,6 +2092,7 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   window._poroLiveCtx = { data, selfPuuid };
   const pageHtml = `
     ${typeof PoroScout !== 'undefined' ? PoroScout.html(PoroScout.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('scoutCollapsed') === '1') }) : ''}
+    ${typeof PoroDuty !== 'undefined' ? PoroDuty.html(PoroDuty.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('dutyCollapsed') === '1') }) : ''}
     ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', 'primary', canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', 'mirror', canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
@@ -2126,6 +2127,65 @@ function toggleScoutReport(headEl) {
   const tip = headEl.querySelector('.sr-toggle');
   if (tip) tip.textContent = collapsed ? '展开' : '收起';
   try { if (typeof storeSet === 'function') storeSet('scoutCollapsed', collapsed ? '1' : ''); } catch (e) {}
+}
+
+// ---------- 分工表: 折叠 / 复制 / 发到选人聊天 ----------
+function toggleDutyCard(headEl) {
+  const card = headEl && headEl.closest ? headEl.closest('.fd-card') : null;
+  if (!card) return;
+  const collapsed = card.classList.toggle('collapsed');
+  const tip = headEl.querySelector('.fd-toggle');
+  if (tip) tip.textContent = collapsed ? '展开' : '收起';
+  try { if (typeof storeSet === 'function') storeSet('dutyCollapsed', collapsed ? '1' : ''); } catch (e) {}
+}
+
+function dutyTextNow() {
+  const rank = window._poroDutyRank;
+  if (!rank || !rank.ready || !rank.chatText) return '';
+  return rank.chatText;
+}
+
+async function copyDutyText() {
+  const text = dutyTextNow();
+  if (!text) { if (typeof showToast === 'function') showToast('还没有可复制的评级', 'negative'); return; }
+  try {
+    const ok = await lolAPI.copyText(text).catch(() => false);
+    if (typeof showToast === 'function') showToast(ok ? '分工表已复制' : '复制失败', ok ? 'positive' : 'negative');
+  } catch (e) { try { lolAPI.debugLog('[DUTY] copy ' + (e && e.message)); } catch (e2) {} }
+}
+
+// 只做"用户点一下才发"的手动发送, 复用 chat.js 的选人房间识别与消息信封。
+let _dutyChatSentFor = '';
+async function sendDutyChat() {
+  const text = dutyTextNow();
+  if (!text) { if (typeof showToast === 'function') showToast('还没有可发送的评级', 'negative'); return; }
+  if (window._gameflowPhase !== 'ChampSelect') { if (typeof showToast === 'function') showToast('只在选人阶段可用', 'negative'); return; }
+  if (typeof complianceOn !== 'undefined' && complianceOn) { if (typeof showToast === 'function') showToast('合规模式已开启，不发送聊天', 'negative'); return; }
+  try {
+    const [convs, session, chatSelf] = await Promise.all([
+      lolAPI.lcuRequest('GET', '/lol-chat/v1/conversations'),
+      lolAPI.lcuRequest('GET', '/lol-champ-select/v1/session').catch(() => null),
+      lolAPI.lcuRequest('GET', '/lol-chat/v1/me')
+    ]);
+    // 会话列表可能返回 {__error}, activeChampSelectConversation 会安全地返回 null
+    let room = (typeof activeChampSelectConversation === 'function')
+      ? activeChampSelectConversation(convs, session) : null;
+    if (!room && _champSelectChatCid) room = { id: _champSelectChatCid };
+    if (!room || !room.id) { if (typeof showToast === 'function') showToast('还没拿到选人聊天房间，稍后再试', 'negative'); return; }
+    if (_dutyChatSentFor === room.id + '|' + text) { if (typeof showToast === 'function') showToast('这局已经发过了', 'neutral'); return; }
+    const payload = buildLcuChatMessage(room.id, text, chatSelf, 'chat');
+    if (!payload.fromId || !payload.fromPid || !payload.fromSummonerId) {
+      if (typeof showToast === 'function') showToast('聊天身份还没就绪', 'negative'); return;
+    }
+    const r = await lolAPI.lcuRequest('POST', `/lol-chat/v1/conversations/${encodeURIComponent(room.id)}/messages`, payload);
+    if (r && r.__error) { if (typeof showToast === 'function') showToast('发送失败', 'negative'); return; }
+    _dutyChatSentFor = room.id + '|' + text;
+    if (typeof showToast === 'function') showToast('分工表已发到选人聊天', 'positive');
+    try { lolAPI.debugLog('[DUTY] chat sent room=' + room.id); } catch (e) {}
+  } catch (e) {
+    try { lolAPI.debugLog('[DUTY] send ' + (e && e.message)); } catch (e2) {}
+    if (typeof showToast === 'function') showToast('发送失败', 'negative');
+  }
 }
 
 // ---------- 浮窗技能计时: 推"敌方 5 人 + 基础 CD" ----------

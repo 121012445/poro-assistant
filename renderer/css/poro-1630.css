@@ -34,17 +34,58 @@
 .sr-ban { font-size: 11px; padding: 2px 8px; border-radius: 7px; background: var(--surface-2); }
 .sr-ban b { color: var(--negative); margin-right: 4px; }
 .sr-ban i { font-style: normal; color: var(--text-muted); }
-.sr-list { display: flex; flex-direction: column; gap: 3px; }
-.sr-enemy { display: grid; grid-template-columns: 74px 1fr 64px 2fr; gap: 8px; align-items: center;
-  font-size: 11px; padding: 3px 6px; border-radius: 7px; }
-.sr-enemy:nth-child(odd) { background: var(--surface-2); }
-.sr-champ { color: var(--accent); }
-.sr-name { font-weight: 600; color: var(--ink-1); }
-.sr-threat { font-size: 10px; text-align: center; padding: 1px 4px; border-radius: 5px; background: var(--surface-3); }
-.sr-threat.t1, .sr-threat.t2 { color: var(--text-muted); }
-.sr-threat.t3, .sr-threat.t4 { color: var(--cat-amber); }
-.sr-threat.t5 { color: var(--negative); }
-.sr-foot, .ad-foot, .hx-foot, .lpc-note { margin: 4px 0 0; font-size: 10px; color: var(--text-muted); }
+
+/* ---------- 分工表 (选人趣味三档评级) ---------- */
+.fd-card { margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); overflow: hidden; }
+.fd-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; }
+.fd-head > b { font-size: 13px; }
+.fd-dist { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted);
+  padding: 1px 7px; border-radius: 6px; background: var(--surface-2); }
+.fd-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.fd-cross { font-size: 11px; color: var(--ink-2); }
+.fd-toggle { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.fd-card.collapsed .fd-body { display: none; }
+.fd-body { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 8px; }
+.fd-summary { margin: 0; font-size: 12px; color: var(--ink-1); }
+.fd-list { display: flex; flex-direction: column; gap: 4px; }
+.fd-row { display: grid; grid-template-columns: 46px minmax(0, 132px) minmax(0, 92px) minmax(0, 1fr);
+  gap: 8px; align-items: center; font-size: 12px; padding: 3px 6px; border-radius: 7px; }
+.fd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-1); }
+.fd-you { font-style: normal; font-size: 10px; color: var(--accent); margin-left: 4px; }
+.fd-champ { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-copy { font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-badge { font-size: 11px; text-align: center; padding: 1px 0; border-radius: 6px; font-weight: 600;
+  background: var(--surface-2); color: var(--ink-1); }
+.fd-badge.fd-carry { color: var(--data-gold); background: color-mix(in srgb, var(--data-gold) 14%, transparent); }
+.fd-badge.fd-hold { color: var(--data-blue); background: color-mix(in srgb, var(--data-blue) 14%, transparent); }
+.fd-badge.fd-slack { color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, transparent); }
+.fd-badge.fd-unknown { color: var(--text-muted); background: var(--surface-2); }
+.fd-dot.fd-carry { background: var(--data-gold); } .fd-dot.fd-hold { background: var(--data-blue); }
+.fd-dot.fd-slack { background: var(--warning); } .fd-dot.fd-unknown { background: var(--text-muted); }
+.fd-plan { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--surface-2); }
+.fd-plan-head { font-size: 11px; color: var(--ink-2); display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.fd-plan-head b { font-size: 13px; color: var(--ink-1); }
+.fd-plan-head span { color: var(--text-muted); font-size: 10px; }
+.fd-pairs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+.fd-pair { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 7px;
+  border-radius: 7px; background: var(--surface-1); border: 1px solid var(--line); }
+.fd-pair b { font-weight: 600; color: var(--ink-1); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-pair i { font-style: normal; color: var(--text-muted); max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-pair i::before { content: '对 '; color: var(--text-muted); }
+.fd-pair em { font-style: normal; font-size: 10px; padding: 0 4px; border-radius: 4px; }
+.fd-pair.fd-win em { color: var(--positive); background: color-mix(in srgb, var(--positive) 14%, transparent); }
+.fd-pair.fd-lose em { color: var(--negative); background: color-mix(in srgb, var(--negative) 14%, transparent); }
+.fd-pair.fd-even em { color: var(--text-muted); background: var(--surface-2); }
+.fd-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 10px; color: var(--text-muted); }
+.fd-foot > span { flex: 1 1 200px; }
+.fd-btn { font-size: 11px; padding: 3px 10px; border-radius: 7px; border: 1px solid var(--accent);
+  background: var(--accent); color: #fff; cursor: pointer; }
+.fd-btn.ghost { background: transparent; color: var(--accent); }
+.fd-btn:hover { filter: brightness(1.06); }
+@media (max-width: 720px) {
+  .fd-row { grid-template-columns: 46px minmax(0, 110px) minmax(0, 1fr); }
+  .fd-champ { display: none; }
+}
 
 /* ---------- 熟练度 / 挑战 ---------- */
 .ms-panel { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); }

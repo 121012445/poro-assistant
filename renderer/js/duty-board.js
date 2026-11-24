@@ -1,0 +1,309 @@
+// 分工表 —— 选人阶段的趣味三档评级 (大神 / 正常人 / 人机)
+//
+// 数据来源: live.js 已经为 10 名玩家拉过近期战绩 (p.recent) 与段位 (p.rank),
+// 评分直接复用 scout-report.js 的 PoroScout.evalPlayer(), 本模块**不发任何请求**。
+//
+// 设计原则:
+//   1. 分档只看"近期状态", 不做人身评价 —— 文案是玩梗, 不是判词;
+//   2. 同一玩家同一档的文案由 puuid 哈希固定, 刷新不跳字;
+//   3. 错位对阵只是"如果按状态硬碰硬会怎样"的沙盘推演, 明确标注不是胜率预测;
+//   4. 纯函数, 无 DOM / 无 IO, 可在 node 里断言。
+(function (root, factory) {
+  const api = factory();
+  try { if (typeof module !== 'undefined' && module.exports) module.exports = api; } catch (e) {}
+  // window.X 形式既是浏览器里的真实赋值, 也让静态检查 (test_undef_globals) 认得出这个名字
+  if (typeof window !== 'undefined') window.PoroDuty = api;
+  else if (root) root.PoroDuty = api;
+})(typeof window !== 'undefined' ? window : this, function () {
+  'use strict';
+
+  // score 由 PoroScout.evalPlayer 给出: 中性起点 3.0, 段位与战绩各自加减
+  // 三档对应"能带 / 够用 / 拖后腿", 阈值取值让大部分正常号落在「正常人」
+  const TIERS = [
+    { key: 'carry', min: 5.2, label: '大神', cls: 'carry' },
+    { key: 'hold', min: 2.4, label: '正常人', cls: 'hold' },
+    { key: 'slack', min: -999, label: '人机', cls: 'slack' }
+  ];
+  const UNKNOWN_TIER = { key: 'unknown', min: -999, label: '待定', cls: 'unknown' };
+
+  // 同一档多条文案, 用 puuid 哈希取一条 —— 刷新时不变, 换人时才换
+  const COPY = {
+    carry: [
+      '这局看它就够了',
+      '跟着大神走，别抢戏',
+      '它去哪你跟哪，别犟',
+      '把线让给它，安稳吃分',
+      '它开团你就上，别犹豫',
+      '能打能带，少说话多跟上',
+      '胜负手就在它身上',
+      '状态在线，后背交给它'
+    ],
+    hold: [
+      '不求有功，但求无过',
+      '正常发挥，够用',
+      '把线守住，别送就行',
+      '打不过就缩，别硬刚',
+      '它守得住，这局就有底',
+      '中规中矩，别指望惊喜',
+      '能跟上节奏，就看心情',
+      '不拖后腿就是满分'
+    ],
+    slack: [
+      '和训练模式的人机一个水平',
+      '它会走路，但不会拐弯',
+      '指望它不如指望自己',
+      '它负责存在，你负责赢',
+      '给它个安全的位置，别让它送',
+      '人机模式它都没打赢过',
+      '会补刀，已经很努力了',
+      '少送两个，这局还有救'
+    ],
+    unknown: [
+      '还没看出它是人是机',
+      '数据太少，先观察',
+      '新面孔，成分待定',
+      '样本不足，打着看',
+      '开盲盒，看命'
+    ]
+  };
+
+  // 注意: Number(null) === 0, 直接转会把"没有样本"误判成 0 分, 必须先挡空值
+  function num(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+  function hashOf(str) {
+    const s = String(str || '');
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  function tierOf(score) {
+    const n = num(score);
+    if (n == null) return UNKNOWN_TIER;
+    for (const t of TIERS) if (n >= t.min) return t;
+    return TIERS[TIERS.length - 1];
+  }
+
+  function copyOf(seed, tierKey) {
+    const list = COPY[tierKey] || COPY.unknown;
+    return list[hashOf(seed) % list.length];
+  }
+
+  // 对阵: 差值 >= 0.4 才算占优/吃亏, 中间算五五开 —— 与侦察卡的"强度差"阈值一致
+  const EDGE = 0.4;
+  function outcomeOf(a, b) {
+    const d = a - b;
+    if (d >= EDGE) return 'win';
+    if (d <= -EDGE) return 'lose';
+    return 'even';
+  }
+
+  // 硬碰硬: 双方按状态从强到弱依次对位
+  function pairDirect(allies, enemies) {
+    const a = allies.slice().sort((x, y) => y.s - x.s);
+    const e = enemies.slice().sort((x, y) => y.s - x.s);
+    const n = Math.min(a.length, e.length);
+    let wins = 0, losses = 0, evens = 0;
+    const plan = [];
+    for (let i = 0; i < n; i++) {
+      const result = outcomeOf(a[i].s, e[i].s);
+      if (result === 'win') wins++; else if (result === 'lose') losses++; else evens++;
+      plan.push({ ally: a[i], enemy: e[i], result });
+    }
+    return { wins, losses, evens, n, plan };
+  }
+
+  // 错位: 我方最强能压过对方最强就直接对掉; 否则我方最弱能压过对方最弱就先吃这一路;
+  // 两头都压不住就派最弱的那条去撞对方最强 (弃一路), 把中段留给自己 ——
+  // 整体偏弱时也能最大化"能赢的路数"。
+  function pairCross(allies, enemies) {
+    const a = allies.slice().sort((x, y) => x.s - y.s);   // 由弱到强
+    const e = enemies.slice().sort((x, y) => x.s - y.s);
+    let lo = 0, hi = a.length - 1, elo = 0, ehi = e.length - 1;
+    let wins = 0, losses = 0, evens = 0;
+    const plan = [];
+    const push = (x, y, result) => {
+      if (result === 'win') wins++; else if (result === 'lose') losses++; else evens++;
+      plan.push({ ally: x, enemy: y, result });
+    };
+    while (lo <= hi && elo <= ehi) {
+      if (a[hi].s - e[ehi].s >= EDGE) {
+        push(a[hi], e[ehi], outcomeOf(a[hi].s, e[ehi].s)); hi--; ehi--;
+      } else if (a[lo].s - e[elo].s >= EDGE) {
+        push(a[lo], e[elo], outcomeOf(a[lo].s, e[elo].s)); lo++; elo++;
+      } else {
+        push(a[lo], e[ehi], outcomeOf(a[lo].s, e[ehi].s)); lo++; ehi--;
+      }
+    }
+    plan.sort((x, y) => y.ally.s - x.ally.s);
+    return { wins, losses, evens, n: plan.length, plan };
+  }
+
+  function summaryOf(mates, selfPuuid) {
+    const c = { carry: 0, hold: 0, slack: 0, unknown: 0 };
+    for (const m of mates) c[m.tier.key] = (c[m.tier.key] || 0) + 1;
+    const known = mates.length - c.unknown;
+    let line;
+    if (!known) line = '全员待定，边打边看';
+    else if (c.carry >= 4) line = '四个大神，这局不好输';
+    else if (c.carry >= 2) line = '有两个大神，剩下看配合';
+    else if (c.slack >= 3) line = '三个人机，就看剩下两个扛不扛得住';
+    else if (c.carry === 0 && c.slack >= 2) line = '没有大神，全靠配合硬顶';
+    else if (c.carry === 0 && c.hold === mates.length) line = '全员正常人，整齐得像军训';
+    else line = '有神有人机，看谁先掉线';
+    const self = mates.find(m => m && m.isSelf);
+    if (self && self.tier.key === 'carry' && c.carry <= 1) {
+      line = '这局只有你一个神，别掉链子';
+    } else if (self && self.tier.key === 'slack') {
+      line += '（你自己也在人机名单里，别笑）';
+    }
+    return line;
+  }
+
+  /**
+   * @param {Array} players live.js 的 10 人数组 {puuid,name,team,championId,rank,recent,isBot}
+   * @param {object} opts { selfPuuid, champName(id), evalPlayer(p) }
+   */
+  function build(players, opts) {
+    const o = opts || {};
+    const list = Array.isArray(players) ? players.filter(p => p && !p.isBot) : [];
+    const self = o.selfPuuid ? list.find(p => p.puuid === o.selfPuuid) : null;
+    const selfTeam = self ? Number(self.team) : 0;
+    if (!list.length || !selfTeam) return { ready: false, reason: selfTeam ? '没有可评估的玩家' : '还没识别到自己所在的队伍' };
+    const evalPlayer = typeof o.evalPlayer === 'function'
+      ? o.evalPlayer
+      : (typeof PoroScout !== 'undefined' && PoroScout && typeof PoroScout.evalPlayer === 'function'
+        ? PoroScout.evalPlayer.bind(PoroScout)
+        : null);
+    if (!evalPlayer) return { ready: false, reason: '评分模块未加载' };
+    const nameOf = id => {
+      try { return o.champName ? (o.champName(id) || '') : ''; } catch (e) { return ''; }
+    };
+    const wrap = p => {
+      const e = evalPlayer(p, o) || {};
+      const tier = tierOf(e.score);
+      const isSelf = !!(o.selfPuuid && p.puuid === o.selfPuuid);
+      return {
+        name: p.name || '未知',
+        puuid: p.puuid || '',
+        championId: +p.championId || 0,
+        champName: nameOf(p.championId),
+        rank: p.rank || '',
+        isSelf,
+        score: e.score == null ? null : Math.round(Number(e.score) * 10) / 10,
+        games: num(e.games) || 0,
+        wr: num(e.wr),
+        kda: e.kda == null ? null : e.kda,
+        tier,
+        copy: copyOf(p.puuid || p.name || '', tier.key),
+        reasons: Array.isArray(e.reasons) ? e.reasons.slice(0, 3) : []
+      };
+    };
+    const mates = list.filter(p => Number(p.team) === selfTeam).map(wrap);
+    const enemies = list.filter(p => Number(p.team) !== selfTeam).map(wrap);
+    // 沙盘里未知档按中性 3.0 参与, 只是不参与"谁强谁弱"的宣称
+    const asPawns = rows => rows.map(r => ({ ref: r, s: r.score == null ? 3.0 : r.score }));
+    const allyPawns = asPawns(mates), enemyPawns = asPawns(enemies);
+
+    const direct = pairDirect(allyPawns, enemyPawns);
+    const cross = pairCross(allyPawns, enemyPawns);
+    const strip = r => ({ name: r.ally.ref.name, tier: r.ally.ref.tier.key, enemy: r.enemy.ref.name, enemyTier: r.enemy.ref.tier.key, result: r.result });
+
+    const counts = { carry: 0, hold: 0, slack: 0, unknown: 0 };
+    for (const m of mates) counts[m.tier.key] = (counts[m.tier.key] || 0) + 1;
+
+    const rank = {
+      ready: true,
+      mates, enemies, counts,
+      summary: summaryOf(mates, o.selfPuuid),
+      direct: { wins: direct.wins, losses: direct.losses, evens: direct.evens, n: direct.n, plan: direct.plan.map(strip) },
+      cross: { wins: cross.wins, losses: cross.losses, evens: cross.evens, n: cross.n, plan: cross.plan.map(strip) },
+      gain: cross.wins - direct.wins
+    };
+    rank.chatText = chatTextOf(rank);
+    return rank;
+  }
+
+  function chatTextOf(rank) {
+    if (!rank || !rank.ready) return '';
+    const c = rank.counts || {};
+    const parts = [];
+    for (const key of ['carry', 'hold', 'slack']) {
+      if (!c[key]) continue;
+      const t = TIERS.find(x => x.key === key);
+      parts.push(`${t.label}${c[key]}`);
+    }
+    const best = rank.mates.filter(m => m.score != null).sort((a, b) => b.score - a.score)[0];
+    const worst = rank.mates.filter(m => m.score != null).sort((a, b) => a.score - b.score)[0];
+    const head = `【Poro·分工表】我方 ${parts.join(' ')}`;
+    const tail = [];
+    if (best) tail.push(`最能带 ${best.name}`);
+    if (worst && worst !== best) tail.push(`最需照看 ${worst.name}`);
+    const cmp = `硬碰硬赢 ${rank.direct.wins}/${rank.direct.n}，错位能赢 ${rank.cross.wins}/${rank.cross.n}`;
+    return `${head}｜${tail.join(' · ')}｜${cmp}（玩梗，非胜率预测）`;
+  }
+
+  // 对阵表里"占优/五五开/弃路"的措辞
+  const RESULT_TEXT = { win: '占优', even: '五五开', lose: '弃路' };
+
+  function html(rank, opts) {
+    if (!rank || !rank.ready) return '';
+    if (typeof window !== 'undefined') window._poroDutyRank = rank;
+    const o = opts || {};
+    const collapsed = o.collapsed ? ' collapsed' : '';
+    const c = rank.counts || {};
+    const dist = ['carry', 'hold', 'slack', 'unknown']
+      .filter(k => c[k])
+      .map(k => {
+        const t = k === 'unknown' ? UNKNOWN_TIER : TIERS.find(x => x.key === k);
+        return `<span class="fd-dot fd-${t.cls}" title="${t.label} ${c[k]} 人"></span>${c[k]}`;
+      }).join(' ');
+    const rows = rank.mates.map(m => {
+      const why = m.score == null
+        ? `样本 ${m.games} 场`
+        : `状态分 ${m.score.toFixed(1)}${m.wr == null ? '' : ` · 近 ${m.games} 场 ${m.wr}%`}${m.kda == null ? '' : ` · KDA ${m.kda}`}`;
+      return `<div class="fd-row">
+        <span class="fd-badge fd-${m.tier.cls}">${m.tier.label}</span>
+        <span class="fd-name" title="${esc(why)}">${esc(m.name)}${m.isSelf ? '<i class="fd-you">自己</i>' : ''}</span>
+        <span class="fd-champ">${esc(m.champName || '未选')}</span>
+        <span class="fd-copy">${esc(m.copy)}</span>
+      </div>`;
+    }).join('');
+    const pairs = rank.cross.plan.map(p => `<span class="fd-pair fd-${p.result}">
+      <b>${esc(p.name)}</b><i>${esc(p.enemy)}</i><em>${RESULT_TEXT[p.result] || ''}</em>
+    </span>`).join('');
+    const gainText = rank.gain > 0 ? `错位多赢 ${rank.gain} 路` : (rank.gain < 0 ? '错位反而更差' : '错位与硬碰硬持平');
+    return `<section class="fd-card${collapsed}">
+      <div class="fd-head" onclick="toggleDutyCard(this)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'){toggleDutyCard(this)}">
+        <b>分工表</b>
+        <span class="fd-dist">${dist}</span>
+        <span class="fd-cross">错位可赢 ${rank.cross.wins}/${rank.cross.n}</span>
+        <span class="fd-toggle">收起</span>
+      </div>
+      <div class="fd-body">
+        <p class="fd-summary">${esc(rank.summary)}</p>
+        <div class="fd-list">${rows}</div>
+        <div class="fd-plan">
+          <div class="fd-plan-head">按状态错位对阵 <b>${rank.cross.wins}/${rank.cross.n}</b><span>硬碰硬 ${rank.direct.wins}/${rank.direct.n} · ${esc(gainText)}</span></div>
+          <div class="fd-pairs">${pairs}</div>
+        </div>
+        <div class="fd-foot">
+          <span>分档只看近 20 场状态与段位，纯玩梗，不是胜率预测。</span>
+          <button type="button" class="fd-btn" onclick="event.stopPropagation();sendDutyChat()">发到聊天</button>
+          <button type="button" class="fd-btn ghost" onclick="event.stopPropagation();copyDutyText()">复制文案</button>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  return { build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf, TIERS, UNKNOWN_TIER, EDGE };
+});
