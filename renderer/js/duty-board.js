@@ -1,4 +1,4 @@
-// 分工表 —— 选人阶段的趣味三档评级 (大神 / 正常人 / 人机)
+// 分工表 —— 选人阶段的五档趣味评级 (上等马 / 中等马 / 下等马 / 牛马 / 没有马)
 //
 // 数据来源: live.js 已经为 10 名玩家拉过近期战绩 (p.recent) 与段位 (p.rank),
 // 评分直接复用 scout-report.js 的 PoroScout.evalPlayer(), 本模块**不发任何请求**。
@@ -17,16 +17,22 @@
 })(typeof window !== 'undefined' ? window : this, function () {
   'use strict';
 
-  // 1.6.60: 分档口径改成"近期胜率"(用户定的): >70 大神, 40~70 正常人, <40 人机。
-  // 原来的 PoroScout 状态分 (段位+KDA+连胜加权) 不再参与分档, 但仍随 detail 保留备查。
-  // 样本不足一律「待定」—— 1 场赢就封神没有意义, 5 场是最低可读样本。
+  // 1.6.66: 五档「赛马场」评级, 分档口径从胜率改成 **近 5 场加权 KDA** (用户定的:
+  // "排序不按胜率 按 kd", 分别是 上等马 / 中等马 / 下等马 / 牛马 / 没有马)。
+  // 为什么口径能换: 胜率只说明"队伍赢没赢", 5 场里跟着躺赢和被人拖着都算一胜一负;
+  // KDA 才是"这个人自己在干什么"。用户在 1.6.60 就抱怨过"胜率高但战绩差的也拿高评价",
+  // 这次等于把分档整体挪到个人数据上。
+  // 注意: 沙盘 (硬碰硬/错位) 仍然用胜率 —— 跨位置比 KDA 没有意义 (辅助天然高),
+  // 那种对位推演本来就该看"谁的队伍更能赢"。两者不同源是故意的, 不是没统一。
   const MIN_GAMES = 5;
 
   // 1.6.62: 档位「名字」可自定义, 阈值不可动 —— 名字只是玩梗外壳, 分档口径必须稳定,
-  // 否则同一份战绩今天叫大神明天叫别的, 沙盘和聊天文案全跟着飘。
+  // 否则同一份战绩今天叫上等马明天叫别的, 沙盘和聊天文案全跟着飘。
   // 存的是用户改过的名字; 拿到空串/纯空白就退回默认, 免得出现"没有名字的档位"。
-  const DEFAULT_LABELS = { carry: '大神', hold: '正常人', slack: '人机', unknown: '待定' };
-  const LABEL_KEYS = ['carry', 'hold', 'slack', 'unknown'];
+  const DEFAULT_LABELS = {
+    top: '上等马', mid: '中等马', low: '下等马', ox: '牛马', zero: '没有马', unknown: '待定'
+  };
+  const LABEL_KEYS = ['top', 'mid', 'low', 'ox', 'zero', 'unknown'];
   const LABEL_MAX = 6;                      // 中文 6 字够用, 再长发到选人聊天会撑爆一行
   let labels = Object.assign({}, DEFAULT_LABELS);
 
@@ -63,26 +69,33 @@
   }
 
   // label 走 getter: 改名字后连已经 build 好的 rank / 已缓存的 DOM 一起跟上, 不用重建
+  // 阈值 (近 5 场**加权** KDA): 3.5 / 2.5 / 1.8 / 1.0 —— 写死, 不给改。
+  // 用加权口径是因为"助攻算全分"会把辅助和打野整体抬上去 (10 助攻的辅助 KDA 天然比
+  // 中单高), 用户明确要求"助攻权重得下降"。权重 0.5 与 thigh-tag.js 的实时标签同一套,
+  // 免得同一个客户端里两个功能对"这人 KDA 多少"给出两个答案。
+  const ASSIST_WEIGHT = 0.5;
   const TIERS = [
-    { key: 'carry', cls: 'carry', test: n => n > 70, get label() { return labelOf('carry'); } },
-    { key: 'hold', cls: 'hold', test: n => n >= 40, get label() { return labelOf('hold'); } },
-    { key: 'slack', cls: 'slack', test: () => true, get label() { return labelOf('slack'); } }
+    { key: 'top', cls: 'top', test: n => n >= 3.5, get label() { return labelOf('top'); } },
+    { key: 'mid', cls: 'mid', test: n => n >= 2.5, get label() { return labelOf('mid'); } },
+    { key: 'low', cls: 'low', test: n => n >= 1.8, get label() { return labelOf('low'); } },
+    { key: 'ox', cls: 'ox', test: n => n >= 1.0, get label() { return labelOf('ox'); } },
+    { key: 'zero', cls: 'zero', test: () => true, get label() { return labelOf('zero'); } }
   ];
   const UNKNOWN_TIER = { key: 'unknown', cls: 'unknown', get label() { return labelOf('unknown'); } };
 
   // 同一档多条文案, 用 puuid 哈希取一条 —— 刷新时不变, 换人时才换
   const COPY = {
-    carry: [
+    top: [
       '这局看它就够了',
-      '跟着大神走，别抢戏',
+      '跟着它走，别抢戏',
       '它去哪你跟哪，别犟',
       '把线让给它，安稳吃分',
       '它开团你就上，别犹豫',
-      '能打能带，少说话多跟上',
+      '上等马，少说话多跟上',
       '胜负手就在它身上',
       '状态在线，后背交给它'
     ],
-    hold: [
+    mid: [
       '不求有功，但求无过',
       '正常发挥，够用',
       '把线守住，别送就行',
@@ -92,18 +105,38 @@
       '能跟上节奏，就看心情',
       '不拖后腿就是满分'
     ],
-    slack: [
-      '和训练模式的人机一个水平',
+    low: [
+      '能跑，但跑不快',
+      '别让它单带，它扛不住',
+      '给它个不容易死的位置',
+      '下等马也有下等马的跑法',
+      '别指望它发力，指望它别送',
+      '打不过会跑，这点还行',
+      '节奏慢半拍，跟紧点',
+      '能不送就已经谢天谢地'
+    ],
+    ox: [
+      '标准的干活力气活担当',
+      '让它去插眼、去抗塔，正好',
+      '牛马本马，脏活全给它',
+      '它负责挨打，你负责赢',
+      '别叫它上，叫它去挡',
+      '拉车的好手，打架的苦手',
+      '能吃线能挨刀，就是不会赢',
+      '把它当工具人用，物尽其用'
+    ],
+    zero: [
+      '连马都不是，是空气',
       '它会走路，但不会拐弯',
       '指望它不如指望自己',
       '它负责存在，你负责赢',
       '给它个安全的位置，别让它送',
-      '人机模式它都没打赢过',
+      '这场它在不在，区别不大',
       '会补刀，已经很努力了',
       '少送两个，这局还有救'
     ],
     unknown: [
-      '还没看出它是人是机',
+      '还没看出它是马还是牛',
       '数据太少，先观察',
       '新面孔，成分待定',
       '样本不足，打着看',
@@ -130,9 +163,9 @@
     return h >>> 0;
   }
 
-  // winRate 是百分数 (65 = 65%), games 是样本局数
-  function tierOf(winRate, games) {
-    const n = num(winRate);
+  // kda 是近 5 场的 (K+A)/max(1,D), games 是这 5 场里真正有数据的那几场
+  function tierOf(kda, games) {
+    const n = num(kda);
     const g = num(games);
     if (n == null) return UNKNOWN_TIER;
     if (g == null || g < MIN_GAMES) return UNKNOWN_TIER;
@@ -147,7 +180,7 @@
 
   // 对阵: 胜率差 8 个百分点以上才算占优/吃亏, 中间算五五开。
   // 1.6.60: 强度口径与分档统一为胜率 (原来用 0-10 的状态分, 会出现
-  // "胜率 75% 判大神、沙盘却说这条路吃亏"的自相矛盾)。
+  // "胜率 75% 判最强档、沙盘却说这条路吃亏"的自相矛盾)。
   const EDGE = 8;
   const NEUTRAL_RATE = 50;   // 没有样本时沙盘按 50% 中性参与, 不参与"谁强谁弱"的宣称
   function outcomeOf(a, b) {
@@ -199,34 +232,37 @@
   }
 
   function summaryOf(mates, selfPuuid) {
-    const c = { carry: 0, hold: 0, slack: 0, unknown: 0 };
+    const c = {};
+    for (const k of LABEL_KEYS) c[k] = 0;
     for (const m of mates) c[m.tier.key] = (c[m.tier.key] || 0) + 1;
     const known = mates.length - c.unknown;
     // 1.6.62: 句子里的档位名一律走 labelOf —— 用户改了名字, 梗句也得跟着改名,
-    // 否则会出现"四个猛男, 这局不好输"上面却写着"大神"的自相矛盾。
+    // 否则会出现"四个猛男, 这局不好输"上面却写着别的名字的自相矛盾。
     const T = k => labelOf(k);
-    // 1.6.63: 分支收紧到"人数必须对得上"。原来 c.carry >= 2 一条吃掉 2 和 3,
-    // 三个大神会写成"有两个"; 又因为兜底是"有大神有人机", 0 大神 + 有未知样本时
-    // 会说出一个根本不存在的大神 —— 这类自相矛盾比句式单调难看得多。
+    const top = c.top, zero = c.zero, ox = c.ox, mid = c.mid;
+    // 1.6.63 的教训保留: 每个分支的人数必须和句子对得上, 不能出现"明明没有上等马
+    // 却说有两个"这种自相矛盾 —— 五档以后分支更多, 更容易写错。
     let line;
     if (!known) line = '全员' + T('unknown') + '，边打边看';
-    else if (c.carry === mates.length) line = '全员' + T('carry') + '，这局不好输';
-    else if (c.carry >= 4) line = '四个' + T('carry') + '，这局不好输';
-    else if (c.carry === 3) line = '三个' + T('carry') + '，这局不好输';
-    else if (c.carry === 2) line = '有两个' + T('carry') + '，剩下看配合';
-    else if (c.carry === 1) line = '就一个' + T('carry') + '，全靠它撑场';
-    else if (c.slack === mates.length) line = '全员' + T('slack') + '，这把是来送温暖的';
-    else if (c.slack >= 4) line = '四个' + T('slack') + '，就看剩下那个能不能扛';
-    else if (c.slack === 3) line = '三个' + T('slack') + '，就看剩下两个扛不扛得住';
-    else if (c.slack === 2) line = '没有' + T('carry') + '，全靠配合硬顶';
-    else if (c.slack === 1) line = '没有' + T('carry') + '，' + T('slack') + '那路多照看';
-    else if (c.unknown > 0) line = '没有' + T('carry') + '，' + c.unknown + '个' + T('unknown') + '还没看透';
-    else line = '全员' + T('hold') + '，整齐得像军训';
+    else if (top === mates.length) line = '全员' + T('top') + '，这局不好输';
+    else if (top >= 4) line = '四个' + T('top') + '，这局不好输';
+    else if (top === 3) line = '三个' + T('top') + '，这局不好输';
+    else if (top === 2) line = '两个' + T('top') + '，剩下看配合';
+    else if (top === 1) line = '就一个' + T('top') + '，全靠它撑场';
+    else if (zero === mates.length) line = '全员' + T('zero') + '，这把是来送温暖的';
+    else if (zero >= 3) line = zero + '个' + T('zero') + '，就看剩下两个能不能扛';
+    else if (zero === 2) line = '两个' + T('zero') + '，全靠剩下三个硬顶';
+    else if (zero === 1) line = '一个' + T('zero') + '，那路多照看';
+    else if (c.unknown > 0) line = '没有' + T('top') + '，' + c.unknown + '个' + T('unknown') + '还没看透';
+    else if (ox >= 2) line = '没有' + T('top') + '，还带' + ox + '个' + T('ox') + '，硬顶吧';
+    else if (ox === 1) line = '没有' + T('top') + '，全靠' + T('mid') + '撑场面';
+    else if (mid === mates.length) line = '全员' + T('mid') + '，整齐得像军训';
+    else line = '没有' + T('top') + '，看谁先掉线';
     const self = mates.find(m => m && m.isSelf);
-    if (self && self.tier.key === 'carry' && c.carry <= 1) {
-      line = '这局只有你一个' + T('carry') + '，别掉链子';
-    } else if (self && self.tier.key === 'slack') {
-      line += '（你自己也在' + T('slack') + '名单里，别笑）';
+    if (self && self.tier.key === 'top' && top <= 1) {
+      line = '这局只有你一个' + T('top') + '，别掉链子';
+    } else if (self && self.tier.key === 'zero') {
+      line += '（你自己也在' + T('zero') + '名单里，别笑）';
     }
     return line;
   }
@@ -252,9 +288,10 @@
     };
     const wrap = p => {
       const e = evalPlayer(p, o) || {};
-      const games = num(e.games) || 0;
-      const wr = num(e.wr);
-      const tier = tierOf(wr, games);
+      // 1.6.66: 先算近 5 场明细, 分档吃它的 KDA —— 与聊天消息里印出来的那个数字同源,
+      // 否则会出现"消息写着 KDA 5.7, 却只是中等马"这种没法自证的分档。
+      const s5 = recent5Of(p);
+      const tier = tierOf(s5.kda, s5.n);
       const isSelf = !!(o.selfPuuid && p.puuid === o.selfPuuid);
       return {
         name: p.name || '未知',
@@ -267,9 +304,9 @@
         games: num(e.games) || 0,
         wr: num(e.wr),
         kda: e.kda == null ? null : e.kda,
-        s: num(e.wr),          // 沙盘强度 = 胜率百分点, 与分档同源
+        s: num(e.wr),          // 沙盘强度 = 胜率百分点 (分档改看 KDA 后, 沙盘仍按胜率)
         tier,
-        s5: recent5Of(p),      // 最近 5 把的胜负数与总 KDA (聊天消息里的逐人数据)
+        s5,                    // 最近 5 把的逐场明细与总 KDA (聊天消息 / 预览同源)
         copy: copyOf(p.puuid || p.name || '', tier.key),
         reasons: Array.isArray(e.reasons) ? e.reasons.slice(0, 3) : []
       };
@@ -284,7 +321,8 @@
     const cross = pairCross(allyPawns, enemyPawns);
     const strip = r => ({ name: r.ally.ref.name, tier: r.ally.ref.tier.key, enemy: r.enemy.ref.name, enemyTier: r.enemy.ref.tier.key, result: r.result });
 
-    const counts = { carry: 0, hold: 0, slack: 0, unknown: 0 };
+    const counts = {};
+    for (const k of LABEL_KEYS) counts[k] = 0;
     for (const m of mates) counts[m.tier.key] = (counts[m.tier.key] || 0) + 1;
 
     const rank = {
@@ -319,8 +357,10 @@
     }
     s.n = s.games.length;
     s.losses = s.n - s.wins;
-    // KDA 口径与评分模块一致: (K+A)/max(1,D), 死 0 场不会炸成 Infinity
-    s.kda = s.n ? Math.round((s.k + s.a) / Math.max(1, s.d) * 10) / 10 : null;
+    // 加权 KDA: (K + 0.5A) / max(1,D) —— 助攻权重压到半个, 与 thigh-tag.js 同口径。
+    // 死 0 场按 1 算, 不会炸成 Infinity; 消息里印的就是这个数, 分档也吃这个数,
+    // 所以"我 KDA 3.6 为什么只是中等马"能被用户自己对出来。
+    s.kda = s.n ? Math.round((s.k + ASSIST_WEIGHT * s.a) / Math.max(1, s.d) * 10) / 10 : null;
     return s;
   }
 
@@ -328,12 +368,12 @@
   const gameText = g => `${g.win ? '胜' : '负'} ${g.k}/${g.d}/${g.a}`;
   const kdaText = s => (s && s.kda == null ? '-' : s.kda.toFixed(1));
 
-  // 头行: "大神 风会停 总KDA 3.5"
+  // 头行: "上等马 风会停 加权KDA 3.5"
   function lineOf(m) {
     const s = m && m.s5;
     const head = `${m.tier.label} ${m.name}`;
     if (!s || !s.n) return `${head} 无样本`;
-    return `${head} 总KDA ${kdaText(s)}`;
+    return `${head} 加权KDA ${kdaText(s)}`;
   }
 
   // 一个玩家可能占 1~2 行: 头行 + 逐场明细
@@ -343,23 +383,28 @@
     return [lineOf(m), `· ${s.games.map(gameText).join(' ｜ ')}`];
   }
 
-  // 单行兜底 (LCU 不收换行时用): 档位 名字 总KDA 逐场, 全压一行
+  // 单行兜底 (LCU 不收换行时用): 档位 名字 加权KDA 逐场, 全压一行
   function flatLineOf(m) {
     const s = m && m.s5;
     const head = `${m.tier.label} ${m.name}`;
     if (!s || !s.n) return `${head} 无样本`;
-    return `${head} KDA ${kdaText(s)} ${s.games.map(g => `${g.win ? '胜' : '负'}${g.k}/${g.d}/${g.a}`).join(' ')}`;
+    return `${head} 加权KDA ${kdaText(s)} ${s.games.map(g => `${g.win ? '胜' : '负'}${g.k}/${g.d}/${g.a}`).join(' ')}`;
   }
 
   function chatParts(rank) {
     const c = rank.counts || {};
     const parts = [];
-    for (const key of ['carry', 'hold', 'slack']) {
+    // 五档顺序写死, 从强到弱; 待定只统计不排进这条统计里
+    for (const key of ['top', 'mid', 'low', 'ox', 'zero']) {
       if (!c[key]) continue;
       parts.push(`${labelOf(key)}${c[key]}`);
     }
-    const best = rank.mates.filter(m => m.s != null).sort((a, b) => b.s - a.s)[0];
-    const worst = rank.mates.filter(m => m.s != null).sort((a, b) => a.s - b.s)[0];
+    // 1.6.66: 排序与"最能带/最需照看"都改看近 5 场 KDA —— 分档既然按 KD,
+    // 名单却按胜率排, 会出现"上等马排在第四位"的错位观感。
+    const kdaOf = m => (m.s5 && m.s5.kda != null ? m.s5.kda : null);
+    const rated = rank.mates.filter(m => kdaOf(m) != null);
+    const best = rated.slice().sort((a, b) => kdaOf(b) - kdaOf(a))[0];
+    const worst = rated.slice().sort((a, b) => kdaOf(a) - kdaOf(b))[0];
     const tail = [];
     if (best) tail.push(`最能带 ${best.name}`);
     if (worst && worst !== best) tail.push(`最需照看 ${worst.name}`);
@@ -367,8 +412,8 @@
     return {
       head: `【Poro·分工表】我方 ${parts.join(' ')}`,
       tail: `${tail.join(' · ')}｜${cmp}`,
-      // 逐人按胜率从高到低, 没样本的垫底 —— 收到消息的人第一眼看到最能指望的那个
-      mates: rank.mates.slice().sort((a, b) => (b.s == null ? -1 : b.s) - (a.s == null ? -1 : a.s))
+      // 逐人按 KDA 从高到低, 没样本的垫底 —— 收到消息的人第一眼看到最能指望的那个
+      mates: rank.mates.slice().sort((a, b) => (kdaOf(b) == null ? -1 : kdaOf(b)) - (kdaOf(a) == null ? -1 : kdaOf(a)))
     };
   }
 
@@ -399,7 +444,8 @@
   // ---------- 工具箱预览 (1.6.62) ----------
   // 页面里不铺卡, 但用户得能在工具箱看见"现在是谁什么档、配的哪句文案",
   // 顺便验证自己改的档位名有没有生效。这里只出 HTML, DOM 落地交给 live.js。
-  const TIER_HINT = { carry: '&gt;70%', hold: '40–70%', slack: '&lt;40%' };
+  // 图例上写的是分档阈值 (近 5 场加权 KDA), 不是胜率 —— 改口径以后这里最容易漏改
+  const TIER_HINT = { top: 'KDA ≥3.5', mid: '≥2.5', low: '≥1.8', ox: '≥1.0', zero: '&lt;1.0' };
 
   function legendHtml() {
     const chips = LABEL_KEYS.map(k => {
@@ -419,9 +465,9 @@
       const why = (m.wr == null || m.games < MIN_GAMES)
         ? `近期样本 ${m.games} 场，不足 ${MIN_GAMES} 场`
         : `近 ${m.games} 场 ${m.wr}% 胜率${m.kda == null ? '' : ` · KDA ${m.kda}`}`;
-      // 预览与聊天消息同源: 头行"档位 名字 总KDA", 次行把这 5 把逐场摆开
+      // 预览与聊天消息同源: 头行"档位 名字 加权KDA", 次行把这 5 把逐场摆开
       const s5 = m.s5 || {};
-      const head = s5.n ? `${m.name} 总KDA ${kdaText(s5)}` : `${m.name} 无样本`;
+      const head = s5.n ? `${m.name} 加权KDA ${kdaText(s5)}` : `${m.name} 无样本`;
       const detail = s5.n ? s5.games.map(gameText).join(' ｜ ') : `近${RECENT_N}局没有可用的战绩`;
       return `<div class="fd-pv-row" title="${esc(why)}">
         <b class="fd-badge fd-${m.tier.cls}">${esc(m.tier.label)}</b>
@@ -441,7 +487,7 @@
     const o = opts || {};
     const collapsed = o.collapsed ? ' collapsed' : '';
     const c = rank.counts || {};
-    const dist = ['carry', 'hold', 'slack', 'unknown']
+    const dist = LABEL_KEYS
       .filter(k => c[k])
       .map(k => {
         const t = k === 'unknown' ? UNKNOWN_TIER : TIERS.find(x => x.key === k);
@@ -477,7 +523,7 @@
           <div class="fd-pairs">${pairs}</div>
         </div>
         <div class="fd-foot">
-          <span>分档只看近期胜率（不足 ${MIN_GAMES} 场记待定），纯玩梗，不是胜率预测。</span>
+          <span>分档看近 ${RECENT_N} 场加权 KDA（不足 ${MIN_GAMES} 场记待定），沙盘看胜率，纯玩梗。</span>
           <button type="button" class="fd-btn" onclick="event.stopPropagation();sendDutyChat()">发到聊天</button>
           <button type="button" class="fd-btn ghost" onclick="event.stopPropagation();copyDutyText()">复制文案</button>
         </div>
@@ -489,6 +535,6 @@
     build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf, chatLinesOf, lineOf, recent5Of,
     previewHtml, legendHtml, RECENT_N,
     labelOf, setLabels, getLabels, resetLabels, labelsAreDefault,
-    TIERS, UNKNOWN_TIER, DEFAULT_LABELS, LABEL_KEYS, LABEL_MAX, EDGE
+    TIERS, UNKNOWN_TIER, DEFAULT_LABELS, LABEL_KEYS, LABEL_MAX, EDGE, ASSIST_WEIGHT, TIER_HINT
   };
 });

@@ -2150,8 +2150,8 @@ function toggleScoutReport(headEl) {
 // 名字只影响"叫法", 阈值写死在 PoroDuty 里, 改名字不会让分档变宽松。
 function fillDutyLabelInputs(obj) {
   const map = {
-    carry: 'dutyLabelCarry', hold: 'dutyLabelHold',
-    slack: 'dutyLabelSlack', unknown: 'dutyLabelUnknown'
+    top: 'dutyLabelTop', mid: 'dutyLabelMid', low: 'dutyLabelLow',
+    ox: 'dutyLabelOx', zero: 'dutyLabelZero', unknown: 'dutyLabelUnknown'
   };
   for (const k in map) {
     const el = document.getElementById(map[k]);
@@ -2160,8 +2160,8 @@ function fillDutyLabelInputs(obj) {
 }
 function dutyLabelsFromInputs() {
   const map = {
-    carry: 'dutyLabelCarry', hold: 'dutyLabelHold',
-    slack: 'dutyLabelSlack', unknown: 'dutyLabelUnknown'
+    top: 'dutyLabelTop', mid: 'dutyLabelMid', low: 'dutyLabelLow',
+    ox: 'dutyLabelOx', zero: 'dutyLabelZero', unknown: 'dutyLabelUnknown'
   };
   const out = {};
   for (const k in map) {

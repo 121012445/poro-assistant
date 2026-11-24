@@ -57,12 +57,16 @@
 .fd-copy { font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fd-badge { font-size: 11px; text-align: center; padding: 1px 0; border-radius: 6px; font-weight: 600;
   background: var(--surface-2); color: var(--ink-1); }
-.fd-badge.fd-carry { color: var(--data-gold); background: color-mix(in srgb, var(--data-gold) 14%, transparent); }
-.fd-badge.fd-hold { color: var(--data-blue); background: color-mix(in srgb, var(--data-blue) 14%, transparent); }
-.fd-badge.fd-slack { color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, transparent); }
+/* 1.6.66: 五档色阶 金 > 蓝 > 青 > 橙 > 红, 一眼看出强弱梯度; 待定用灰不参与排行 */
+.fd-badge.fd-top { color: var(--data-gold); background: color-mix(in srgb, var(--data-gold) 14%, transparent); }
+.fd-badge.fd-mid { color: var(--data-blue); background: color-mix(in srgb, var(--data-blue) 14%, transparent); }
+.fd-badge.fd-low { color: var(--data-teal); background: color-mix(in srgb, var(--data-teal) 14%, transparent); }
+.fd-badge.fd-ox { color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, transparent); }
+.fd-badge.fd-zero { color: var(--data-rose); background: color-mix(in srgb, var(--data-rose) 14%, transparent); }
 .fd-badge.fd-unknown { color: var(--text-muted); background: var(--surface-2); }
-.fd-dot.fd-carry { background: var(--data-gold); } .fd-dot.fd-hold { background: var(--data-blue); }
-.fd-dot.fd-slack { background: var(--warning); } .fd-dot.fd-unknown { background: var(--text-muted); }
+.fd-dot.fd-top { background: var(--data-gold); } .fd-dot.fd-mid { background: var(--data-blue); }
+.fd-dot.fd-low { background: var(--data-teal); } .fd-dot.fd-ox { background: var(--warning); }
+.fd-dot.fd-zero { background: var(--data-rose); } .fd-dot.fd-unknown { background: var(--text-muted); }
 .fd-plan { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--surface-2); }
 .fd-plan-head { font-size: 11px; color: var(--ink-2); display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .fd-plan-head b { font-size: 13px; color: var(--ink-1); }
