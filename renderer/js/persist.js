@@ -123,7 +123,7 @@ async function importPoroBackup() {
   // 导出侧是整个 _store, 导入白名单必须与实际写入的键保持一致,
   // 否则换机导入后这些设置会静默回默认。
   const allowed = new Set([
-    'autoAccept', 'autoBPEnabled', 'autoBPHeroes', 'autoBPRules', 'autoRune',
+    'autoAccept', 'autoAcceptDelaySec', 'autoBPEnabled', 'autoBPHeroes', 'autoBPRules', 'autoRune',
     'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme',
     'augmentJournal', 'autoHonor', 'autoReconnect', 'autoReturnLobby', 'autoReturnQueue',
     'benchAlert', 'benchOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
@@ -157,6 +157,7 @@ async function importPoroBackup() {
 function saveConfig() {
   try {
     storeSet('autoAccept', autoAcceptOn ? '1' : '');
+    storeSet('autoAcceptDelaySec', String(autoAcceptDelaySec));
     storeSet('autoBPEnabled', autoBPEnabled ? '1' : '');
     storeSet('autoBPHeroes', JSON.stringify(autoBPHeroes));
     storeSet('autoBPRules', JSON.stringify(autoBPRules));
@@ -169,6 +170,12 @@ function saveConfig() {
 function loadConfig() {
   try {
     if (storeGet('autoAccept') === '1') { autoAcceptOn = true; document.getElementById('autoAcceptToggle').checked = true; }
+    // 接受延迟: 兼容旧配置(无此键时为 0=立即), 非法值钳到 0–10
+    autoAcceptDelaySec = Math.max(0, Math.min(10, Math.round(Number(storeGet('autoAcceptDelaySec')) || 0)));
+    const aad = document.getElementById('autoAcceptDelay');
+    if (aad) aad.value = String(autoAcceptDelaySec);
+    const aadv = document.getElementById('autoAcceptDelayValue');
+    if (aadv) aadv.textContent = autoAcceptDelaySec === 0 ? '立即' : (autoAcceptDelaySec + ' 秒');
     if (storeGet('autoBPEnabled') === '1') { autoBPEnabled = true; document.getElementById('autoBPToggle').checked = true; document.getElementById('autoBPStatus').textContent = '已开启'; document.getElementById('autoBPStatus').style.color = 'var(--positive)'; }
     autoBPHeroes = safeParseStore('autoBPHeroes', autoBPHeroes, v => v && typeof v === 'object' && Array.isArray(v.ban) && Array.isArray(v.pick));
     autoBPRules = { ...autoBPRules, ...safeParseStore('autoBPRules', {}, v => v && typeof v === 'object' && !Array.isArray(v)) };

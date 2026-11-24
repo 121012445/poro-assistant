@@ -12,6 +12,7 @@ let perkNameMap = {};
 let styleNameMap = {};
 let currentRole = "all";
 let autoAcceptOn = false;
+let autoAcceptDelaySec = 0;   // 自动接受延迟秒数 (0–10), 0 = 立即接受
 let lcuConnected = false;
 let opggMap = {};   // op.gg 数据: championKey -> average_stats + positions
 

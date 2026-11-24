@@ -68,6 +68,17 @@ function toggleAutoAccept(on) {
   if (on) toolMsg('<span style="color:var(--positive)">自动接受已开启</span>');
   updateReadyCheck();
 }
+// 自动接受延迟: 匹配弹窗出现后等待 N 秒再点接受, 避免秒接受暴露排位意图。
+// 默认 0 秒 = 保持原有"立即接受"行为; 范围 0–10 秒, 仅整数。
+function setAutoAcceptDelay(sec) {
+  const n = Math.max(0, Math.min(10, Math.round(Number(sec) || 0)));
+  autoAcceptDelaySec = n;
+  const label = document.getElementById('autoAcceptDelayValue');
+  if (label) label.textContent = n === 0 ? '立即' : (n + ' 秒');
+  saveConfig();
+  if (typeof automationLog === 'function') automationLog('接受延迟', n === 0 ? '立即' : (n + ' 秒'));
+  return n;
+}
 // 状态文字 + 颜色: 不同状态用不同 CSS 变量着色, 状态一目了然
 const READY_STATE_COLORS = { off: '', 'unavail': 'var(--negative)', listening: 'var(--accent)', active: 'var(--positive)', done: 'var(--positive)', muted: 'var(--text-muted)' };
 function setReadyState(text, colorKey) {
@@ -111,12 +122,35 @@ async function updateReadyCheck() {
   }
 }
 // 阶段/WS/轮询共享的接受函数: POST 幂等, busy 锁防并发, 全程诊断日志
+// 支持可配置延迟: 弹窗出现后等待 autoAcceptDelaySec 秒, 期间保持 busy 锁防止
+// phase/WS/轮询三通道重复触发; 延迟结束必须复查弹窗仍是 InProgress 且未响应,
+// 否则不对已失效弹窗 POST (历史 bug: 失效弹窗被反复 accept 触发 433 次 500)。
 async function acceptReadyCheckNow() {
   if (!autoAcceptOn || complianceOn) return;
   if (window.automationModeAllows && !window.automationModeAllows('autoAcceptToggle')) return;
   if (_readyCheckAccepting) return;
   _readyCheckAccepting = true;
   try {
+    // 延迟等待 (0 秒时跳过, 保持原有立即接受行为)
+    if (autoAcceptDelaySec > 0) {
+      logDebug('[auto-accept] delay ' + autoAcceptDelaySec + 's before accept');
+      setReadyState('等待 ' + autoAcceptDelaySec + ' 秒后接受...', 'active');
+      await new Promise(resolve => setTimeout(resolve, autoAcceptDelaySec * 1000));
+      // 延迟期间用户可能手动接受/拒绝、关闭开关或开合规模式 —— 一律放弃本次
+      if (!autoAcceptOn || complianceOn) { setReadyState('已取消', 'off'); return; }
+      if (window.automationModeAllows && !window.automationModeAllows('autoAcceptToggle')) return;
+      // 复查弹窗仍有效: 只有 InProgress 且未响应才值得 POST
+      let rc = null;
+      try { rc = await lolAPI.lcuRequest('GET', '/lol-matchmaking/v1/ready-check'); }
+      catch (e) { logDebug('[auto-accept] recheck threw:', e.message); return; }
+      const pending = String(rc?.state || '') === 'InProgress';
+      const notResponded = !rc?.playerResponse || rc.playerResponse === 'None' || rc.playerResponse === '';
+      if (!pending || !notResponded) {
+        logDebug('[auto-accept] recheck no longer pending, skip POST');
+        setReadyState(rc?.playerResponse === 'Accepted' ? '已接受，等待队友' : '监听中...', rc?.playerResponse === 'Accepted' ? 'done' : 'listening');
+        return;
+      }
+    }
     logDebug('[auto-accept] POST accept (send)');
     const r = await lolAPI.lcuRequest('POST', '/lol-matchmaking/v1/ready-check/accept');
     logDebug('[auto-accept] POST result:', JSON.stringify(r).substring(0, 160));
