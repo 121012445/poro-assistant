@@ -265,8 +265,8 @@
       .filter(k => c[k])
       .map(k => {
         const t = k === 'unknown' ? UNKNOWN_TIER : TIERS.find(x => x.key === k);
-        return `<span class="fd-dot fd-${t.cls}" title="${t.label} ${c[k]} 人"></span>${c[k]}`;
-      }).join(' ');
+        return `<span class="fd-dist-item" title="${t.label} ${c[k]} 人"><i class="fd-dot fd-${t.cls}"></i>${t.label}${c[k]}</span>`;
+      }).join('');
     const rows = rank.mates.map(m => {
       const why = m.score == null
         ? `样本 ${m.games} 场`

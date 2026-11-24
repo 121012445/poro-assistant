@@ -41,7 +41,8 @@
 .fd-head > b { font-size: 13px; }
 .fd-dist { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted);
   padding: 1px 7px; border-radius: 6px; background: var(--surface-2); }
-.fd-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.fd-dist-item { display: inline-flex; align-items: center; gap: 4px; }
+.fd-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
 .fd-cross { font-size: 11px; color: var(--ink-2); }
 .fd-toggle { margin-left: auto; font-size: 11px; color: var(--text-muted); }
 .fd-card.collapsed .fd-body { display: none; }
