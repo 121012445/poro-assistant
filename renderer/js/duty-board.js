@@ -21,12 +21,54 @@
   // 原来的 PoroScout 状态分 (段位+KDA+连胜加权) 不再参与分档, 但仍随 detail 保留备查。
   // 样本不足一律「待定」—— 1 场赢就封神没有意义, 5 场是最低可读样本。
   const MIN_GAMES = 5;
+
+  // 1.6.62: 档位「名字」可自定义, 阈值不可动 —— 名字只是玩梗外壳, 分档口径必须稳定,
+  // 否则同一份战绩今天叫大神明天叫别的, 沙盘和聊天文案全跟着飘。
+  // 存的是用户改过的名字; 拿到空串/纯空白就退回默认, 免得出现"没有名字的档位"。
+  const DEFAULT_LABELS = { carry: '大神', hold: '正常人', slack: '人机', unknown: '待定' };
+  const LABEL_KEYS = ['carry', 'hold', 'slack', 'unknown'];
+  const LABEL_MAX = 6;                      // 中文 6 字够用, 再长发到选人聊天会撑爆一行
+  let labels = Object.assign({}, DEFAULT_LABELS);
+
+  // 控制字符 / 换行会把聊天消息切断, 先压成空格再 trim; 超长按"字符"截 (不拆 emoji)
+  function cleanLabel(v, fallback) {
+    let s = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) return fallback;
+    const chars = Array.from(s);
+    if (chars.length > LABEL_MAX) s = chars.slice(0, LABEL_MAX).join('').trim();
+    return s;
+  }
+  function labelOf(key) {
+    const v = labels[key];
+    return (v == null || v === '') ? (DEFAULT_LABELS[key] || '') : v;
+  }
+  function getLabels() { return Object.assign({}, labels); }
+  // 只接受认识的档位键; 传 null/undefined 当"没改"
+  function setLabels(obj) {
+    const next = Object.assign({}, labels);
+    for (const k of LABEL_KEYS) {
+      if (obj && Object.prototype.hasOwnProperty.call(obj, k)) {
+        next[k] = cleanLabel(obj[k], DEFAULT_LABELS[k]);
+      }
+    }
+    labels = next;
+    return getLabels();
+  }
+  function resetLabels() {
+    labels = Object.assign({}, DEFAULT_LABELS);
+    return getLabels();
+  }
+  function labelsAreDefault() {
+    return LABEL_KEYS.every(k => labelOf(k) === DEFAULT_LABELS[k]);
+  }
+
+  // label 走 getter: 改名字后连已经 build 好的 rank / 已缓存的 DOM 一起跟上, 不用重建
   const TIERS = [
-    { key: 'carry', label: '大神', cls: 'carry', test: n => n > 70 },
-    { key: 'hold', label: '正常人', cls: 'hold', test: n => n >= 40 },
-    { key: 'slack', label: '人机', cls: 'slack', test: () => true }
+    { key: 'carry', cls: 'carry', test: n => n > 70, get label() { return labelOf('carry'); } },
+    { key: 'hold', cls: 'hold', test: n => n >= 40, get label() { return labelOf('hold'); } },
+    { key: 'slack', cls: 'slack', test: () => true, get label() { return labelOf('slack'); } }
   ];
-  const UNKNOWN_TIER = { key: 'unknown', label: '待定', cls: 'unknown' };
+  const UNKNOWN_TIER = { key: 'unknown', cls: 'unknown', get label() { return labelOf('unknown'); } };
 
   // 同一档多条文案, 用 puuid 哈希取一条 —— 刷新时不变, 换人时才换
   const COPY = {
@@ -160,19 +202,22 @@
     const c = { carry: 0, hold: 0, slack: 0, unknown: 0 };
     for (const m of mates) c[m.tier.key] = (c[m.tier.key] || 0) + 1;
     const known = mates.length - c.unknown;
+    // 1.6.62: 句子里的档位名一律走 labelOf —— 用户改了名字, 梗句也得跟着改名,
+    // 否则会出现"四个猛男, 这局不好输"上面却写着"大神"的自相矛盾。
+    const T = k => labelOf(k);
     let line;
-    if (!known) line = '全员待定，边打边看';
-    else if (c.carry >= 4) line = '四个大神，这局不好输';
-    else if (c.carry >= 2) line = '有两个大神，剩下看配合';
-    else if (c.slack >= 3) line = '三个人机，就看剩下两个扛不扛得住';
-    else if (c.carry === 0 && c.slack >= 2) line = '没有大神，全靠配合硬顶';
-    else if (c.carry === 0 && c.hold === mates.length) line = '全员正常人，整齐得像军训';
-    else line = '有神有人机，看谁先掉线';
+    if (!known) line = '全员' + T('unknown') + '，边打边看';
+    else if (c.carry >= 4) line = '四个' + T('carry') + '，这局不好输';
+    else if (c.carry >= 2) line = '有两个' + T('carry') + '，剩下看配合';
+    else if (c.slack >= 3) line = '三个' + T('slack') + '，就看剩下两个扛不扛得住';
+    else if (c.carry === 0 && c.slack >= 2) line = '没有' + T('carry') + '，全靠配合硬顶';
+    else if (c.carry === 0 && c.hold === mates.length) line = '全员' + T('hold') + '，整齐得像军训';
+    else line = '有' + T('carry') + '有' + T('slack') + '，看谁先掉线';
     const self = mates.find(m => m && m.isSelf);
     if (self && self.tier.key === 'carry' && c.carry <= 1) {
-      line = '这局只有你一个神，别掉链子';
+      line = '这局只有你一个' + T('carry') + '，别掉链子';
     } else if (self && self.tier.key === 'slack') {
-      line += '（你自己也在人机名单里，别笑）';
+      line += '（你自己也在' + T('slack') + '名单里，别笑）';
     }
     return line;
   }
@@ -250,8 +295,7 @@
     const parts = [];
     for (const key of ['carry', 'hold', 'slack']) {
       if (!c[key]) continue;
-      const t = TIERS.find(x => x.key === key);
-      parts.push(`${t.label}${c[key]}`);
+      parts.push(`${labelOf(key)}${c[key]}`);
     }
     const best = rank.mates.filter(m => m.s != null).sort((a, b) => b.s - a.s)[0];
     const worst = rank.mates.filter(m => m.s != null).sort((a, b) => a.s - b.s)[0];
@@ -265,6 +309,41 @@
 
   // 对阵表里"占优/五五开/弃路"的措辞
   const RESULT_TEXT = { win: '占优', even: '五五开', lose: '弃路' };
+
+  // ---------- 工具箱预览 (1.6.62) ----------
+  // 页面里不铺卡, 但用户得能在工具箱看见"现在是谁什么档、配的哪句文案",
+  // 顺便验证自己改的档位名有没有生效。这里只出 HTML, DOM 落地交给 live.js。
+  const TIER_HINT = { carry: '&gt;70%', hold: '40–70%', slack: '&lt;40%' };
+
+  function legendHtml() {
+    const chips = LABEL_KEYS.map(k => {
+      const hint = k === 'unknown' ? `不足 ${MIN_GAMES} 场` : TIER_HINT[k];
+      return `<span class="fd-pv-chip"><b class="fd-badge fd-${k}">${esc(labelOf(k))}</b><i>${hint}</i></span>`;
+    }).join('');
+    return `<div class="fd-pv-legend">${chips}</div>`;
+  }
+
+  function previewHtml(rank, opts) {
+    const o = opts || {};
+    const head = legendHtml();
+    if (!rank || !rank.ready) {
+      return `<div class="fd-pv">${head}<div class="fd-pv-empty">${esc(o.empty || '进入选人阶段后自动显示本局分工')}</div></div>`;
+    }
+    const rows = rank.mates.map(m => {
+      const why = (m.wr == null || m.games < MIN_GAMES)
+        ? `近期样本 ${m.games} 场，不足 ${MIN_GAMES} 场`
+        : `近 ${m.games} 场 ${m.wr}% 胜率${m.kda == null ? '' : ` · KDA ${m.kda}`}`;
+      return `<div class="fd-pv-row" title="${esc(why)}">
+        <b class="fd-badge fd-${m.tier.cls}">${esc(m.tier.label)}</b>
+        <span class="fd-pv-name">${esc(m.name)}${m.isSelf ? '<i class="fd-you">自己</i>' : ''}</span>
+        <span class="fd-pv-copy">${esc(m.copy)}</span>
+      </div>`;
+    }).join('');
+    return `<div class="fd-pv">${head}
+      <div class="fd-pv-list">${rows}</div>
+      <div class="fd-pv-foot">${esc(rank.summary)}｜硬碰硬 ${rank.direct.wins}/${rank.direct.n} · 错位 ${rank.cross.wins}/${rank.cross.n}</div>
+    </div>`;
+  }
 
   function html(rank, opts) {
     if (!rank || !rank.ready) return '';
@@ -316,5 +395,10 @@
     </section>`;
   }
 
-  return { build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf, TIERS, UNKNOWN_TIER, EDGE };
+  return {
+    build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf,
+    previewHtml, legendHtml,
+    labelOf, setLabels, getLabels, resetLabels, labelsAreDefault,
+    TIERS, UNKNOWN_TIER, DEFAULT_LABELS, LABEL_KEYS, LABEL_MAX, EDGE
+  };
 });

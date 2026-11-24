@@ -125,6 +125,7 @@ async function importPoroBackup() {
   const allowed = new Set([
     'autoAccept', 'autoAcceptDelaySec', 'autoBPEnabled', 'autoBPHeroes', 'autoBPRules', 'autoRune',
     'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme',
+    'dutyLabels',
     'augmentJournal', 'autoHonor', 'autoReconnect', 'autoReturnLobby', 'autoReturnQueue',
     'benchAlert', 'benchOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
     'spellLockOn', 'spellLockIds',
@@ -182,6 +183,8 @@ function loadConfig() {
     if (storeGet('autoRune') === '1') { autoRuneEnabled = true; document.getElementById('autoRuneToggle').checked = true; document.getElementById('autoRuneStatus').textContent = '已开启'; document.getElementById('autoRuneStatus').style.color = 'var(--positive)'; }
     // 召唤师技能锁定的卡片是工具箱页打开时才渲染的, 这里只刷新状态 (restoreUi 会自己读 store)
     if (typeof PoroSpellLock !== 'undefined') PoroSpellLock.restoreUi();
+    // 1.6.62: 分工表档位名 (工具箱里可自定义) 要跟着配置一起恢复, 否则重启后静默变回默认
+    if (typeof initDutyLabels === 'function') initDutyLabels();
     if (typeof restoreOpggLoadoutOptions === 'function') restoreOpggLoadoutOptions();
     if (storeGet('premadeNotify') === '0') { premadeNotifyOn = false; document.getElementById('premadeNotifyToggle').checked = false; document.getElementById('premadeNotifyState').textContent = '已关闭'; }
     if (storeGet('benchAlert') === '1') {

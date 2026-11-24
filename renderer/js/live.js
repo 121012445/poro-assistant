@@ -2096,6 +2096,9 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
       if (dutyRank && dutyRank.ready) window._poroDutyRank = dutyRank;
     } catch (e) { try { console.warn('[duty]', e && e.message); } catch (e2) {} }
   }
+  // 1.6.62: 工具箱里那张「分工表」卡要有东西看 —— 选人阶段每次渲染顺手刷一遍预览。
+  // refreshDutyPreview 自己会判元素是否存在、阶段是否还对, 在对局页等于空转。
+  refreshDutyPreview();
   // 装备库没就绪时不出按钮, 避免点开是个空壳 (Data Dragon 首次加载有延迟)
   const canBuild = !!(selfPlayer && Number(selfPlayer.championId) > 0
     && typeof poroBuildEngine !== 'undefined' && poroBuildEngine && poroBuildEngine.itemDatabase);
@@ -2142,6 +2145,87 @@ function toggleScoutReport(headEl) {
 }
 
 // ---------- 分工表: 只保留「发到选人聊天」(1.6.61 起页面不再展示评级) ----------
+
+// 1.6.62: 档位名可自定义 (工具箱里改) + 工具箱内联预览。
+// 名字只影响"叫法", 阈值写死在 PoroDuty 里, 改名字不会让分档变宽松。
+function fillDutyLabelInputs(obj) {
+  const map = {
+    carry: 'dutyLabelCarry', hold: 'dutyLabelHold',
+    slack: 'dutyLabelSlack', unknown: 'dutyLabelUnknown'
+  };
+  for (const k in map) {
+    const el = document.getElementById(map[k]);
+    if (el && obj && obj[k] != null) el.value = obj[k];
+  }
+}
+function dutyLabelsFromInputs() {
+  const map = {
+    carry: 'dutyLabelCarry', hold: 'dutyLabelHold',
+    slack: 'dutyLabelSlack', unknown: 'dutyLabelUnknown'
+  };
+  const out = {};
+  for (const k in map) {
+    const el = document.getElementById(map[k]);
+    if (el) out[k] = el.value;
+  }
+  return out;
+}
+// 边打边生效: 只改内存并重画预览, 每敲一个字就写一次 localStorage 没必要
+function applyDutyLabels() {
+  if (typeof PoroDuty === 'undefined' || !PoroDuty) return;
+  PoroDuty.setLabels(dutyLabelsFromInputs());
+  refreshDutyPreview();
+}
+function saveDutyLabels() {
+  if (typeof PoroDuty === 'undefined' || !PoroDuty) return;
+  const applied = PoroDuty.setLabels(dutyLabelsFromInputs());
+  try { if (typeof storeSet === 'function') storeSet('dutyLabels', JSON.stringify(applied)); } catch (e) {}
+  // 回填清洗后的值: 超长被截断、清空回默认, 得让用户看见真正生效的是什么
+  fillDutyLabelInputs(applied);
+  refreshDutyPreview();
+}
+function initDutyLabels() {
+  if (typeof PoroDuty === 'undefined' || !PoroDuty) return;
+  let saved = null;
+  try {
+    const raw = (typeof storeGet === 'function') ? storeGet('dutyLabels') : null;
+    if (raw) saved = JSON.parse(raw);
+  } catch (e) { saved = null; }
+  const cur = (saved && typeof saved === 'object' && !Array.isArray(saved))
+    ? PoroDuty.setLabels(saved)
+    : PoroDuty.getLabels();
+  fillDutyLabelInputs(cur);
+  refreshDutyPreview();
+}
+function resetDutyLabels() {
+  if (typeof PoroDuty === 'undefined' || !PoroDuty) return;
+  const cur = PoroDuty.resetLabels();
+  try { if (typeof storeSet === 'function') storeSet('dutyLabels', JSON.stringify(cur)); } catch (e) {}
+  fillDutyLabelInputs(cur);
+  refreshDutyPreview();
+  if (typeof showToast === 'function') showToast('档位名已恢复默认', 'neutral');
+}
+function refreshDutyPreview() {
+  const box = document.getElementById('dutyPreview');
+  if (!box || typeof PoroDuty === 'undefined' || !PoroDuty) return;
+  // 离开选人阶段就不算旧账: 上一局的名单留在工具箱里会被当成这局的分工
+  if (window._gameflowPhase !== 'ChampSelect') {
+    box.innerHTML = PoroDuty.previewHtml(null, { empty: '进入选人阶段后自动显示本局分工' });
+    return;
+  }
+  let rank = window._poroDutyRank;
+  if ((!rank || !rank.ready) && window._poroLiveCtx && window._poroLiveCtx.data) {
+    try {
+      rank = PoroDuty.build(window._poroLiveCtx.data, {
+        selfPuuid: window._poroLiveCtx.selfPuuid,
+        champName: id => (typeof champNameOf === 'function' ? champNameOf(id) : '')
+      });
+      if (rank && rank.ready) window._poroDutyRank = rank;
+    } catch (e) {}
+  }
+  box.innerHTML = PoroDuty.previewHtml((rank && rank.ready) ? rank : null, { empty: '战绩还在加载，几秒后会自动出现' });
+}
+
 function dutyTextNow() {
   let rank = window._poroDutyRank;
   // 选人阶段首屏战绩可能还没拉完, 那时缓存是空的 —— 点按钮时用同一份 10 人数据现场补算一次,

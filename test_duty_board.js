@@ -144,7 +144,95 @@ function load(extra) {
   eq(M.build([{ name: 'x', puuid: 'me', team: 100 }], { selfPuuid: 'me' }).ready, false, '评分模块缺失时不硬编分数');
 }
 
-// ---- 6. 接线检查 ----
+// ---- 6. 档位名自定义 (1.6.62) ----
+// 用户要求: 工具箱里能看见等级文案, 且这套文案能自己改。
+// 守的边界: 改名只换叫法, 阈值/样本门槛一分不动; 脏输入(空/超长/换行)要能兜住,
+// 因为这段字符串最终会进选人聊天消息体。
+{
+  const { M } = load();
+  eq(M.labelOf('carry'), '大神', '默认高档名');
+  eq(M.labelOf('hold'), '正常人', '默认中档名');
+  eq(M.labelOf('slack'), '人机', '默认低档名');
+  eq(M.labelOf('unknown'), '待定', '默认待定名');
+  ok(M.labelsAreDefault(), '初始就是默认名');
+
+  // 改名后 getter 立即跟上 —— 已缓存的 rank / 已渲染的 DOM 不用重建
+  M.setLabels({ carry: '猛男', hold: '路人', slack: '菜鸡', unknown: '新人' });
+  eq(M.TIERS[0].label, '猛男', 'TIERS getter 跟随自定义名');
+  eq(M.tierOf(80, 20).label, '猛男', 'tierOf 返回的档位带新名字');
+  eq(M.tierOf(50, 20).label, '路人', '中档新名字');
+  eq(M.tierOf(10, 20).label, '菜鸡', '低档新名字');
+  eq(M.tierOf(50, 2).label, '新人', '待定新名字');
+  // 改名字不能动摇阈值
+  eq(M.tierOf(70, 20).key, 'hold', '改名后 70% 仍是中档 (口径是"超过 70")');
+  eq(M.tierOf(4, 20).key, 'slack', '改名后低胜率仍判低档');
+  eq(M.tierOf(80, 4).key, 'unknown', '改名后样本门槛不变');
+
+  // 清洗: 连续空白压成一个
+  M.setLabels({ carry: '  猛   男  ' });
+  eq(M.labelOf('carry'), '猛 男', '两端 trim, 中间连续空白压成一个');
+  // 超长按字符截断 (6 字上限, 免得聊天消息被撑爆)
+  M.setLabels({ carry: '一二三四五六七八' });
+  eq(M.labelOf('carry'), '一二三四五六', '超过 6 字截断');
+  eq(Array.from(M.labelOf('carry')).length, 6, '截断后正好 6 字');
+  // 换行/制表会切断聊天消息体
+  M.setLabels({ carry: '换\n行\t制表' });
+  eq(M.labelOf('carry'), '换 行 制表', '换行/制表压成空格');
+  // 空值回默认, 不能出现没有名字的档位
+  M.setLabels({ carry: '   ' });
+  eq(M.labelOf('carry'), '大神', '纯空白回退默认');
+  M.setLabels({ carry: '' });
+  eq(M.labelOf('carry'), '大神', '空串回退默认');
+  // 只认四个档位键
+  M.setLabels({ nope: 'x' });
+  eq(M.labelOf('nope'), '', '不认识的档位键不会被写入');
+  eq(Object.keys(M.getLabels()).length, 4, '只维护 4 个档位');
+  // 局部修改不影响其他档位
+  M.setLabels({ hold: '中坚' });
+  eq(M.labelOf('carry'), '大神', '只改中档时高档保持原值');
+  eq(M.labelOf('hold'), '中坚', '中档生效');
+  M.resetLabels();
+  ok(M.labelsAreDefault(), 'resetLabels 恢复默认');
+  eq(M.TIERS[2].label, '人机', 'reset 后 TIERS getter 也回来');
+
+  // 全链路: 聊天文案 / 卡片 / 预览都要跟着改名
+  M.setLabels({ carry: '猛男', hold: '路人', slack: '菜鸡', unknown: '新人' });
+  const mk = (name, puuid, team, wr, games) => ({
+    name, puuid, team, championId: 1, rank: '钻石', recent: [],
+    _wr: wr, _games: games == null ? 18 : games
+  });
+  const evalPlayer = p => ({ score: 3.5, games: p._games, wr: p._wr, kda: 3.2, reasons: [] });
+  const rank = M.build([
+    mk('我', 'me', 100, 72), mk('队友A', 'a', 100, 55), mk('队友B', 'b', 100, 50),
+    mk('队友C', 'c', 100, 45), mk('队友D', 'd', 100, 32),
+    mk('敌人1', 'e1', 200, 76), mk('敌人2', 'e2', 200, 58)
+  ], { selfPuuid: 'me', evalPlayer });
+  ok(rank.chatText.includes('猛男1'), '聊天文案用自定义高档名');
+  ok(rank.chatText.includes('菜鸡1'), '聊天文案用自定义低档名');
+  ok(rank.summary.includes('猛男'), '总结句跟着改名');
+  ok(!rank.chatText.includes('大神'), '聊天文案里不再残留默认名');
+  const cardHtml = M.html(rank, {});
+  ok(cardHtml.includes('>猛男<') && cardHtml.includes('>路人<'), '卡片徽章用自定义名');
+
+  const pv = M.previewHtml(rank);
+  ok(pv.includes('fd-pv'), '预览有容器');
+  ok(pv.includes('>猛男<') && pv.includes('>菜鸡<'), '预览徽章用自定义名');
+  eq((pv.match(/fd-pv-row/g) || []).length, 5, '预览列出我方 5 人');
+  ok(pv.includes('硬碰硬') && pv.includes('错位'), '预览带对阵摘要');
+  ok(pv.includes(rank.summary), '预览带整队一句话');
+  ok(pv.includes('&gt;70%') && pv.includes('&lt;40%'), '档位阈值按 HTML 转义输出');
+  const chipText = pv.slice(pv.indexOf('fd-pv-legend'), pv.indexOf('fd-pv-list'));
+  ok(!chipText.includes('<40%') && !chipText.includes('>70%'), '图例里没有裸不等号 (会把标签打断)');
+  // 没有数据时也要能看见"档位定义", 否则改完名字毫无反馈
+  const pvEmpty = M.previewHtml(null);
+  ok(pvEmpty.includes('fd-pv-legend'), '空态显示档位图例');
+  ok(pvEmpty.includes('进入选人阶段'), '空态说明什么时候有数据');
+  ok(M.previewHtml(null, { empty: '自定义提示' }).includes('自定义提示'), '空态文案可覆盖');
+  ok(M.legendHtml().includes('fd-pv-chip'), '图例可单独取用 (给工具箱标题行)');
+  M.resetLabels();
+}
+
+// ---- 7. 接线检查 ----
 {
   const idx = fs.readFileSync(path.join(__dirname, 'renderer/index.html'), 'utf8');
   const live = fs.readFileSync(path.join(__dirname, 'renderer/js/live.js'), 'utf8');
@@ -167,6 +255,20 @@ function load(extra) {
   ok(live.includes('activeChampSelectConversation'), '复用 chat.js 的选人房间识别');
   ok(!/PoroDuty\.html/.test(live), 'PoroDuty.html 彻底不再被调用');
   ok(css.includes('.fd-card') && css.includes('.fd-badge.fd-carry'), '样式已落地');
+  // 1.6.62: 工具箱里能看见等级文案, 而且这套文案能自己改
+  ok(idx.includes('id="dutyPreview"'), '工具箱里有预览容器');
+  eq((idx.match(/dutyLabel(?:Carry|Hold|Slack|Unknown)"/g) || []).length, 4, '四个档位各一个输入框');
+  ok(idx.includes('applyDutyLabels()') && idx.includes('saveDutyLabels()'), '输入框接上实时生效与落盘');
+  ok(live.includes('function initDutyLabels') && live.includes('function refreshDutyPreview'), '载入与重画都有实现');
+  ok(live.includes('function applyDutyLabels') && live.includes('function saveDutyLabels')
+    && live.includes('function resetDutyLabels'), '改名的三个动作都有实现');
+  ok(live.includes("storeSet('dutyLabels'"), '自定义名字会落盘');
+  ok(live.includes('refreshDutyPreview();'), '选人渲染后顺手刷预览');
+  ok(live.includes('PoroDuty.previewHtml('), '预览复用模块里的纯函数');
+  const persistSrc = fs.readFileSync(path.join(__dirname, 'renderer/js/persist.js'), 'utf8');
+  ok(persistSrc.includes("'dutyLabels'"), '备份导入白名单含 dutyLabels');
+  ok(persistSrc.includes('initDutyLabels()'), '启动时恢复自定义名字');
+  ok(css.includes('.fd-pv-row') && css.includes('.duty-label-input'), '预览与输入框样式已落地');
   ok(String(pkg.scripts.test).includes('test_duty_board.js'), 'npm test 里登记了本测试');
   // 注意: live.js 里另有一个既有的「大腿」标签 (现在改成加权 KDA 判定),
   // 所以这里只检查分工表自己的代码段, 不能整份文件扫。
