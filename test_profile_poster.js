@@ -19,9 +19,9 @@ global.champNumMap = {
   '3': { id: 'Galio', name: '正义巨像' }
 };
 global.hexAugMeta = {
-  11: { name: '加速巫术', icon: 'https://x/a.png', rarity: '棱彩' },
-  12: { name: '大力', icon: 'https://x/b.png', rarity: '白银' },
-  13: { name: '号令之旗', icon: 'https://x/c.png', rarity: '黄金' }
+  11: { name: '加速巫术', icon: 'https://x/a.png', rarity: '棱彩', desc: '你的技能会造成额外伤害。<br>获得<b>暴击</b>几率。' },
+  12: { name: '大力', icon: 'https://x/b.png', rarity: '白银', desc: '获得攻击力。' },
+  13: { name: '号令之旗', icon: 'https://x/c.png', rarity: '黄金', desc: '获得一支旗帜。' }
 };
 global.isKnownPlayerName = n => !!n && !/^(未知|未知玩家|unknown|player|\?|-)$/i.test(String(n).trim());
 global.isExcludedGame = () => false;
@@ -36,7 +36,7 @@ function person(puuid, name, teamId, extra) {
     championId: 1, k: 5, d: 2, a: 7, win: true, teamId,
     dmg: 20000, dmgTaken: 15000, healing: 1000, physDmg: 12000, magicDmg: 7000, trueDmg: 1000,
     gold: 12000, cs: 100, visionScore: 20, items: [3006, 3009, 0],
-    augmentIds: [11, 12], multi: '', fb: false
+    spells: [4, 32], augmentIds: [11, 12], multi: '', fb: false
   }, extra || {});
 }
 
@@ -159,6 +159,32 @@ games.sort((a, b) => b.time - a.time);
   assert.ok(s.augList[0].n >= s.augList[1].n, '强化按次数降序');
 }
 
+// ---------- 5b. 1.6.53 补齐：单局之最 / 装备 / 相遇胜率 / 召唤师技能 ----------
+{
+  const s = M.collect(games, ME);
+  // 单局最高：数值 + 是哪一局（英雄、KDA、胜负）都得在，光秃秃的数字没意义
+  assert.strictEqual(s.best.k.v, 10, '单局最高击杀 = 10');
+  assert.strictEqual(s.best.k.k, 10, '那一局的 K 也要对上');
+  assert.ok(s.best.k.gid > 0, '要记下是哪一场');
+  assert.ok(s.best.dmg.v >= Math.max(...games.map(g => g.participants[0].dmg)), '最高输出取的是最大值');
+  assert.ok(s.best.heal.v > 0 && s.best.taken.v > 0, '最高承伤/治疗也要算');
+  // 装备条目现在带胜率，总数/种类单独给，方便在卡片标题上标注覆盖范围
+  assert.ok(s.itemList.some(i => i.id === 3006), '3006 进前 10');
+  for (let i = 1; i < s.itemList.length; i++) {
+    assert.ok(s.itemList[i - 1].n >= s.itemList[i].n, '装备按次数降序');
+  }
+  assert.strictEqual(s.itemList.find(i => i.id === 3006).wins, 4, '3006 的 6 局里有 4 胜');
+  assert.strictEqual(s.itemTotal, 16, '总件数 = 大乱斗 6×2 + 匹配 4×1');
+  assert.strictEqual(s.itemKinds, 3, '三种装备');
+  // 相遇榜胜率：队友甲只在 9 场里出现（阵营未知那局不计），胜场要同口径
+  const ally = s.allyList.find(p => p.name === '队友甲');
+  assert.ok(ally.wins > 0 && ally.wins <= ally.n, '同队胜场不能越过场次');
+  assert.strictEqual(ally.wins, 7, '队友甲的 9 场里有 7 胜');
+  assert.ok(s.spellList.length === 2, '召唤师技能两种（闪现/标记）');
+  assert.strictEqual(s.spellList[0].n, 10, '每局都带这两个技能');
+  assert.strictEqual(s.augTotal, 16, '强化总次数 = 10 局 × 每局 1~2 个');
+}
+
 // ---------- 6. 最近 N 场：新局在前 ----------
 {
   const s = M.collect(games, ME);
@@ -171,10 +197,14 @@ games.sort((a, b) => b.time - a.time);
   const s = M.collect(games, ME);
   const html = M.build(s, { name: '雨未散', tag: '36393', puuid: ME, modeLabel: '全部模式', level: 2696 });
   assert.ok(html.length > 2000, '正常数据必须出图');
-  for (const label of ['高光时刻', '战绩总览', '击杀数据', '伤害数据', '英雄使用', '常见装备', '最常同队', '最常对手', '海克斯强化']) {
+  for (const label of ['高光时刻', '战绩总览', '击杀数据', '伤害数据', '单局之最', '召唤师技能',
+    '英雄使用', '装备购买', '最常同队', '最常对手', '海克斯强化']) {
     assert.ok(html.includes(label), '缺少区块: ' + label);
   }
   assert.ok(html.includes('全部模式'), '模式标签要印在图上');
+  assert.ok(html.includes('单局最高输出') && html.includes('单局最高治疗'), '单局之最六项要出全');
+  assert.ok(html.includes('你的技能会造成额外伤害。') && html.includes('暴击'), '强化描述要有，且 HTML 标签被剥掉');
+  assert.ok(!html.includes('<br>'), '强化描述不能把 HTML 标签带进图里');
   assert.ok(!/NaN|undefined|Infinity/.test(html), '图上不能出现 NaN/undefined');
   assert.ok(!/src=""/.test(html), '不能出空 src（会显示成破图）');
 }

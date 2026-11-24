@@ -80,6 +80,8 @@ function mergeAugMeta(extra) {
   return out;
 }
 
+// 1.6.53 起缓存里多存一个 desc（生涯海报要用）。不换 key：每次启动本来就会重新拉，
+// 拉成功即覆盖旧条目；离线时旧条目只少一句描述，不影响识别。
 const HEX_AUG_META_CACHE_KEY = 'poro.hexAugMeta.v1';
 let _hexAugFetching = null;
 let _hexAugLastTryAt = 0;
@@ -116,6 +118,8 @@ async function loadHexAugments(force = false) {
             name: a.nameTRA || a.augmentNameId || String(a.id),
             icon: small ? 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/' + small : '',
             rarity: HEX_RARITY_CN[a.rarity] || '',
+            // 生涯海报的强化卡片要显示一句说明；去掉 HTML 标签在渲染层做，这里留原文
+            desc: a.descTRA || a.desc || a.tooltipTRA || '',
             key: a.augmentNameId || ''
           };
         }

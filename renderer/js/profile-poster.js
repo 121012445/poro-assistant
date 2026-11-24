@@ -11,10 +11,11 @@
   'use strict';
 
   const CARD_W = 680;
-  const TOP_CHAMP = 8;
-  const TOP_ITEM = 6;
+  const TOP_CHAMP = 10;
+  const TOP_ITEM = 10;
   const TOP_PLAYER = 10;
   const TOP_AUG = 10;
+  const TOP_SPELL = 6;
   const RECENT_N = 12;
 
   // 强化小图标是纯白剪影，必须垫稀有度底色才看得见（与 hex.js / battle-card.js 同一份）
@@ -25,6 +26,9 @@
     '活动': '#8a5bc9'
   };
   const augBg = rarity => 'background:' + (AUG_RARITY_BG[String(rarity || '')] || '#5b6673') + ';';
+  // 卡片描边按稀有度上色（棱彩金紫、黄金金、白银灰），和客户端三选一的边框语言一致
+  const AUG_RARITY_LINE = { '白银': '#79848F', '黄金': '#C2932F', '棱彩': '#8B63DB', '活动': '#9D62CE' };
+  const augFrame = rarity => 'border:1px solid ' + (AUG_RARITY_LINE[String(rarity || '')] || '#5b6673') + ';';
 
   // ---------- 格式化 ----------
   function num(v) {
@@ -170,6 +174,22 @@
     return [{ key: 'all', n: out.reduce((s, x) => s + x.n, 0) }].concat(out);
   }
 
+  // 「单局最高 X」这类条目光有数字没用 —— 得能说清是哪一局：什么英雄、那局 KDA、赢没赢。
+  // 同一数值只留先遇到的那局（对局已按时间倒序，所以留下的是最近一次）。
+  function keepBest(slot, value, me, g) {
+    const v = +value || 0;
+    if (!v) return;
+    if (!slot.v || v > slot.v) {
+      slot.v = v;
+      slot.cid = +me.championId || 0;
+      slot.k = Math.max(0, +me.k || 0);
+      slot.d = Math.max(0, +me.d || 0);
+      slot.a = Math.max(0, +me.a || 0);
+      slot.win = !!me.win;
+      slot.gid = g && g.gid ? g.gid : 0;
+    }
+  }
+
   function collect(games, ownerPuuid) {
     const rows = [];
     for (const g of (Array.isArray(games) ? games : [])) {
@@ -190,7 +210,8 @@
       fb: 0, multi: { d: 0, t: 0, q: 0, p: 0 },
       firstTime: 0, lastTime: 0, bestStreak: 0, streakType: 'win',
       champs: new Map(), items: new Map(), augs: new Map(),
-      allies: new Map(), foes: new Map(),
+      allies: new Map(), foes: new Map(), spells: new Map(),
+      best: { k: { v: 0 }, d: { v: 0 }, a: { v: 0 }, dmg: { v: 0 }, taken: { v: 0 }, heal: { v: 0 } },
       recent: []
     };
     if (!rows.length) return s;
@@ -212,12 +233,18 @@
       if (k > s.bestK) s.bestK = k;
       if (a > s.bestA) s.bestA = a;
       if (me.fb) s.fb++;
+      keepBest(s.best.k, k, me, g);
+      keepBest(s.best.d, d, me, g);
+      keepBest(s.best.a, a, me, g);
 
       const dmg = Math.max(0, +me.dmg || 0);
       s.dmg += dmg;
       if (dmg > s.bestDmg) s.bestDmg = dmg;
       s.taken += Math.max(0, +me.dmgTaken || 0);
       s.heal += Math.max(0, +me.healing || 0);
+      keepBest(s.best.dmg, dmg, me, g);
+      keepBest(s.best.taken, +me.dmgTaken || 0, me, g);
+      keepBest(s.best.heal, +me.healing || 0, me, g);
       s.phys += Math.max(0, +me.physDmg || 0);
       s.magic += Math.max(0, +me.magicDmg || 0);
       s.trueD += Math.max(0, +me.trueDmg || 0);
@@ -258,16 +285,31 @@
         s.champs.set(cid, cur);
       }
 
+      // 装备按「件」计：同一局出两件同 id 就记两次，和客户端购装面板口径一致
       for (const id of (Array.isArray(me.items) ? me.items : [])) {
         if (!id || +id <= 0) continue;
-        s.items.set(+id, (s.items.get(+id) || 0) + 1);
+        const cur = s.items.get(+id) || { id: +id, n: 0, wins: 0 };
+        cur.n++;
+        if (me.win) cur.wins++;
+        s.items.set(+id, cur);
+      }
+
+      // 召唤师技能：数的是「带了几场」，不是「按了几次」—— 后者客户端根本不提供
+      for (const id of (Array.isArray(me.spells) ? me.spells : [])) {
+        const sid = +id || 0;
+        if (!sid) continue;
+        const cur = s.spells.get(sid) || { id: sid, n: 0, wins: 0 };
+        cur.n++;
+        if (me.win) cur.wins++;
+        s.spells.set(sid, cur);
       }
 
       for (const id of (Array.isArray(me.augmentIds) ? me.augmentIds : [])) {
         if (!id || +id <= 0) continue;
-        const cur = s.augs.get(+id) || { id: +id, n: 0, wins: 0 };
+        const cur = s.augs.get(+id) || { id: +id, n: 0, wins: 0, last: 0 };
         cur.n++;
         if (me.win) cur.wins++;
+        if (+g.time > (cur.last || 0)) cur.last = +g.time || 0;
         s.augs.set(+id, cur);
       }
 
@@ -281,8 +323,9 @@
         if (!mySide || !otherSide) continue;
         const bucket = otherSide === mySide ? s.allies : s.foes;
         const key = p.puuid || ('n:' + nm);
-        const cur = bucket.get(key) || { name: nm + (p.tagLine ? '#' + p.tagLine : ''), n: 0 };
+        const cur = bucket.get(key) || { name: nm + (p.tagLine ? '#' + p.tagLine : ''), n: 0, wins: 0 };
         cur.n++;
+        if (me.win) cur.wins++;
         bucket.set(key, cur);
       }
 
@@ -302,11 +345,17 @@
     s.shortest = s.durs.length ? Math.min.apply(null, s.durs) : 0;
     s.medianDur = median(s.durs);
     s.champList = [...s.champs.values()].sort((x, y) => y.n - x.n || y.wins - x.wins).slice(0, TOP_CHAMP);
-    s.itemList = [...s.items.entries()].sort((x, y) => y[1] - x[1]).slice(0, TOP_ITEM)
-      .map(([id, n]) => ({ id, n }));
+    const itemAll = [...s.items.values()].sort((x, y) => y.n - x.n || y.wins - x.wins);
+    s.itemList = itemAll.slice(0, TOP_ITEM);
+    s.itemTotal = itemAll.reduce((sum, it) => sum + it.n, 0);
+    s.itemKinds = itemAll.length;
+    s.spellList = [...s.spells.values()].sort((x, y) => y.n - x.n).slice(0, TOP_SPELL);
     s.augList = [...s.augs.values()].sort((x, y) => y.n - x.n).slice(0, TOP_AUG);
+    s.augTotal = [...s.augs.values()].reduce((sum, a) => sum + a.n, 0);
+    s.augKinds = s.augs.size;
     s.allyList = [...s.allies.values()].sort((x, y) => y.n - x.n).slice(0, TOP_PLAYER);
     s.foeList = [...s.foes.values()].sort((x, y) => y.n - x.n).slice(0, TOP_PLAYER);
+    s.avgDur = s.dur / Math.max(1, s.n);
     return s;
   }
 
@@ -349,6 +398,42 @@
       + '<b>' + value.toFixed(1) + '%</b></div>';
   }
 
+  // 召唤师技能：ddragon 的 key 就是数字 id（闪现 = 4），名字/图标都能对上，
+  // 但渲染层只有 allSpells（按 SummonerFlash 这种英文键索引），所以这里线性找一次。
+  function spellInfo(id) {
+    const spells = (typeof allSpells === 'object' && allSpells) ? allSpells : null;
+    if (!spells) return { name: '', icon: '' };
+    for (const k of Object.keys(spells)) {
+      const sp = spells[k];
+      if (sp && String(sp.key) === String(id)) {
+        return { name: sp.name || sp.id || '', icon: (sp.image && sp.image.full) || '' };
+      }
+    }
+    return { name: '', icon: '' };
+  }
+
+  function spellIconUrl(full) {
+    if (!full) return '';
+    const cdn = typeof CDN !== 'undefined' && CDN ? CDN : 'https://ddragon.leagueoflegends.com/cdn';
+    const v = typeof version !== 'undefined' ? version : '';
+    return cdn + '/' + v + '/img/spell/' + full;
+  }
+
+  // 一张长图上最没用的就是「40」这种孤零零的数字：单局最高类指标必须带上
+  // 「哪一局」—— 英雄、那局 KDA、赢没赢，否则读者无法判断这数是怎么来的。
+  function bestRow(label, b, fmt) {
+    if (!b || !b.v) return '';
+    const info = b.cid ? champOf(b.cid) : { key: '', name: '' };
+    const img = info.key ? srcOf(headUrl(info.key)) : '';
+    return '<div class="pp-brow">'
+      + (img ? '<img class="pp-bra" src="' + img + '" alt="" onerror="this.style.visibility=\'hidden\'">' : '<span class="pp-bra"></span>')
+      + '<div class="pp-brt"><span>' + label + '</span><i>' + escapeHtml(info.name || '—')
+      + ' · ' + b.k + '/' + b.d + '/' + b.a + '</i></div>'
+      + '<b class="pp-brv">' + (fmt ? fmt(b.v) : num(b.v)) + '</b>'
+      + '<em class="pp-brw ' + (b.win ? 'w' : 'l') + '">' + (b.win ? '胜' : '负') + '</em>'
+      + '</div>';
+  }
+
   function build(sum, opts) {
     const o = opts || {};
     const s = sum;
@@ -369,54 +454,116 @@
       ['一血', s.fb], ['单场最高击杀', s.bestK]
     ].map(([label, v]) => '<div class="pp-high"><b>' + num(v) + '</b><span>' + label + '</span></div>').join('');
 
-    const champCells = s.champList.map(c => {
+    const wrOf = x => (x && x.n ? Math.round(x.wins / x.n * 100) : 0);
+    const wrCls = wr => (wr >= 60 ? 'good' : wr >= 45 ? 'mid' : 'bad');
+
+    const champRows = s.champList.map(c => {
       const info = champOf(c.cid);
       const img = info.key ? srcOf(headUrl(info.key)) : '';
-      const wr = c.n ? Math.round(c.wins / c.n * 100) : 0;
-      return '<div class="pp-champ">'
-        + (img ? '<img src="' + img + '" alt="" onerror="this.style.visibility=\'hidden\'">' : '<span class="pp-champ-ph"></span>')
-        + '<div class="pp-champ-t"><b>' + escapeHtml(info.name || '') + '</b>'
-        + '<span>' + c.n + ' 场 · <i class="' + (wr >= 50 ? 'good' : 'bad') + '">' + wr + '%</i></span></div>'
+      const wr = wrOf(c);
+      const wide = Math.max(6, Math.round(c.n / Math.max(1, s.champList[0].n) * 100));
+      return '<div class="pp-crow">'
+        + (img ? '<img class="pp-cra" src="' + img + '" alt="" onerror="this.style.visibility=\'hidden\'">' : '<span class="pp-cra"></span>')
+        + '<span class="pp-crn">' + escapeHtml(info.name || '') + '</span>'
+        + '<i class="pp-crb"><em class="' + wrCls(wr) + '" style="width:' + wide + '%"></em></i>'
+        + '<span class="pp-crc">' + c.n + ' 场</span>'
+        + '<b class="pp-crw ' + wrCls(wr) + '">' + wr + '%</b>'
         + '</div>';
     }).join('');
 
     const itemCells = s.itemList.map(it => {
       const img = srcOf(itemUrl(it.id));
+      const wr = wrOf(it);
       return '<div class="pp-item" title="' + escapeHtml(itemName(it.id)) + '">'
         + '<img src="' + img + '" alt="" onerror="this.style.visibility=\'hidden\'">'
-        + '<b>' + it.n + ' 次</b></div>';
+        + '<b>' + escapeHtml(itemName(it.id)) + '</b>'
+        + '<span>' + it.n + ' 次 · <i class="' + wrCls(wr) + '">' + wr + '%</i></span></div>';
+    }).join('');
+
+    const spellCells = s.spellList.map(sp => {
+      const info = spellInfo(sp.id);
+      const icon = spellIconUrl(info.icon);
+      const wr = wrOf(sp);
+      const share = Math.round(sp.n / Math.max(1, s.n) * 100);
+      return '<div class="pp-spell">'
+        + (icon ? '<img src="' + srcOf(icon) + '" alt="" onerror="this.style.visibility=\'hidden\'">' : '<span class="pp-spell-ph"></span>')
+        + '<div class="pp-spell-t"><b>' + escapeHtml(info.name || ('技能 ' + sp.id)) + '</b>'
+        + '<span>' + sp.n + ' 场 · ' + share + '% · ' + wr + '% 胜</span></div></div>';
     }).join('');
 
     const playerRows = (list, emptyText) => {
       if (!list.length) return '<div class="pp-empty">' + emptyText + '</div>';
-      return list.map((p, i) => '<div class="pp-prow">'
-        + '<em>' + (i + 1) + '</em>'
-        + '<span title="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</span>'
-        + '<b>' + p.n + '</b></div>').join('');
+      const max = list[0].n || 1;
+      return list.map((p, i) => {
+        const wr = wrOf(p);
+        return '<div class="pp-prow">'
+          + '<em>' + (i + 1) + '</em>'
+          + '<span title="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</span>'
+          + '<i class="pp-prb"><em style="width:' + Math.max(5, Math.round(p.n / max * 100)) + '%"></em></i>'
+          + '<b>' + p.n + ' 次</b>'
+          + '<b class="pp-prw ' + wrCls(wr) + '">' + wr + '%</b></div>';
+      }).join('');
     };
 
     const meta = (typeof hexAugMeta !== 'undefined' && hexAugMeta) ? hexAugMeta : null;
-    const augCells = (meta ? s.augList.filter(a => meta[a.id] && meta[a.id].name) : []).map(a => {
+    const augCells = (meta ? s.augList.filter(a => meta[a.id] && meta[a.id].name) : []).map((a, i) => {
       const m = meta[a.id];
       const augIcon = (m.icon && typeof root.PoroBattleCard === 'object' && root.PoroBattleCard
         && typeof root.PoroBattleCard.augIconSrc === 'function') ? root.PoroBattleCard.augIconSrc(m.icon) : (m.icon || '');
       const icon = augIcon
         ? '<img class="pp-aug-i" style="' + augBg(m.rarity) + '" src="' + augIcon + '" alt="" onerror="this.style.visibility=\'hidden\'">'
         : '';
-      const wr = a.n ? Math.round(a.wins / a.n * 100) : 0;
-      return '<div class="pp-aug">' + (icon || '<span class="pp-aug-i"></span>')
-        + '<div class="pp-aug-t"><b>' + escapeHtml(m.name) + '</b>'
-        + '<span>' + a.n + ' 次 · ' + wr + '% 胜</span></div></div>';
+      const wr = wrOf(a);
+      // 少数强化在客户端数据里 nameTRA 就是空格（如 GoH_PentakillAug_Generic），
+      // 抹掉名字会变成一张只有稀有度的空卡 —— 退回内部 key，至少能认出是哪一个。
+      const augName = String(m.name || '').trim() || String(m.key || '').trim() || ('强化 #' + a.id);
+      // 描述来自 cherry-augments 的 descTRA，带 <br>/<keyword> 之类的标记，长图里只留纯文本
+      const desc = String(m.desc || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      return '<div class="pp-aug" style="' + augFrame(m.rarity) + '">'
+        + '<span class="pp-aug-rk">' + (i + 1) + '</span>'
+        + '<div class="pp-aug-h">' + (icon || '<span class="pp-aug-i"></span>')
+        + '<div class="pp-aug-t"><b>' + escapeHtml(augName) + '</b>'
+        + '<span>' + escapeHtml(m.rarity || '强化') + '</span></div></div>'
+        // 客户端/CommunityDragon 的 cherry-augments 只给名称+图标+稀有度，没有说明文本。
+        // 拿不到就绝不编一句；这一行改摆真实可算的「占所选强化次数的比例」。
+        + (desc ? '<p class="pp-aug-d">' + escapeHtml(desc) + '</p>'
+          : '<div class="pp-aug-m"><i class="pp-aug-share"><em style="width:'
+            + Math.max(4, Math.round(a.n / Math.max(1, s.augTotal) * 100)) + '%"></em></i>'
+            + '<span>占 ' + (pct(a.n, s.augTotal)) + '% · 最近 '
+            + (a.last ? dateCn(a.last) : '—') + '</span></div>')
+        + '<div class="pp-aug-f"><b>' + a.n + ' 次</b><i class="' + wrCls(wr) + '">' + wr + '% 胜</i></div>'
+        + '</div>';
     }).join('');
 
     const dmgTotal = s.dmg || 1;
-    const winBarW = s.n ? (s.wins / s.n * 100) : 0;
-    // 角色信息只摆查得到的：段位胶囊、等级、时间范围，缺哪样就少哪样，不留前导分隔符
+    // 环形胜率用 SVG 画：描边圆环缩放成位图后边缘比 conic-gradient 干净，
+    // 而且不依赖导出窗口那几份 CSS 里是否定义了颜色变量。
+    const RING_R = 25, RING_C = 2 * Math.PI * RING_R;
+    const winW = s.n ? (s.wins / s.n * 100) : 0;
+    const ringDash = (winW / 100 * RING_C).toFixed(1);
+    const ringOn = o.dark ? '#2AC67F' : '#0E8A4F';
+    const ringOff = o.dark ? '#28313D' : '#E3E8EF';
+    const ringTxt = o.dark ? '#F2F5F8' : '#16202B';
+    const ring = '<svg class="pp-ring" viewBox="0 0 60 60" width="58" height="58" aria-hidden="true">'
+      + '<circle cx="30" cy="30" r="' + RING_R + '" fill="none" stroke="' + ringOff + '" stroke-width="7"/>'
+      + '<circle cx="30" cy="30" r="' + RING_R + '" fill="none" stroke="' + ringOn + '" stroke-width="7"'
+      + ' stroke-linecap="round" stroke-dasharray="' + ringDash + ' ' + RING_C.toFixed(1) + '" transform="rotate(-90 30 30)"/>'
+      + '<text x="30" y="34" text-anchor="middle" font-size="15" font-weight="800" fill="' + ringTxt + '">' + s.wr + '%</text>'
+      + '</svg>';
+
+    // 角色信息只摆查得到的：段位、等级、时间范围，缺哪样就少哪样，不留前导分隔符
     const subParts = [];
     const rank = rankChip(o.puuid);
     if (rank) subParts.push(rank);
     if (level) subParts.push(escapeHtml(level));
     if (range) subParts.push(escapeHtml(range));
+    const uuid = o.puuid ? '<div class="pp-uuid">PUUID · ' + escapeHtml(o.puuid) + '</div>' : '';
+
+    const bests = [
+      bestRow('单局最高击杀', s.best.k), bestRow('单局最高死亡', s.best.d),
+      bestRow('单局最高助攻', s.best.a), bestRow('单局最高输出', s.best.dmg, bigNum),
+      bestRow('单局最高承伤', s.best.taken, bigNum), bestRow('单局最高治疗', s.best.heal, bigNum)
+    ].join('');
 
     return '<div class="pp-wrap"><div class="pp-card' + (o.dark ? ' is-dark' : '') + '">'
       + '<header class="pp-head">'
@@ -425,7 +572,8 @@
       + '<span class="pp-ava-ring"></span></div>'
       + '<div class="pp-id"><div class="pp-name">' + escapeHtml(name)
       + (tag ? '<i>#' + escapeHtml(tag) + '</i>' : '') + '</div>'
-      + '<div class="pp-sub">' + '<span class="pp-dim">' + subParts.join(' · ') + '</span></div></div>'
+      + '<div class="pp-sub">' + '<span class="pp-dim">' + subParts.join(' · ') + '</span></div>'
+      + uuid + '</div>'
       + '<div class="pp-mode">' + escapeHtml(modeLabel) + '</div>'
       + '</header>'
 
@@ -433,19 +581,21 @@
       + kpi(num(s.n), '总场次')
       + kpi(s.wr + '%', '胜率', 'pp-wr')
       + kpi(s.kda.toFixed(2), '总 KDA')
-      + kpi(((s.k + s.a) / Math.max(1, s.n)).toFixed(1), '场均 K+A')
+      + kpi(durShort(Math.round(s.avgDur)), '场均时长')
       + '</div>'
-      + '<div class="pp-recent"><span class="pp-dim">最近 ' + s.recent.length + ' 场</span>' + recent + '</div>'
+      + '<div class="pp-recent"><span class="pp-dim">最近 ' + s.recent.length + ' 场</span>' + recent
+      + '<span class="pp-recent-r">场均 ' + s.avgK.toFixed(1) + ' / ' + s.avgD.toFixed(1) + ' / ' + s.avgA.toFixed(1) + ' KDA</span></div>'
 
       + '<section class="pp-sec"><h4>高光时刻</h4><div class="pp-highs">' + highs + '</div></section>'
 
       + '<section class="pp-sec"><h4>战绩总览</h4><div class="pp-ov">'
-      + '<div class="pp-ovc"><div class="pp-ovt">胜率</div><b class="pp-ovn pp-wr">' + s.wr + '%</b>'
-      + '<div class="pp-wbar"><i style="width:' + winBarW + '%"></i></div>'
-      + '<div class="pp-ovs"><span>胜 <b>' + s.wins + '</b></span><span>负 <b>' + (s.n - s.wins) + '</b></span></div></div>'
+      + '<div class="pp-ovc pp-ovc-wr">' + ring
+      + '<div class="pp-ovw"><div class="pp-ovt">总对局</div><b class="pp-ovn">' + num(s.n) + '</b>'
+      + '<div class="pp-ovs"><span>胜 <b class="pp-good">' + s.wins + '</b></span>'
+      + '<span>负 <b class="pp-bad">' + (s.n - s.wins) + '</b></span></div></div></div>'
       + '<div class="pp-ovc"><div class="pp-ovt">对局时长</div><b class="pp-ovn">' + durText(s.dur) + '</b>'
       + '<div class="pp-ovr">' + row('最长', durShort(s.longest)) + row('中位', durShort(s.medianDur))
-      + row('平均', durShort(Math.round(s.dur / Math.max(1, s.n)))) + row('最短', durShort(s.shortest)) + '</div></div>'
+      + row('平均', durShort(Math.round(s.avgDur))) + row('最短', durShort(s.shortest)) + '</div></div>'
       + '<div class="pp-ovc"><div class="pp-ovt">金币经济</div><b class="pp-ovn pp-gold">' + bigNum(s.gold) + '</b>'
       + '<div class="pp-ovr">' + row('分均', num(s.goldPerMin)) + row('场均', num(s.goldPerGame))
       + row('单场最高', num(s.bestGold)) + '</div></div>'
@@ -460,7 +610,7 @@
       + '</div>'
       + '<div class="pp-big"><b>' + s.kda.toFixed(2) + '</b><span>KDA</span></div>'
       + '<div class="pp-ovr">' + row('场均', s.avgK.toFixed(1) + ' / ' + s.avgD.toFixed(1) + ' / ' + s.avgA.toFixed(1))
-      + row('单场最高击杀', num(s.bestK)) + '</div>'
+      + row('最长连胜', s.bestStreak + ' 场') + '</div>'
       + '</div></section>'
       + '<section class="pp-sec"><h4>伤害数据</h4><div class="pp-panel">'
       + '<div class="pp-trio">'
@@ -477,20 +627,28 @@
       + '</div></section>'
       + '</div>'
 
-      + '<section class="pp-sec"><h4>英雄使用</h4><div class="pp-champs">'
-      + (champCells || '<div class="pp-empty">没有英雄数据</div>') + '</div></section>'
+      + '<section class="pp-sec"><h4>单局之最</h4><div class="pp-bests">' + bests + '</div></section>'
 
-      + '<section class="pp-sec"><h4>常见装备</h4><div class="pp-items">'
+      + '<section class="pp-sec"><h4>召唤师技能</h4><div class="pp-spells">'
+      + (spellCells || '<div class="pp-empty">没有召唤师技能记录</div>') + '</div></section>'
+
+      + '<section class="pp-sec"><h4>装备购买<i class="pp-h4r">共 ' + num(s.itemTotal) + ' 次 · '
+      + num(s.itemKinds) + ' 种 · 前 ' + s.itemList.length + '</i></h4><div class="pp-items">'
       + (itemCells || '<div class="pp-empty">没有装备数据</div>') + '</div></section>'
 
+      + '<section class="pp-sec"><h4>英雄使用<i class="pp-h4r">' + num(s.champs.size) + ' 个英雄 · 前 '
+      + s.champList.length + '</i></h4><div class="pp-crows">'
+      + (champRows || '<div class="pp-empty">没有英雄数据</div>') + '</div></section>'
+
       + '<div class="pp-cols">'
-      + '<section class="pp-sec"><h4>最常同队</h4><div class="pp-panel pp-plist">'
+      + '<section class="pp-sec"><h4>最常同队<i class="pp-h4r">胜率为同队时</i></h4><div class="pp-panel pp-plist">'
       + playerRows(s.allyList, '暂无同队记录') + '</div></section>'
-      + '<section class="pp-sec"><h4>最常对手</h4><div class="pp-panel pp-plist">'
+      + '<section class="pp-sec"><h4>最常对手<i class="pp-h4r">胜率为遇上时</i></h4><div class="pp-panel pp-plist">'
       + playerRows(s.foeList, '暂无对手记录') + '</div></section>'
       + '</div>'
 
-      + (augCells ? '<section class="pp-sec"><h4>海克斯强化</h4><div class="pp-augs">' + augCells + '</div></section>' : '')
+      + (augCells ? '<section class="pp-sec"><h4>海克斯强化<i class="pp-h4r">共 ' + num(s.augTotal)
+        + ' 次 · ' + num(s.augKinds) + ' 种</i></h4><div class="pp-augs">' + augCells + '</div></section>' : '')
 
       + '<footer class="pp-foot"><span>Poro · 英雄联盟游戏助手</span><span>' + escapeHtml(modeLabel)
       + ' · 最近 ' + s.n + ' 场</span></footer>'
@@ -506,6 +664,17 @@
       if (info.key) plan.set(headUrl(info.key), { maxW: 96, mime: 'image/png' });
     }
     for (const it of s.itemList) plan.set(itemUrl(it.id), { maxW: 88, mime: 'image/png' });
+    for (const sp of (s.spellList || [])) {
+      const info = spellInfo(sp.id);
+      const u = spellIconUrl(info.icon);
+      if (u) plan.set(u, { maxW: 64, mime: 'image/png' });
+    }
+    // 「单局之最」那六行用的英雄不一定都进得了 Top10 英雄榜，图标单独补一次
+    for (const key of ['k', 'd', 'a', 'dmg', 'taken', 'heal']) {
+      const b = s.best && s.best[key];
+      const info = b && b.cid ? champOf(b.cid) : null;
+      if (info && info.key) plan.set(headUrl(info.key), { maxW: 64, mime: 'image/png' });
+    }
     return plan;
   }
 
