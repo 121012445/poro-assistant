@@ -232,6 +232,53 @@ function load(extra) {
   M.resetLabels();
 }
 
+// ---- 6c. 总结句的人数必须与分档对得上 (1.6.63) ----
+// 1.6.62 之前的写法是 c.carry >= 2 一条吃掉 2 和 3, 而且兜底句固定是「有大神有人机」:
+// 三个大神会写成"有两个", 0 大神 + 有未知样本时会说出一个根本不存在的大神。
+// 这种自相矛盾出现在工具箱预览的第一行, 比句式单调难看得多。
+{
+  const { M } = load();
+  const mkP = (name, team, wr) => ({ name, puuid: name, team, championId: 1, _wr: wr, _games: 18 });
+  const buildWith = wrList => {
+    const players = wrList.map((wr, i) => mkP('A' + i, 100, wr));
+    for (let i = 0; i < 5; i++) players.push(mkP('E' + i, 200, 55));
+    return M.build(players, {
+      selfPuuid: 'A0',
+      evalPlayer: p => ({ wr: p._wr, games: p._games, score: 3 })
+    });
+  };
+
+  const threeCarry = buildWith([55, 80, 75, 72, 30]);
+  eq(threeCarry.counts.carry, 3, '三个大神的分档');
+  ok(threeCarry.summary.startsWith('三个'), '三个大神要说"三个"');
+  ok(!threeCarry.summary.includes('两个'), '三个大神不能说成"有两个"');
+
+  const noCarryUnknown = buildWith([55, 50, 45, 30, null]);
+  eq(noCarryUnknown.counts.carry, 0, '这一队没有大神');
+  ok(noCarryUnknown.summary.includes('没有'), '0 大神要明说没有');
+  ok(!noCarryUnknown.summary.startsWith('有大神'), '0 大神时不能开口就说"有大神"');
+
+  const twoUnknown = buildWith([55, 50, 45, null, null]);
+  eq(twoUnknown.counts.unknown, 2, '两个待定');
+  ok(twoUnknown.summary.includes('2个') && twoUnknown.summary.includes('还没看透'), '未知样本按人数点名');
+  ok(!twoUnknown.summary.includes('人机'), '没有样本时不能凭空说来人机');
+
+  const allHold = buildWith([60, 55, 52, 48, 45]);
+  ok(allHold.summary.includes('整齐得像军训'), '全员正常人走整队句');
+
+  const allCarry = buildWith([80, 78, 76, 74, 72]);
+  ok(allCarry.summary.startsWith('全员'), '五个大神走全员句, 不说"四个"');
+
+  const allSlack = buildWith([30, 25, 20, 15, 10]);
+  ok(allSlack.summary.includes('送温暖'), '全员人机走全员句, 不说"三个"');
+
+  // 改名之后, 人数句里的档位名同样要跟着换
+  M.setLabels({ carry: '猛男' });
+  ok(buildWith([55, 80, 75, 72, 30]).summary.startsWith('三个猛男'), '人数句跟着改名');
+  M.resetLabels();
+  ok(!fs.readFileSync(SRC, 'utf8').includes("'有' + T('carry') + '有'"), '那条会自相矛盾的兜底句已删除');
+}
+
 // ---- 7. 接线检查 ----
 {
   const idx = fs.readFileSync(path.join(__dirname, 'renderer/index.html'), 'utf8');

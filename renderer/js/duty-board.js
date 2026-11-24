@@ -205,14 +205,23 @@
     // 1.6.62: 句子里的档位名一律走 labelOf —— 用户改了名字, 梗句也得跟着改名,
     // 否则会出现"四个猛男, 这局不好输"上面却写着"大神"的自相矛盾。
     const T = k => labelOf(k);
+    // 1.6.63: 分支收紧到"人数必须对得上"。原来 c.carry >= 2 一条吃掉 2 和 3,
+    // 三个大神会写成"有两个"; 又因为兜底是"有大神有人机", 0 大神 + 有未知样本时
+    // 会说出一个根本不存在的大神 —— 这类自相矛盾比句式单调难看得多。
     let line;
     if (!known) line = '全员' + T('unknown') + '，边打边看';
+    else if (c.carry === mates.length) line = '全员' + T('carry') + '，这局不好输';
     else if (c.carry >= 4) line = '四个' + T('carry') + '，这局不好输';
-    else if (c.carry >= 2) line = '有两个' + T('carry') + '，剩下看配合';
-    else if (c.slack >= 3) line = '三个' + T('slack') + '，就看剩下两个扛不扛得住';
-    else if (c.carry === 0 && c.slack >= 2) line = '没有' + T('carry') + '，全靠配合硬顶';
-    else if (c.carry === 0 && c.hold === mates.length) line = '全员' + T('hold') + '，整齐得像军训';
-    else line = '有' + T('carry') + '有' + T('slack') + '，看谁先掉线';
+    else if (c.carry === 3) line = '三个' + T('carry') + '，这局不好输';
+    else if (c.carry === 2) line = '有两个' + T('carry') + '，剩下看配合';
+    else if (c.carry === 1) line = '就一个' + T('carry') + '，全靠它撑场';
+    else if (c.slack === mates.length) line = '全员' + T('slack') + '，这把是来送温暖的';
+    else if (c.slack >= 4) line = '四个' + T('slack') + '，就看剩下那个能不能扛';
+    else if (c.slack === 3) line = '三个' + T('slack') + '，就看剩下两个扛不扛得住';
+    else if (c.slack === 2) line = '没有' + T('carry') + '，全靠配合硬顶';
+    else if (c.slack === 1) line = '没有' + T('carry') + '，' + T('slack') + '那路多照看';
+    else if (c.unknown > 0) line = '没有' + T('carry') + '，' + c.unknown + '个' + T('unknown') + '还没看透';
+    else line = '全员' + T('hold') + '，整齐得像军训';
     const self = mates.find(m => m && m.isSelf);
     if (self && self.tier.key === 'carry' && c.carry <= 1) {
       line = '这局只有你一个' + T('carry') + '，别掉链子';
