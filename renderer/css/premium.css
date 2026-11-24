@@ -1712,6 +1712,7 @@ body.dark .bc-kda-num .k-a, body.dark .bc-kda-sub strong.k-mid { color: #4F8FF7;
 
 .bc-items { display: flex; gap: 4px; margin-bottom: 9px; }
 .bc-item { width: 24px; height: 24px; display: block; border-radius: var(--radius-xs); border: 1px solid var(--border); }
+.bc-item.bc-trinket { opacity: .68; border-style: dashed; }
 .bc-item-none { font-size: var(--fs-xs); color: var(--text-muted); }
 
 /* 队伍行不再画分隔线: 每行 5 个"头像+KDA", 两条线会把这块切得很碎。

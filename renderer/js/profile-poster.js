@@ -285,9 +285,12 @@
         s.champs.set(cid, cur);
       }
 
-      // 装备按「件」计：同一局出两件同 id 就记两次，和客户端购装面板口径一致
+      // 装备按「件」计：同一局出两件同 id 就记两次，和客户端购装面板口径一致。
+      // 1.6.55: 剔掉消耗品(魄罗佳肴/药水/合剂)和守卫饰品(眼/透镜)——它们不是装备，
+      // 大乱斗里魄罗佳肴几乎每局都有，不剔会霸占榜首。
       for (const id of (Array.isArray(me.items) ? me.items : [])) {
         if (!id || +id <= 0) continue;
+        if (typeof isRealEquipment === 'function' && !isRealEquipment(id)) continue;
         const cur = s.items.get(+id) || { id: +id, n: 0, wins: 0 };
         cur.n++;
         if (me.win) cur.wins++;

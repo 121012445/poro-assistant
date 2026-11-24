@@ -327,9 +327,18 @@
     const laneCell = laneGold == null
       ? '—'
       : (laneGold >= 0 ? '+' : '−') + kFmt(Math.abs(laneGold));
-    const items = (me.items || []).filter(Boolean).slice(0, 7);
+    // 1.6.55: 消耗品（魄罗佳肴/药水/合剂）不是装备，别混进装备栏；
+    // 守卫饰品（眼/透镜）单独加 bc-trinket 标注，跟真装备区分开。
+    const rawItems = (me.items || []).filter(Boolean).slice(0, 7);
+    const isEquip = id => (typeof isRealEquipment === 'function' && !isRealEquipment(id)) ? false : true;
+    const isTrinket = id => {
+      const it = (typeof allItems === 'object' && allItems) ? (allItems[String(id)] || allItems[id]) : null;
+      const tags = it && Array.isArray(it.tags) ? it.tags : [];
+      return tags.indexOf('Trinket') >= 0;
+    };
+    const items = rawItems.filter(isEquip).slice(0, 7);
     const itemHtml = items.length
-      ? items.map(id => `<img class="bc-item" src="${inline(itemUrl(id))}" alt="" onerror="this.style.visibility='hidden'">`).join('')
+      ? items.map(id => `<img class="bc-item${isTrinket(id) ? ' bc-trinket' : ''}" src="${inline(itemUrl(id))}" alt="" onerror="this.style.visibility='hidden'">`).join('')
       : '<span class="bc-item-none">装备数据缺失</span>';
     const cell = (v, label) => `<div class="bc-cell"><b>${v}</b><span>${label}</span></div>`;
     const splash = splashOf(me);

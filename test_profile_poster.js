@@ -26,6 +26,26 @@ global.hexAugMeta = {
 global.isKnownPlayerName = n => !!n && !/^(未知|未知玩家|unknown|player|\?|-)$/i.test(String(n).trim());
 global.isExcludedGame = () => false;
 
+// 1.6.55: 应用里由 utils.js 提供，排除魄罗佳肴/药水/守卫饰品等非装备
+global.allItems = {
+  '220013': { name: '魄罗佳肴', consumed: true, tags: [], gold: { purchasable: false } },
+  '3340': { name: '侦察守卫', tags: ['Trinket', 'Vision'] },
+  '2003': { name: '生命药水', tags: ['Consumable'] },
+  '3006': { name: '狂战士胫甲', tags: ['Boots'], gold: { total: 1100 } },
+  '3009': { name: '狂徒铠甲', tags: ['Health'], gold: { total: 3000 } }
+};
+global.isRealEquipment = id => {
+  const n = +id || 0;
+  if (!n || n <= 0) return false;
+  const c = global.allItems[String(n)];
+  if (!c) return true;
+  const tags = Array.isArray(c.tags) ? c.tags : [];
+  if (c.consumed === true) return false;
+  if (tags.indexOf('Trinket') >= 0 || tags.indexOf('Consumable') >= 0) return false;
+  if (c.gold && c.gold.purchasable === false && !tags.length) return false;
+  return true;
+};
+
 const M = require('./renderer/js/profile-poster.js').PoroProfilePoster;
 assert.ok(M && typeof M.collect === 'function', '模块要导出 collect');
 
@@ -257,4 +277,27 @@ games.sort((a, b) => b.time - a.time);
   assert.ok(js.includes("const ringOn = '#2fc98a'"), '胜率环形固定深色系，不跟 app 主题跳');
 }
 
-console.log('生涯海报: 11 组用例全部通过');
+// ---------- 12. 消耗品/守卫饰品不算装备（1.6.55）----------
+{
+  assert.strictEqual(global.isRealEquipment(220013), false, '魄罗佳肴不是装备');
+  assert.strictEqual(global.isRealEquipment(3340), false, '侦察守卫(眼)不是装备');
+  assert.strictEqual(global.isRealEquipment(2003), false, '药水不是装备');
+  assert.strictEqual(global.isRealEquipment(3006), true, '鞋是真装备');
+  assert.strictEqual(global.isRealEquipment(3009), true, '狂徒是真装备');
+  const g = game(0, '海克斯大乱斗', { win: true });
+  // 本人这一局带上魄罗佳肴 + 眼，应被过滤，只剩原本的 3006/3009
+  g.participants[0].items = [3006, 220013, 3340, 2003, 3009, 0];
+  const s = M.collect([g], ME);
+  assert.ok(!s.itemList.some(i => i.id === 220013), '魄罗佳肴不能进装备榜');
+  assert.ok(!s.itemList.some(i => i.id === 3340), '眼不能进装备榜');
+  assert.ok(!s.itemList.some(i => i.id === 2003), '药水不能进装备榜');
+  assert.ok(s.itemList.some(i => i.id === 3006) && s.itemList.some(i => i.id === 3009), '真装备要留下');
+  const js = require('fs').readFileSync(require('path').join(__dirname, 'renderer/js/profile-poster.js'), 'utf8');
+  const bc = require('fs').readFileSync(require('path').join(__dirname, 'renderer/js/battle-card.js'), 'utf8');
+  const u = require('fs').readFileSync(require('path').join(__dirname, 'renderer/js/utils.js'), 'utf8');
+  assert.ok(u.includes('function isRealEquipment'), 'utils 要有全局判定函数');
+  assert.ok(js.includes('!isRealEquipment(id)'), '海报统计要调用过滤');
+  assert.ok(bc.includes('isRealEquipment') && bc.includes('bc-trinket'), '战报卡装备栏也要区分消耗品/饰品');
+}
+
+console.log('生涯海报: 12 组用例全部通过');

@@ -710,6 +710,24 @@ function augFallback(img) {
   } catch (e) {}
 }
 
+// 判断一个 item id 是不是「真装备」——用于装备统计榜（如生涯海报的「装备购买」）。
+// 对局里的 items 数组混着三类非装备：
+//   - 消耗品：魄罗佳肴(220013, consumed=true)、各种药水/合剂/骰子
+//   - 守卫饰品：侦察守卫/神谕透镜(tags 含 Trinket 或 Consumable)
+// 注意不能按 Vision 标签剔——黯影阔剑、窃法之刃这些辅助真装也带 Vision。
+// allItems 是 ddragon item.json 的 data，所以判据用 consumed / tags / gold.purchasable。
+function isRealEquipment(id) {
+  const n = +id;
+  if (!n || n <= 0) return false;
+  const cat = (typeof allItems === 'object' && allItems) ? allItems[String(n)] : null;
+  if (!cat) return true; // 没目录数据时不过滤，宁可多算也不误删真装备
+  const tags = Array.isArray(cat.tags) ? cat.tags : [];
+  if (cat.consumed === true) return false;
+  if (tags.indexOf('Trinket') >= 0 || tags.indexOf('Consumable') >= 0) return false;
+  if (cat.gold && cat.gold.purchasable === false && !tags.length) return false;
+  return true;
+}
+
 // 统一的应用内日志出口: 旧代码里的 console.log 统一走这里, 只写 crash.log,
 // 不打到 DevTools 控制台 (开发时想看的话下面 console 分支也可以放开)。
 function logDebug(...args) {
