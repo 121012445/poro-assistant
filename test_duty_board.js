@@ -152,10 +152,20 @@ function load(extra) {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   const mod = fs.readFileSync(SRC, 'utf8');
   ok(idx.includes('js/duty-board.js'), 'index.html 引了模块');
-  ok(live.includes('PoroDuty.html(PoroDuty.build('), '对局页会渲染分工表');
-  ok(live.includes('function toggleDutyCard') && live.includes('function sendDutyChat'), '折叠与发送入口存在');
-  ok(live.includes("storeSet('dutyCollapsed'"), '折叠状态持久化');
+  // 1.6.61: 页面里不再铺卡 (会挤压战绩区, 进对局后也发不了选人聊天),
+  // 只在选人阶段、自己那一队的标题栏留一个「发分工表」按钮。
+  ok(live.includes('PoroDuty.build(data'), '评级仍在后台算好供发送用');
+  ok(!live.includes('PoroDuty.html('), '页面里不再渲染分工表卡片');
+  ok(!live.includes('toggleDutyCard') && !live.includes('dutyCollapsed'), '折叠相关死代码已清掉');
+  ok(!live.includes('copyDutyText('), '复制按钮一并移除, 只留发送');
+  ok(live.includes('function sendDutyChat') && live.includes('sendDutyChat()'), '保留发到选人聊天的入口');
+  ok(live.includes('function sendDutyChat'), '保留发送实现');
+  ok(idx.includes('sendDutyChat()'), '工具箱里有发送按钮 (唯一入口)');
+  ok(live.includes("_gameflowPhase !== 'ChampSelect'"), '发送前校验选人阶段');
+  ok(!live.includes('dutyBtn'), '对局页不再挂任何分工表按钮');
+  ok(!live.includes('isChampSelect && selfTeamNum'), '队伍标题栏没被改动');
   ok(live.includes('activeChampSelectConversation'), '复用 chat.js 的选人房间识别');
+  ok(!/PoroDuty\.html/.test(live), 'PoroDuty.html 彻底不再被调用');
   ok(css.includes('.fd-card') && css.includes('.fd-badge.fd-carry'), '样式已落地');
   ok(String(pkg.scripts.test).includes('test_duty_board.js'), 'npm test 里登记了本测试');
   // 注意: live.js 里另有一个既有的「大腿」标签 (现在改成加权 KDA 判定),

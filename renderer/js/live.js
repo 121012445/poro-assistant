@@ -2086,6 +2086,16 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   // 1.6.42: 「好抓」标签只贴敌方, 需要知道"我在哪一边"。拿不到 (LCU 状态失败 / 自己不在名单)
   // 就写 0 —— isEnemyPlayer 会因此全判 false, 标签整批不出现, 而不是给全十个人乱贴。
   window._poroSelfTeam = selfTeamNum || 0;
+  // 1.6.61: 分工表不再在页面里铺整张卡 —— 它会挤压战绩区, 而且进对局后根本发不了
+  // 选人聊天, 展示出来纯占地方。评级仍在后台算好缓存, 只服务「发分工表」按钮;
+  // 按钮也只在选人阶段出现, 所以这里只在选人阶段才计算 (进对局后一次都不跑)。
+  const isChampSelect = window._gameflowPhase === 'ChampSelect';
+  if (isChampSelect && typeof PoroDuty !== 'undefined' && PoroDuty && typeof PoroDuty.build === 'function') {
+    try {
+      const dutyRank = PoroDuty.build(data, { selfPuuid, champName: id => champNameOf(id) });
+      if (dutyRank && dutyRank.ready) window._poroDutyRank = dutyRank;
+    } catch (e) { try { console.warn('[duty]', e && e.message); } catch (e2) {} }
+  }
   // 装备库没就绪时不出按钮, 避免点开是个空壳 (Data Dragon 首次加载有延迟)
   const canBuild = !!(selfPlayer && Number(selfPlayer.championId) > 0
     && typeof poroBuildEngine !== 'undefined' && poroBuildEngine && poroBuildEngine.itemDatabase);
@@ -2095,7 +2105,6 @@ async function renderLiveTeams(body, data, premadeGroups, expectedToken) {
   window._poroLiveCtx = { data, selfPuuid };
   const pageHtml = `
     ${typeof PoroScout !== 'undefined' ? PoroScout.html(PoroScout.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('scoutCollapsed') === '1') }) : ''}
-    ${typeof PoroDuty !== 'undefined' ? PoroDuty.html(PoroDuty.build(data, { selfPuuid, champName: id => champNameOf(id) }), { collapsed: (typeof storeGet === 'function' && storeGet('dutyCollapsed') === '1') }) : ''}
     ${enemyIntelHtml(data, selfPuuid)}
     <div class="lp-wrap">${teamPanel(blue, '蓝方', 'lp-blue', 'primary', canBuild && selfTeamNum === 100)}${teamPanel(red, '红方', 'lp-red', 'mirror', canBuild && selfTeamNum === 200)}${unknown.length ? teamPanel(unknown, '队伍识别中', 'lp-unknown') : ''}</div>`;
   // 轮询每 4/12s 带着同样一份数据重入: 生成的 HTML 与上一次写进 DOM 的模板一致时跳过,
@@ -2132,29 +2141,23 @@ function toggleScoutReport(headEl) {
   try { if (typeof storeSet === 'function') storeSet('scoutCollapsed', collapsed ? '1' : ''); } catch (e) {}
 }
 
-// ---------- 分工表: 折叠 / 复制 / 发到选人聊天 ----------
-function toggleDutyCard(headEl) {
-  const card = headEl && headEl.closest ? headEl.closest('.fd-card') : null;
-  if (!card) return;
-  const collapsed = card.classList.toggle('collapsed');
-  const tip = headEl.querySelector('.fd-toggle');
-  if (tip) tip.textContent = collapsed ? '展开' : '收起';
-  try { if (typeof storeSet === 'function') storeSet('dutyCollapsed', collapsed ? '1' : ''); } catch (e) {}
-}
-
+// ---------- 分工表: 只保留「发到选人聊天」(1.6.61 起页面不再展示评级) ----------
 function dutyTextNow() {
-  const rank = window._poroDutyRank;
+  let rank = window._poroDutyRank;
+  // 选人阶段首屏战绩可能还没拉完, 那时缓存是空的 —— 点按钮时用同一份 10 人数据现场补算一次,
+  // 而不是直接弹"还没有可发送的评级"让人再点一遍。窗口只在页面渲染时落地, 不额外发请求。
+  if ((!rank || !rank.ready || !rank.chatText)
+    && typeof PoroDuty !== 'undefined' && window._poroLiveCtx && window._poroLiveCtx.data) {
+    try {
+      rank = PoroDuty.build(window._poroLiveCtx.data, {
+        selfPuuid: window._poroLiveCtx.selfPuuid,
+        champName: id => (typeof champNameOf === 'function' ? champNameOf(id) : '')
+      });
+      if (rank && rank.ready) window._poroDutyRank = rank;
+    } catch (e) {}
+  }
   if (!rank || !rank.ready || !rank.chatText) return '';
   return rank.chatText;
-}
-
-async function copyDutyText() {
-  const text = dutyTextNow();
-  if (!text) { if (typeof showToast === 'function') showToast('还没有可复制的评级', 'negative'); return; }
-  try {
-    const ok = await lolAPI.copyText(text).catch(() => false);
-    if (typeof showToast === 'function') showToast(ok ? '分工表已复制' : '复制失败', ok ? 'positive' : 'negative');
-  } catch (e) { try { lolAPI.debugLog('[DUTY] copy ' + (e && e.message)); } catch (e2) {} }
 }
 
 // 只做"用户点一下才发"的手动发送, 复用 chat.js 的选人房间识别与消息信封。
