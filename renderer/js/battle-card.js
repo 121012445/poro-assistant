@@ -555,5 +555,10 @@
     if (typeof showToast === 'function') showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
   }
 
-  root.PoroBattleCard = { build, save, preview, measure, copyImage, warmAugmentIcons, warmImages, warmSplash, augIconSrc };
+  root.PoroBattleCard = {
+    build, save, preview, measure, copyImage, warmAugmentIcons, warmImages, warmSplash, augIconSrc,
+    // 生涯海报要用的通用两条：把任意图按显示尺寸重编码后缓存 / 取缓存（没命中退回外链）。
+    // 共用这一份 IMG_CACHE，同一张头像不会在内存里存两遍。
+    warmSrc: inlineImg, srcOf: inline
+  };
 })(typeof window !== 'undefined' ? window : this);

@@ -813,6 +813,7 @@ function homeSearchMarkup(placeholderText) {
     </div>
     <button onclick="homeSearch()">查询</button>
     <button class="btn-secondary" onclick="openWeeklyReport()" title="统计最近 7 天的对局数据" style="font-size:12px;">生成周报</button>
+    <button class="btn-secondary" onclick="PoroProfilePoster.open()" title="按模式生成一张可分享的生涯长图" style="font-size:12px;min-width:0;padding:8px 14px;">生涯海报</button>
     <span class="home-search-msg" id="homeSearchMsg"></span>
   </div>`;
 }
@@ -1779,6 +1780,12 @@ function normalizeGame(g, isSgp) {
         items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].filter(id => id && id > 0),
         profileIconId: p.profileIcon || p.profileIconId || 0,
         penta: p.pentaKills || 0, fb: !!p.firstBloodKill,
+        // 生涯海报要的是"一共多少五杀/四杀/..."，多杀嵌套扣减后的 multi 只剩最高那一档，
+        // 光靠它会少算同一局里的低级别多杀，所以原始四项也留着。
+        multis: {
+          d: p.doubleKills || 0, t: p.tripleKills || 0,
+          q: p.quadraKills || 0, p: p.pentaKills || 0
+        },
         // 本局强化 (海斗/斗魂): 与 LCU 分支共用同一套抠取逻辑
         augmentIds: augmentIdsOf(p),
         // 多杀嵌套扣减 (Akari): 高级多杀计数包含低级, 需反向扣除
@@ -1821,6 +1828,10 @@ function normalizeGame(g, isSgp) {
         // match-v5 的 stats 同样带 timeCCingOthers/totalTimeCCDealt, 外服走这条分支时别丢
         ccTime: p.stats?.timeCCingOthers || 0, ccDealt: p.stats?.totalTimeCCDealt || 0,
         penta: p.stats?.pentaKills || 0, fb: !!p.stats?.firstBloodKill,
+        multis: {
+          d: p.stats?.doubleKills || 0, t: p.stats?.tripleKills || 0,
+          q: p.stats?.quadraKills || 0, p: p.stats?.pentaKills || 0
+        },
         profileIconId: p.stats?.profileIcon || 0,
         // 1.6.23: LCU 兜底路径此前一个符文字段都没映射 -> 日服/外服对局详情符文整列空白。
         // match-v5 的符文在 stats.perks 下, perkPageFields 两种结构都认。
