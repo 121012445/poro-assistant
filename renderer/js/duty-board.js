@@ -308,7 +308,7 @@
           <div class="fd-pairs">${pairs}</div>
         </div>
         <div class="fd-foot">
-          <span>分档只看近 20 场状态与段位，纯玩梗，不是胜率预测。</span>
+          <span>分档只看近期胜率（不足 ${MIN_GAMES} 场记待定），纯玩梗，不是胜率预测。</span>
           <button type="button" class="fd-btn" onclick="event.stopPropagation();sendDutyChat()">发到聊天</button>
           <button type="button" class="fd-btn ghost" onclick="event.stopPropagation();copyDutyText()">复制文案</button>
         </div>
