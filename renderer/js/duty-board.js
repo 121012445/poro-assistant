@@ -297,41 +297,61 @@
     };
     rank.chatLines = chatLinesOf(rank);
     rank.chatText = rank.chatLines.join('\n');
-    rank.chatFlat = rank.chatLines.join(' ｜ ');
+    rank.chatFlat = chatFlatOf(rank);
     return rank;
   }
 
-  // 1.6.64: 选人消息改成"每人一行" —— 档位 + 名字 + 最近 5 把战绩 + 总 KDA,
-  // 对齐 Sona 助手那种"逐人摆数据"的写法。原来的单行统计只有各档人数,
-  // 收到消息的人看不出"这个大神到底怎么个大神法"。
+  // 1.6.65: 一人两行 —— 头行给"档位 + 名字 + 总 KDA", 次行把这 5 把逐场摆出来。
+  // 1.6.64 只写了"近5局 4胜1负", 用户原话是"我不是要 4胜1负, 我是让你把这5局战绩列出来" ——
+  // 汇总数字看不出队友是"稳定 4 胜"还是"1 胜 4 负里混了一把 20 杀的", 逐场才有信息量。
   const RECENT_N = 5;
   function recent5Of(p) {
     const src = Array.isArray(p && p.recent) ? p.recent : [];
     const rows = src.slice(0, RECENT_N);
-    const s = { n: rows.length, wins: 0, k: 0, d: 0, a: 0 };
+    const s = { n: 0, wins: 0, k: 0, d: 0, a: 0, games: [] };
     for (const r of rows) {
       if (!r) continue;
-      if (r.win === true || r.win === 'Win') s.wins++;
-      s.k += num(r.k) || 0;
-      s.d += num(r.d) || 0;
-      s.a += num(r.a) || 0;
+      const win = r.win === true || r.win === 'Win';
+      const k = num(r.k) || 0, d = num(r.d) || 0, a = num(r.a) || 0;
+      if (win) s.wins++;
+      s.k += k; s.d += d; s.a += a;
+      s.games.push({ win, k, d, a });
     }
+    s.n = s.games.length;
     s.losses = s.n - s.wins;
     // KDA 口径与评分模块一致: (K+A)/max(1,D), 死 0 场不会炸成 Infinity
     s.kda = s.n ? Math.round((s.k + s.a) / Math.max(1, s.d) * 10) / 10 : null;
     return s;
   }
 
-  // 一行一个人: "大神 风会停 近5局 4胜1负 KDA 3.5"
+  // "胜 9/2/7" —— 胜/负 用一个字, 后面的 K/D/A 保持原样, 一行能塞下 5 把
+  const gameText = g => `${g.win ? '胜' : '负'} ${g.k}/${g.d}/${g.a}`;
+  const kdaText = s => (s && s.kda == null ? '-' : s.kda.toFixed(1));
+
+  // 头行: "大神 风会停 总KDA 3.5"
   function lineOf(m) {
     const s = m && m.s5;
     const head = `${m.tier.label} ${m.name}`;
-    if (!s || !s.n) return `${head} 近${RECENT_N}局 无样本`;
-    return `${head} 近${s.n}局 ${s.wins}胜${s.losses}负 KDA ${s.kda == null ? '-' : s.kda.toFixed(1)}`;
+    if (!s || !s.n) return `${head} 无样本`;
+    return `${head} 总KDA ${kdaText(s)}`;
   }
 
-  function chatLinesOf(rank) {
-    if (!rank || !rank.ready) return [];
+  // 一个玩家可能占 1~2 行: 头行 + 逐场明细
+  function linesOf(m) {
+    const s = m && m.s5;
+    if (!s || !s.n) return [lineOf(m)];
+    return [lineOf(m), `· ${s.games.map(gameText).join(' ｜ ')}`];
+  }
+
+  // 单行兜底 (LCU 不收换行时用): 档位 名字 总KDA 逐场, 全压一行
+  function flatLineOf(m) {
+    const s = m && m.s5;
+    const head = `${m.tier.label} ${m.name}`;
+    if (!s || !s.n) return `${head} 无样本`;
+    return `${head} KDA ${kdaText(s)} ${s.games.map(g => `${g.win ? '胜' : '负'}${g.k}/${g.d}/${g.a}`).join(' ')}`;
+  }
+
+  function chatParts(rank) {
     const c = rank.counts || {};
     const parts = [];
     for (const key of ['carry', 'hold', 'slack']) {
@@ -340,16 +360,31 @@
     }
     const best = rank.mates.filter(m => m.s != null).sort((a, b) => b.s - a.s)[0];
     const worst = rank.mates.filter(m => m.s != null).sort((a, b) => a.s - b.s)[0];
-    const head = `【Poro·分工表】我方 ${parts.join(' ')}`;
     const tail = [];
     if (best) tail.push(`最能带 ${best.name}`);
     if (worst && worst !== best) tail.push(`最需照看 ${worst.name}`);
     const cmp = `硬碰硬赢 ${rank.direct.wins}/${rank.direct.n}，错位能赢 ${rank.cross.wins}/${rank.cross.n}（玩梗，非胜率预测）`;
-    // 逐人按胜率从高到低, 没样本的垫底 —— 收到消息的人第一眼看到最能指望的那个
-    const rows = rank.mates.slice()
-      .sort((a, b) => (b.s == null ? -1 : b.s) - (a.s == null ? -1 : a.s))
-      .map(lineOf);
-    return [head].concat(rows, `${tail.join(' · ')}｜${cmp}`);
+    return {
+      head: `【Poro·分工表】我方 ${parts.join(' ')}`,
+      tail: `${tail.join(' · ')}｜${cmp}`,
+      // 逐人按胜率从高到低, 没样本的垫底 —— 收到消息的人第一眼看到最能指望的那个
+      mates: rank.mates.slice().sort((a, b) => (b.s == null ? -1 : b.s) - (a.s == null ? -1 : a.s))
+    };
+  }
+
+  function chatLinesOf(rank) {
+    if (!rank || !rank.ready) return [];
+    const p = chatParts(rank);
+    const rows = [];
+    for (const m of p.mates) rows.push.apply(rows, linesOf(m));
+    return [p.head].concat(rows, p.tail);
+  }
+
+  // 单行兜底版 (LCU 万一不收换行): 每个人压成一行, 逐场用 胜9/2/7 这种紧凑写法
+  function chatFlatOf(rank) {
+    if (!rank || !rank.ready) return '';
+    const p = chatParts(rank);
+    return [p.head].concat(p.mates.map(flatLineOf), p.tail).join(' ｜ ');
   }
 
   // 多行是首选 (聊天窗口里一人一行最像 Sona 那套), 但 LCU 万一不收换行,
@@ -384,14 +419,13 @@
       const why = (m.wr == null || m.games < MIN_GAMES)
         ? `近期样本 ${m.games} 场，不足 ${MIN_GAMES} 场`
         : `近 ${m.games} 场 ${m.wr}% 胜率${m.kda == null ? '' : ` · KDA ${m.kda}`}`;
-      // 第三列跟聊天消息里那行完全同源, 免得"预览看到的"和"发出去的"对不上
+      // 预览与聊天消息同源: 头行"档位 名字 总KDA", 次行把这 5 把逐场摆开
       const s5 = m.s5 || {};
-      const detail = !s5.n
-        ? `近${RECENT_N}局 无样本`
-        : `近${s5.n}局 ${s5.wins}胜${s5.losses}负 · KDA ${s5.kda == null ? '-' : s5.kda.toFixed(1)}`;
+      const head = s5.n ? `${m.name} 总KDA ${kdaText(s5)}` : `${m.name} 无样本`;
+      const detail = s5.n ? s5.games.map(gameText).join(' ｜ ') : `近${RECENT_N}局没有可用的战绩`;
       return `<div class="fd-pv-row" title="${esc(why)}">
         <b class="fd-badge fd-${m.tier.cls}">${esc(m.tier.label)}</b>
-        <span class="fd-pv-name">${esc(m.name)}${m.isSelf ? '<i class="fd-you">自己</i>' : ''}</span>
+        <span class="fd-pv-name">${esc(head)}${m.isSelf ? '<i class="fd-you">自己</i>' : ''}</span>
         <span class="fd-pv-copy">${esc(detail)}</span>
       </div>`;
     }).join('');

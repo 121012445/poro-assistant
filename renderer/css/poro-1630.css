@@ -100,14 +100,14 @@
 .fd-pv-chip .fd-badge { min-width: 34px; padding: 0 5px; white-space: nowrap; }
 .fd-pv-empty { font-size: 11px; color: var(--text-muted); padding: 2px 0 1px; }
 .fd-pv-list { display: flex; flex-direction: column; gap: 3px; }
-/* 1.6.64: 三列全用固定宽度 —— 每行是独立的 grid, 用 minmax 会按各自内容算轨道,
-   名字长短不同时右边的"近5局/KDA"就会左右跳, 看着像没对齐。
-   档位列按 6 字上限留 68px, 徽章自己 justify-self:start, 短名字不会被拉宽。 */
-.fd-pv-row { display: grid; grid-template-columns: 68px 84px minmax(0, 1fr);
-  gap: 8px; align-items: center; font-size: 11px; }
-.fd-pv-row .fd-badge { justify-self: start; white-space: nowrap; }
+/* 1.6.65: 一人两行 —— 头行"名字 总KDA", 次行把这 5 把逐场摆出来。
+   徽章钉在左列并跨两行, 右边两行都从同一条 x 起, 名字长短不同也不会错位。
+   逐场那行允许换行: 宁可占两行, 也不能把战绩省略成省略号 —— 用户要的就是看全 5 把。 */
+.fd-pv-row { display: grid; grid-template-columns: 68px minmax(0, 1fr);
+  gap: 1px 8px; align-items: start; font-size: 11px; }
+.fd-pv-row .fd-badge { grid-row: 1 / span 2; align-self: center; justify-self: start; white-space: nowrap; }
 .fd-pv-name { color: var(--ink-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fd-pv-copy { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-pv-copy { color: var(--ink-2); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 .fd-pv-foot { margin-top: 6px; font-size: 10px; color: var(--text-muted); }
 @media (max-width: 720px) {
   .fd-row { grid-template-columns: 46px minmax(0, 110px) minmax(0, 1fr); }

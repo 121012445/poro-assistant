@@ -146,9 +146,11 @@ function recentOf(wr, n, k, d, a) {
   ok(!/上等马|中等马|下等马|劣马|大腿|小腿|腿毛|带飞|稳住|划水/.test(html), '文案里不再出现被否掉的叫法');
 }
 
-// ---- 4b. 聊天消息格式: 一人一行 (1.6.64) ----
-// 用户要的是"大神 xx + 最近 5 把战绩 + 总 kd", 写法对齐 Sona 助手的选人消息。
-// 守的是: 每人一行、按胜率降序、没样本的垫底、KDA 口径与评分模块一致、单行兜底可用。
+// ---- 4b. 聊天消息格式: 一人两行, 5 把逐场列出 (1.6.65) ----
+// 用户原话: "大神 xx 然后 显示最近5把战绩 总kd多少", 随后明确
+// "我不是要近5局 4胜1负 我是让你把这5局战绩列出来" —— 汇总数字过不了关, 必须逐场。
+// 守的是: 每人两行(头行总KDA / 次行逐场)、按胜率降序、没样本的垫底、
+//        KDA 口径与评分模块一致、单行兜底可用。
 {
   const { M } = load();
   const wrMap = { me: 72, a: 68, b: null, c: 45, d: 32, e1: 76, e2: 58, e3: 50, e4: 42, e5: 30 };
@@ -164,32 +166,52 @@ function recentOf(wr, n, k, d, a) {
   });
 
   const lines = rank.chatLines;
-  eq(lines.length, 7, '表头 + 我方 5 人 + 脚注 = 7 行');
+  // 表头 1 + 4 个有样本的 2 行 + 无样本的 1 行 + 脚注 1 = 11
+  eq(lines.length, 11, '表头 + 4 人各 2 行 + 无样本 1 行 + 脚注 = 11 行');
   ok(lines[0].startsWith('【Poro·分工表】我方'), '第一行是表头统计');
-  eq(rank.chatText.split('\n').length, 7, 'chatText 就是这 7 行');
+  eq(rank.chatText.split('\n').length, 11, 'chatText 就是这 11 行');
   eq(rank.chatFlat.indexOf('\n'), -1, '单行兜底版没有换行');
   ok(rank.chatFlat.includes(' ｜ '), '单行兜底版用竖线分隔');
 
-  eq(lines[1], '大神 我 近5局 4胜1负 KDA 3.5', '大神那行带 5 把战绩与总 KDA');
-  ok(lines[2].indexOf('队友A') > 0 && lines[2].indexOf('3胜2负') > 0, '第二行按胜率降序');
-  ok(lines[3].startsWith('待定 队友C'), '排序: 72 / 68 / 45 / 32 / 无样本 (不足 5 场记待定)');
-  ok(lines[3].includes('近3局 1胜2负'), '样本不足 5 场时照实写场数');
-  ok(lines[5].includes('无样本'), '没有任何近期记录的人写无样本');
-  ok(lines[5].startsWith('待定'), '无样本的人档位是待定');
-  ok(lines[6].includes('硬碰硬赢') && lines[6].includes('非胜率预测'), '脚注保留沙盘与免责');
+  eq(lines[1], '大神 我 总KDA 3.5', '头行: 档位 + 名字 + 总 KDA');
+  eq(lines[2], '· 胜 8/4/6 ｜ 胜 8/4/6 ｜ 胜 8/4/6 ｜ 胜 8/4/6 ｜ 负 8/4/6',
+    '次行把 5 把逐场列出来 (每场 K/D/A + 胜负)');
+  eq((lines[2].match(/胜/g) || []).length, 4, '5 场里 4 胜逐场标出');
+  eq((lines[2].match(/负/g) || []).length, 1, '5 场里 1 负逐场标出');
+  ok(lines[3].indexOf('队友A') > 0, '第三行起是第二个队友 (按胜率降序)');
+  ok(lines[4].split('｜').length === 5, '次行固定 5 段, 一场一段');
+
+  ok(lines[5].startsWith('待定 队友C'), '排序: 72 / 68 / 45 / 32 / 无样本 (不足 5 场记待定)');
+  eq((lines[6].match(/｜/g) || []).length, 2, '只有 3 场样本的队友就只列 3 场, 不补假数据');
+  ok(lines[6].indexOf('胜 8/4/6') === 2, '3 场样本同样逐场列');
+
+  ok(lines[9].includes('无样本'), '没有任何近期记录的人写无样本');
+  ok(lines[9].startsWith('待定'), '无样本的人档位是待定');
+  eq(lines[9].indexOf('·'), -1, '无样本不占第二行');
+  ok(lines[10].includes('硬碰硬赢') && lines[10].includes('非胜率预测'), '脚注保留沙盘与免责');
+
+  // 单行兜底: 一场一个 胜9/2/7, 不能把明细丢掉
+  ok(rank.chatFlat.includes('胜8/4/6'), '单行兜底版也保留逐场明细');
+  eq(rank.chatFlat.indexOf('近5局'), -1, '不再出现"近5局 4胜1负"这种只有汇总的写法');
 
   // KDA 口径: (K+A)/D, 死 0 场不能炸成 Infinity
   const s5 = M.recent5Of({ recent: [{ win: true, k: 10, d: 0, a: 5 }, { win: false, k: 0, d: 0, a: 0 }] });
   eq(s5.n, 2, '按场次统计');
   eq(s5.wins, 1, '胜场统计');
   ok(s5.kda === 15, '死 0 场时按 max(1,D) 兜底, 不出 Infinity');
+  eq(s5.games.length, 2, '逐场明细跟着一起返回');
+  eq(s5.games[0].k, 10, '逐场保留 K');
+  eq(s5.games[1].win, false, '逐场保留胜负');
   eq(M.recent5Of({ recent: recentOf(60, 30) }).n, 5, '只取最近 5 把, 不是近 30 把');
+  eq(M.recent5Of({ recent: recentOf(60, 30) }).games.length, 5, '逐场明细同样只取 5 把');
   eq(M.recent5Of({}).n, 0, '没有 recent 字段时记 0 场');
 
-  // 预览第三列必须和聊天里的那行同源
+  // 预览必须和聊天消息同源, 否则"预览看到的"和"发出去的"对不上
   const pv = M.previewHtml(rank);
-  ok(pv.includes('近5局 4胜1负') && pv.includes('KDA 3.5'), '工具箱预览显示同样的 5 把战绩');
+  ok(pv.includes('总KDA 3.5'), '工具箱预览头行显示总 KDA');
+  ok(pv.includes('胜 8/4/6'), '工具箱预览逐场列出 5 把');
   ok(pv.includes('无样本'), '预览里无样本同样标注');
+  eq(pv.indexOf('4胜1负'), -1, '预览也不再只给汇总数字');
 }
 
 // ---- 5. 边界: 没有自己 / 没评分模块 ----
