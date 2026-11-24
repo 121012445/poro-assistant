@@ -38,11 +38,6 @@ contextBridge.exposeInMainWorld('lolAPI', {
   fullGameSettingsStatus: () => ipcRenderer.invoke('game-settings:full-status'),
   verifyFullGameSettings: () => ipcRenderer.invoke('game-settings:verify-full'),
   clearFullGameSettings: () => ipcRenderer.invoke('game-settings:clear-full'),
-  // 配置档: 多套设置快照 (单排/车队/直播…)。restore 只是把档写回当前快照, 生效要再调 apply
-  listGameSettingSlots: () => ipcRenderer.invoke('game-settings:list-slots'),
-  saveGameSettingSlot: (name) => ipcRenderer.invoke('game-settings:save-slot', name),
-  restoreGameSettingSlot: (name) => ipcRenderer.invoke('game-settings:restore-slot', name),
-  deleteGameSettingSlot: (name) => ipcRenderer.invoke('game-settings:delete-slot', name),
   // LCU WebSocket 事件流
   onLcuEvent: (cb) => { ipcRenderer.on('lcu:event', (e, d) => cb(d)); },
   onWsState: (cb) => { ipcRenderer.on('lcu:wsState', (e, d) => cb(d)); },

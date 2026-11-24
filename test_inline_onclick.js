@@ -11,7 +11,6 @@ const path = require('path');
 
 const R = f => require(path.join(__dirname, f));
 const Recent = R('renderer/js/recent-players.js');
-const Profiles = R('renderer/js/settings-profiles.js');
 const HexCross = R('renderer/js/hex-cross.js');
 const Marks = R('renderer/js/replay-marks.js');
 
@@ -50,13 +49,6 @@ function checkAttrs(html, label) {
   ok(/showMarkModal\(&quot;p-\\?&quot;?1&quot;|showMarkModal\(&quot;p-&quot;1&quot;/.test(html.replace(/\\/g, '')),
     '遭遇库: 编辑按钮把 puuid 转成了 &quot; 形式');
   ok(!/onclick="showMarkModal\("\s*,\s*"/.test(html), '遭遇库: 不再是裸 JSON.stringify 的写法');
-}
-
-// ---- 2. 配置档 应用/删除 ----
-{
-  const html = Profiles.html([{ name: NASTY, settingCount: 3, savedAt: 0 }], { exists: true });
-  const c = checkAttrs(html, '配置档');
-  ok(c >= 2, '配置档: 应用/删除都带内联事件 (' + c + ' 个)');
 }
 
 // ---- 3. 强化反查命中行 ----

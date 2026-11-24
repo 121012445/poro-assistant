@@ -2192,24 +2192,6 @@ ipcMain.handle('game-settings:clear-full', async () => {
   catch (error) { return { ok: false, error: error.message }; }
 });
 
-// 配置档: 具名保存 / 列出 / 写回快照 / 删除。写回后渲染层再调 apply-full 才生效。
-ipcMain.handle('game-settings:list-slots', async () => {
-  try { return gameSettings.listSlots(USER_DATA); }
-  catch (error) { return { ok: false, slots: [], error: error.message }; }
-});
-ipcMain.handle('game-settings:save-slot', async (e, name) => {
-  try { return gameSettings.saveSlot(USER_DATA, name); }
-  catch (error) { return { ok: false, error: error.message }; }
-});
-ipcMain.handle('game-settings:restore-slot', async (e, name) => {
-  try { return gameSettings.restoreSlot(USER_DATA, name); }
-  catch (error) { return { ok: false, error: error.message }; }
-});
-ipcMain.handle('game-settings:delete-slot', async (e, name) => {
-  try { return gameSettings.deleteSlot(USER_DATA, name); }
-  catch (error) { return { ok: false, error: error.message }; }
-});
-
 // 渲染层兜底轮询上报的阶段变化 (WS 不可用时快捷键仍能联动)
 let lastReportedPhase = null;
 let inProgressHotkeysActive = false;

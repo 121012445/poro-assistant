@@ -215,7 +215,6 @@ function switchPage(page) {
     refreshElevationNotice();
     // 分类小标签: 按 .tools-section 现算条数, 顺便把滚动位置归零
     if (typeof initToolsNav === "function") initToolsNav();
-    if (typeof PoroGsProfiles !== "undefined") PoroGsProfiles.refresh();
   }
   if (page === "hex") {
     renderHexList();
@@ -569,11 +568,6 @@ function renderRecentPlayers(query) {
     if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
   }
 }
-
-// 设置配置档 (工具箱卡片)
-function saveGsProfile() { if (typeof PoroGsProfiles !== 'undefined') PoroGsProfiles.save(); }
-function applyGsProfile(name) { if (typeof PoroGsProfiles !== 'undefined') PoroGsProfiles.apply(name); }
-function deleteGsProfile(name) { if (typeof PoroGsProfiles !== 'undefined') PoroGsProfiles.remove(name); }
 
 // 回放书签
 function addReplayMarkManual() { if (typeof PoroReplayMarks !== 'undefined') PoroReplayMarks.addManual(); }
