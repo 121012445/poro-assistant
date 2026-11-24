@@ -156,9 +156,12 @@ async function applyOpggLoadout(championId, champSession, opts) {
   const build = await lolAPI.getOpggBuild(mode, championId, position);
   if (!build || build.__error) { result.failed.push('OP.GG: ' + (build?.__error || '无数据')); return result; }
   const championName = champNumMap?.[String(championId)]?.name || ('英雄' + championId);
+  // 「召唤师技能锁定」开启时跳过 OP.GG 的技能写入, 否则两个功能会互相覆盖:
+  // 锁在选人事件里持续校正, OP.GG 在这里按推荐写一次 —— 谁后写谁赢, 表现为随机变技能。
+  const spellLocked = typeof PoroSpellLock !== 'undefined' && PoroSpellLock.enabled();
   const steps = [
     ['runes', '符文', options.runes && !o.skipRunes && build.runes, () => applyOpggRunes(build, championName)],
-    ['spells', '召唤师技能', options.spells && build.spells, () => applyOpggSpells(build)],
+    ['spells', '召唤师技能', options.spells && build.spells && !spellLocked, () => applyOpggSpells(build)],
     ['items', '装备方案', options.items && build.itemBlocks?.length, () => applyOpggItemSets(build, championId, championName)]
   ];
   for (const [key, label, enabled, run] of steps) {

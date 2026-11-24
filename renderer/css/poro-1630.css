@@ -117,6 +117,14 @@
 .ad-drift.up { color: var(--positive); } .ad-drift.down { color: var(--negative); } .ad-drift.flat { color: var(--text-muted); }
 
 
+/* ---------- 召唤师技能锁定（「锁定游戏设置」卡片内的子区块） ---------- */
+.spell-lock-box { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.spell-lock-sub { font-size: 12px; font-weight: 600; color: var(--ink-1); }
+.spell-lock-note { margin: 4px 0 2px; font-size: 10px; line-height: 1.5; color: var(--text-muted); }
+.spell-lock-row { flex-wrap: wrap; }
+.spell-lock-row label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
+.spell-lock-row .tool-select { max-width: 132px; }
+
 /* ---------- 强化反查 ---------- */
 .hx-card { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-1); }
 .hx-head { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; margin-bottom: 6px; }

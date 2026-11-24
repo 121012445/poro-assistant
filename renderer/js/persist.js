@@ -59,7 +59,7 @@ async function loadStore() {
   }
   // 迁移: 读取 localStorage 旧数据
   try {
-    const keys = ['autoAccept', 'autoBPEnabled', 'autoBPHeroes', 'autoBPRules', 'autoRune', 'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme'];
+    const keys = ['autoAccept', 'autoBPEnabled', 'autoBPHeroes', 'autoBPRules', 'autoRune', 'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme', 'spellLockOn', 'spellLockIds'];
     for (const k of keys) {
       const v = localStorage.getItem(k);
       if (v !== null && v !== '') _store[k] = v;
@@ -127,6 +127,7 @@ async function importPoroBackup() {
     'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme',
     'augmentJournal', 'autoHonor', 'autoReconnect', 'autoReturnLobby', 'autoReturnQueue',
     'benchAlert', 'benchOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
+    'spellLockOn', 'spellLockIds',
     'compliance', 'gsCameraMode', 'hexDataScope', 'includePractice', 'opggLoadout',
     'sideAnnounce', 'uiTheme', 'navCollapsed',
     'pickGuard', 'pickGuardLockSec', 'automationModeMatrix',
@@ -172,6 +173,8 @@ function loadConfig() {
     autoBPHeroes = safeParseStore('autoBPHeroes', autoBPHeroes, v => v && typeof v === 'object' && Array.isArray(v.ban) && Array.isArray(v.pick));
     autoBPRules = { ...autoBPRules, ...safeParseStore('autoBPRules', {}, v => v && typeof v === 'object' && !Array.isArray(v)) };
     if (storeGet('autoRune') === '1') { autoRuneEnabled = true; document.getElementById('autoRuneToggle').checked = true; document.getElementById('autoRuneStatus').textContent = '已开启'; document.getElementById('autoRuneStatus').style.color = 'var(--positive)'; }
+    // 召唤师技能锁定的卡片是工具箱页打开时才渲染的, 这里只刷新状态 (restoreUi 会自己读 store)
+    if (typeof PoroSpellLock !== 'undefined') PoroSpellLock.restoreUi();
     if (typeof restoreOpggLoadoutOptions === 'function') restoreOpggLoadoutOptions();
     if (storeGet('premadeNotify') === '0') { premadeNotifyOn = false; document.getElementById('premadeNotifyToggle').checked = false; document.getElementById('premadeNotifyState').textContent = '已关闭'; }
     if (storeGet('benchAlert') === '1') {

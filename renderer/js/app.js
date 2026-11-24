@@ -215,6 +215,11 @@ function switchPage(page) {
     refreshElevationNotice();
     // 分类小标签: 按 .tools-section 现算条数, 顺便把滚动位置归零
     if (typeof initToolsNav === "function") initToolsNav();
+    if (typeof PoroSpellLock !== "undefined") {
+      const box = document.getElementById("spellLockBox");
+      if (box) box.innerHTML = PoroSpellLock.html();
+      PoroSpellLock.restoreUi();
+    }
   }
   if (page === "hex") {
     renderHexList();
@@ -568,6 +573,10 @@ function renderRecentPlayers(query) {
     if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
   }
 }
+
+// 召唤师技能锁定 (工具箱卡片)
+function toggleSpellLock(on) { if (typeof PoroSpellLock !== 'undefined') PoroSpellLock.toggle(on); }
+function saveSpellLock() { if (typeof PoroSpellLock !== 'undefined') PoroSpellLock.save(); }
 
 // 回放书签
 function addReplayMarkManual() { if (typeof PoroReplayMarks !== 'undefined') PoroReplayMarks.addManual(); }

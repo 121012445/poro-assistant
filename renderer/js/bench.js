@@ -597,6 +597,8 @@ function handleChampSelectEvent(session) {
       }
     }
   }
+  // 召唤师技能锁定: 事件里持续比对, 中途被改就写回 (模块内部 1.5s 节流, 不会刷请求)
+  if (typeof PoroSpellLock !== 'undefined' && PoroSpellLock.enabled()) PoroSpellLock.run();
   if (now - _lastAutoBPTs > 1000) { _lastAutoBPTs = now; doAutoBP(); }
   // 选人保底：autoBP 先跑（它按优先级主动出手），没 hover 时才由保底补位。
   if (typeof pickGuardTick === 'function') pickGuardTick(session);

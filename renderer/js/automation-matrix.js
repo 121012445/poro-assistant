@@ -13,6 +13,7 @@
     { id: 'autoAcceptToggle', label: '自动接受' },
     { id: 'autoBPToggle', label: '自动 BP' },
     { id: 'autoRuneToggle', label: '符文与出装' },
+    { id: 'spellLockToggle', label: '技能锁定' },
     { id: 'pickGuardToggle', label: '选人保底' },
     { id: 'autoHonorToggle', label: '自动点赞' },
     { id: 'autoReconnectToggle', label: '自动重连' },
