@@ -620,7 +620,7 @@ ipcMain.handle('overlay:status', async () => ({
 //   · 可见条件不绑大乱斗备战席 —— 任何有选位环节的选人 (排位/征召) 都该看到它。
 // 内容仍由主窗口算完再推过来: 浮窗不碰 LCU, 也不重复实现一遍打分。
 let bpOverlayWindow = null;
-let bpOverlayPayload = { html: '', cnt: '', sub: '' };
+let bpOverlayPayload = { html: '', cnt: '', sub: '', filters: { region: 'kr', tier: 'all', position: 'auto', version: 'auto' }, version: '' };
 let bpOverlayVisible = false;
 const BP_OVERLAY_BOUNDS_FILE = () => path.join(USER_DATA, 'bp-overlay.json');
 const BP_OVERLAY_SIZE = { width: 466, height: 700 };
@@ -629,6 +629,30 @@ let bpProgrammaticMove = false;
 let lastBpClientRect = null;
 // 图钉：是否始终盖在客户端之上。默认钉住（和之前的行为一致），浮窗标题栏可切换。
 let bpOverlayPinned = true;
+
+// 1.6.72 筛选条状态。浮窗改完 → 主进程落盘 + 转发主窗口 → bp-advisor 重算 → 推回浮窗。
+// version 只记录展示值：OP.GG 的 /counters 不接受历史版本参数（version=14.1 实测 422），
+// 所以版本控件显示的是接口 meta.version，不会假装能切版本。
+const BP_FILTER_FILE = () => path.join(USER_DATA, 'bp-overlay-filter.json');
+const BP_FILTER_POSITIONS = ['auto', 'top', 'jungle', 'mid', 'adc', 'support'];
+const BP_FILTER_DEFAULT = { region: 'kr', tier: 'all', position: 'auto', version: 'auto' };
+function normalizeBpFilter(f) {
+  const o = f || {};
+  return {
+    region: BP_FILTER_REGIONS.includes(String(o.region || '')) ? String(o.region) : BP_FILTER_DEFAULT.region,
+    tier: BP_FILTER_TIERS.includes(String(o.tier || '')) ? String(o.tier) : BP_FILTER_DEFAULT.tier,
+    position: BP_FILTER_POSITIONS.includes(String(o.position || '')) ? String(o.position) : BP_FILTER_DEFAULT.position,
+    version: 'auto'
+  };
+}
+function loadBpFilter() {
+  try {
+    const f = JSON.parse(fs.readFileSync(BP_FILTER_FILE(), 'utf8'));
+    if (f && typeof f === 'object') return normalizeBpFilter(f);
+  } catch (e) {}
+  return Object.assign({}, BP_FILTER_DEFAULT);
+}
+let bpFilter = loadBpFilter();
 
 function loadBpOverlayBounds() {
   try {
@@ -726,7 +750,10 @@ ipcMain.handle('bp-overlay:update', async (e, payload) => {
     // 两个页签各一块内容, 任一块超长就整块丢弃 —— 宁可空着一页, 也不把超大字符串塞进 IPC
     html: rawHtml.length > BP_HTML_MAX ? '' : rawHtml,
     cnt: rawCnt.length > BP_HTML_MAX ? '' : rawCnt,
-    sub: String(p.sub || '').substring(0, 160)
+    sub: String(p.sub || '').substring(0, 160),
+    // 1.6.72: 筛选状态跟内容一起走, 浮窗重建/切页后能恢复下拉与版本显示
+    filters: normalizeBpFilter(p.filters || bpFilter),
+    version: String(p.version || '').substring(0, 20)
   };
   const payloadPhase = String(p.phase || '');
   const hasContent = !!(bpOverlayPayload.html || bpOverlayPayload.cnt);
@@ -770,6 +797,21 @@ ipcMain.handle('bp-overlay:pin', async (e, pinned) => {
   return bpOverlayPinned;
 });
 
+// 1.6.72: 浮窗改筛选 → 落盘 → 主窗口重算。主进程只做白名单校验与转发，
+// 真正的取数/打分仍在 bp-advisor 一处，浮窗不自己算。
+ipcMain.handle('bp-overlay:filter', async (e, f) => {
+  bpFilter = normalizeBpFilter(f);
+  try {
+    if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
+    fs.writeFileSync(BP_FILTER_FILE(), JSON.stringify(bpFilter));
+  } catch (err) {}
+  bpOverlayPayload.filters = Object.assign({}, bpFilter);
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+    try { mainWindow.webContents.send('bp-overlay:filter-changed', bpFilter); } catch (err) {}
+  }
+  return bpFilter;
+});
+
 ipcMain.handle('bp-overlay:status', async () => ({
   visible: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed() && bpOverlayWindow.isVisible()),
   exists: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()),
@@ -778,6 +820,8 @@ ipcMain.handle('bp-overlay:status', async () => ({
   clientRect: lastBpClientRect,
   htmlLength: bpOverlayPayload.html.length,
   cntLength: bpOverlayPayload.cnt.length,
+  filter: Object.assign({}, bpFilter),
+  version: bpOverlayPayload.version,
   winRectAvailable: winRect.isAvailable()
 }));
 
@@ -2162,25 +2206,36 @@ ipcMain.handle('opgg:champions', async () => {
 const OPGG_COUNTER_TTL_MS = 30 * 60 * 1000;
 const OPGG_COUNTER_CACHE_MAX = 400;
 const OPGG_COUNTER_POSITIONS = ['top', 'jungle', 'mid', 'adc', 'support'];
+// 1.6.72 筛选条可用的维度。region/tier 都实测对 /counters 生效：
+// 同一英雄 gold 与 all 的样本/胜率不同，global 与 KR 也是两份数据。
+// CN 不被 OP.GG 接受（见 opgg.js 注释），所以只给这些可选值。
+const BP_FILTER_REGIONS = ['kr', 'global', 'na', 'euw', 'eune', 'br', 'jp', 'lan', 'las', 'oce', 'ru', 'tr', 'vn', 'tw', 'sg'];
+const BP_FILTER_TIERS = ['all', 'iron', 'bronze', 'silver', 'gold', 'gold_plus', 'platinum', 'platinum_plus',
+  'emerald', 'emerald_plus', 'diamond', 'diamond_plus', 'master', 'master_plus', 'grandmaster', 'challenger'];
 const opggCounterCache = new Map();
-ipcMain.handle('opgg:counters', async (e, championId, position) => {
+ipcMain.handle('opgg:counters', async (e, championId, position, opts) => {
   const id = Number(championId);
   const pos = String(position || '').toLowerCase();
   if (!Number.isInteger(id) || id <= 0) return { __error: '无效的英雄 ID' };
   if (!OPGG_COUNTER_POSITIONS.includes(pos)) return { __error: '无效的位置: ' + pos };
-  const key = id + ':' + pos;
+  const f = opts || {};
+  // 未传筛选时维持老口径（KR / all），既有调用方不需要改。
+  const tier = BP_FILTER_TIERS.includes(String(f.tier || '')) ? String(f.tier) : 'all';
+  const region = BP_FILTER_REGIONS.includes(String(f.region || '')) ? String(f.region) : 'kr';
+  const key = region + '|' + tier + '|' + id + ':' + pos;
   const hit = opggCounterCache.get(key);
   if (hit && Date.now() - hit.t < OPGG_COUNTER_TTL_MS) return hit.data;
   try {
     const raw = await httpGet('lol-api-champion.op.gg',
-      '/api/KR/champions/ranked/' + id + '/' + pos + '/counters');
+      '/api/' + region + '/champions/ranked/' + id + '/' + pos + '/counters'
+      + (tier === 'all' ? '' : '?tier=' + encodeURIComponent(tier)));
     // 渲染层只吃裁剪后的形状; 脏行(play<=0 / win>play / id 越界)在这里就丢掉
     const rows = (Array.isArray(raw && raw.data) ? raw.data : [])
       .map(r => ({ championId: Number(r && r.champion_id), play: Number(r && r.play), win: Number(r && r.win) }))
       .filter(r => Number.isInteger(r.championId) && r.championId > 0 && r.championId < 10000
         && Number.isFinite(r.play) && r.play > 0
         && Number.isFinite(r.win) && r.win >= 0 && r.win <= r.play);
-    const data = { championId: id, position: pos, rows };
+    const data = { championId: id, position: pos, tier, region, rows };
     if (opggCounterCache.size >= OPGG_COUNTER_CACHE_MAX) {
       const oldest = [...opggCounterCache.entries()].sort((a, b) => a[1].t - b[1].t)[0];
       if (oldest) opggCounterCache.delete(oldest[0]);

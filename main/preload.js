@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getSummonerSpells: (v) => ipcRenderer.invoke('ddragon:getSummonerSpells', v),
   getOpgg: () => ipcRenderer.invoke('opgg:champions'),
   getOpggBench: (tier, region) => ipcRenderer.invoke('opgg:bench', tier, region),
-  getOpggCounters: (championId, position) => ipcRenderer.invoke('opgg:counters', championId, position),
+  // 1.6.72: opts = { region, tier }，不传则维持 KR/all 老口径
+  getOpggCounters: (championId, position, opts) => ipcRenderer.invoke('opgg:counters', championId, position, opts),
   getAramBalance: () => ipcRenderer.invoke('opgg:aramBalance'),
   getModeTiers: (mode) => ipcRenderer.invoke('opgg:tiers', mode),
   getOpggBuild: (mode, championId, position) => ipcRenderer.invoke('opgg:build', mode, championId, position),
@@ -140,5 +141,8 @@ contextBridge.exposeInMainWorld('lolAPI', {
   bpOverlayStatus: () => ipcRenderer.invoke('bp-overlay:status'),
   bpOverlayHide: () => ipcRenderer.invoke('bp-overlay:hide'),
   bpOverlayPin: (pinned) => ipcRenderer.invoke('bp-overlay:pin', !!pinned),
-  onBpOverlayData: (cb) => { ipcRenderer.on('bp-overlay:data', (e, d) => cb(d)); }
+  onBpOverlayData: (cb) => { ipcRenderer.on('bp-overlay:data', (e, d) => cb(d)); },
+  // 1.6.72 筛选条：浮窗提交 → 主进程落盘；主窗口收到变更 → 重算并推回
+  bpOverlayFilter: (filters) => ipcRenderer.invoke('bp-overlay:filter', filters),
+  onBpFilterChanged: (cb) => { ipcRenderer.on('bp-overlay:filter-changed', (e, d) => cb(d)); }
 });

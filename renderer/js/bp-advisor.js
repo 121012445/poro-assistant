@@ -22,6 +22,16 @@
   const RAW_TO_KEY = { TOP: 'top', JUNGLE: 'jungle', MID: 'mid', ADC: 'adc', SUPPORT: 'support' };
   const KEY_CN = { top: '上单', jungle: '打野', mid: '中单', adc: '下路', support: '辅助' };
 
+  // 1.6.72 浮窗筛选条。默认口径与老版本一致（KR / 全部段位 / 跟随我的位置），
+  // 筛选改变时清掉所有按维度缓存的 table，再拿 _lastSession 重算一帧推回去。
+  const FILTER_REGIONS = ['kr', 'global', 'na', 'euw', 'eune', 'br', 'jp', 'lan', 'las', 'oce', 'ru', 'tr', 'vn', 'tw', 'sg'];
+  const FILTER_TIERS = ['all', 'iron', 'bronze', 'silver', 'gold', 'gold_plus', 'platinum', 'platinum_plus',
+    'emerald', 'emerald_plus', 'diamond', 'diamond_plus', 'master', 'master_plus', 'grandmaster', 'challenger'];
+  const FILTER_POSITIONS = ['auto', 'top', 'jungle', 'mid', 'adc', 'support'];
+  const FILTER_DEFAULT = { region: 'kr', tier: 'all', position: 'auto', version: 'auto' };
+  let _filters = Object.assign({}, FILTER_DEFAULT);
+  let _filterVersion = '';
+
   const MIN_PLAY = 50;       // 对位样本下限
   const SAMPLE_FULL = 300;   // 样本权重封顶场次
   const LANE_WEIGHT = 1;     // 敌方同位置
@@ -405,10 +415,14 @@
 
   const _cntCache = new Map();
 
-  // 全量对位（40+ 条）走 op.gg 的对位接口；同一 (英雄,位置) 10 分钟内只拉一次。
+  // 1.6.72: 同一 (英雄,位置) 的胜率随地区/段位而变，缓存键必须带上这两个维度。
+  function filterOpts() { return { region: _filters.region, tier: _filters.tier }; }
+  function dimKey() { return _filters.region + '|' + _filters.tier; }
+
+  // 全量对位（40+ 条）走 op.gg 的对位接口；同一 (英雄,位置,地区,段位) 10 分钟内只拉一次。
   async function loadCounters(numId, pos) {
     const id = +numId;
-    const key = id + ':' + (pos || '-');
+    const key = id + ':' + (pos || '-') + '|' + dimKey();
     const hit = _cntCache.get(key);
     if (hit) {
       if (Date.now() - hit.t <= CNT_CACHE_MS) return hit.data;
@@ -417,7 +431,7 @@
     const api = root.lolAPI;
     if (!pos || !api || typeof api.getOpggCounters !== 'function') return countersOf(id);
     try {
-      const r = await api.getOpggCounters(id, pos);
+      const r = await api.getOpggCounters(id, pos, filterOpts());
       if (!r || r.__error || !Array.isArray(r.rows)) return countersOf(id);
       const data = splitCounters(r.rows, id);
       if (!data) return countersOf(id);
@@ -440,6 +454,41 @@
       if (pos && k === pos) return row.stats || null;
     }
     return first ? (first.stats || null) : null;
+  }
+
+  // 1.6.72: 段位/地区变了，概要条的胜率/登场率/禁用率也要跟着换基准。
+  // 用已有的 opgg:bench（同段位全英雄榜），不新开接口；版本也从它的 meta 拿。
+  let _benchCache = null;
+  async function benchOf() {
+    const api = root.lolAPI;
+    if (!api || typeof api.getOpggBench !== 'function') return null;
+    const key = dimKey();
+    if (_benchCache && _benchCache.key === key) return _benchCache.data;
+    try {
+      const b = await api.getOpggBench(_filters.tier, _filters.region);
+      if (!b || b.__error || !b.champions) return null;
+      _filterVersion = String(b.version || '').slice(0, 20);
+      _benchCache = { key, data: b };
+      return b;
+    } catch (e) { return null; }
+  }
+  function benchStatsOf(b, numId, pos) {
+    if (!b || !b.champions) return null;
+    const row = b.champions[String(+numId)] || b.champions[+numId];
+    if (!row) return null;
+    const st = row[String(pos || '').toUpperCase()] || row[Object.keys(row)[0]];
+    if (!st) return null;
+    const rate = v => (Number.isFinite(+v) ? (+v) / 100 : null);
+    return {
+      win_rate: rate(st.winRate), pick_rate: rate(st.pickRate), ban_rate: rate(st.banRate),
+      kda: st.kda, tier_data: { rank: st.rank || 0 }
+    };
+  }
+  async function loadStats(numId, pos) {
+    const b = await benchOf();
+    // 首页榜自带 T 级梯队，默认口径优先用它；非默认段位/地区 bench 没有 T 级但有真实统计值。
+    if (!b || (_filters.tier === 'all' && _filters.region === 'kr')) return statsOf(numId, pos);
+    return benchStatsOf(b, numId, pos) || statsOf(numId, pos);
   }
 
   // 一格 = 头像 32px + 胜率 + 样本。密度照 League Akari 的 champion-data 网格
@@ -623,6 +672,7 @@
   let _refreshing = false;
   let _pendingSession = null;
   let _lastKey = '';
+  let _lastSession = null;
 
   function el(id) { return document.getElementById(id); }
 
@@ -655,7 +705,10 @@
         cnt,
         sub: subTextOf(state),
         visible: !!(html || cnt) && overlayEnabled(),
-        phase: (typeof root._gameflowPhase === 'string' ? root._gameflowPhase : '')
+        phase: (typeof root._gameflowPhase === 'string' ? root._gameflowPhase : ''),
+        // 1.6.72: 筛选条件与数据版本跟着内容一起推，浮窗负责显示，不自己记状态
+        filters: Object.assign({}, _filters),
+        version: _filterVersion
       });
       if (r && typeof r.catch === 'function') r.catch(() => {});
     } catch (e) {}
@@ -693,13 +746,13 @@
     }
     await Promise.all(need.map(async en => {
       if (!en.pos) return;
-      const key = en.id + ':' + en.pos;
+      const key = en.id + ':' + en.pos + '|' + dimKey();
       if (_tables.has(key)) { out[key] = _tables.get(key); return; }
       const failAt = _failed.get(key);
       if (failAt && Date.now() - failAt < FAIL_RETRY_MS) return;
       if (!api || typeof api.getOpggCounters !== 'function') return;
       try {
-        const r = await api.getOpggCounters(en.id, en.pos);
+        const r = await api.getOpggCounters(en.id, en.pos, filterOpts());
         if (!r || r.__error || !Array.isArray(r.rows)) { _failed.set(key, Date.now()); return; }
         const map = {};
         for (const row of r.rows) {
@@ -713,7 +766,7 @@
     // 已缓存的也要补进 out（上面命中缓存时并没有把整张表写进去的场景由这里兜住）
     for (const en of need) {
       if (!en.pos) continue;
-      const key = en.id + ':' + en.pos;
+      const key = en.id + ':' + en.pos + '|' + dimKey();
       if (!out[key] && _tables.has(key)) out[key] = _tables.get(key);
     }
     return out;
@@ -739,6 +792,7 @@
   }
 
   async function refresh(session) {
+    _lastSession = session;   // 筛选变化后拿它重算一帧，不必等下一次选人事件
     const state = readSession(session);
     if (!state.inChampSelect) { clear(); return; }
     // 大乱斗/海斗没有选位环节，克制与阵容建议都不成立；那两个模式有自己的备战区浮窗，
@@ -795,9 +849,10 @@
       } catch (e) { reviewHints = []; }
       // 1.6.71: 对位跟"我当前选/预选的英雄 + 我的分路"走，拉全量（40+ 条）。
       const counterHeroId = state.myChampionId || state.myIntentId || 0;
-      const counterPos = state.myPosition || '';
+      // 1.6.72: 位置筛选可覆盖"自动跟随我的分路"，用来看同一英雄在别路的对位样本。
+      const counterPos = _filters.position === 'auto' ? (state.myPosition || '') : _filters.position;
       const counters = counterHeroId ? await loadCounters(counterHeroId, counterPos) : null;
-      const counterStats = counterHeroId ? statsOf(counterHeroId, counterPos) : null;
+      const counterStats = counterHeroId ? await loadStats(counterHeroId, counterPos) : null;
       const panels = buildPanels(state, picks, bans, {
         ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks,
         counters, counterHeroId, counterPos, counterStats
@@ -820,13 +875,50 @@
     }
   }
 
-  // 换版本/换会话时清缓存（英雄池与对位表都会变）
-  function reset() { _tables.clear(); _failed.clear(); _lastKey = ''; }
+  // 换版本/换会话时清缓存（英雄池与对位表都会变）。筛选选择本身跨会话保留。
+  function reset() {
+    _tables.clear(); _failed.clear(); _cntCache.clear();
+    _benchCache = null; _lastKey = '';
+  }
+
+  // ---------- 1.6.72 浮窗筛选条 ----------
+  function normalizeFilterLocal(f) {
+    const o = f || {};
+    const pick = (v, list, dflt) => list.includes(String(v || '')) ? String(v) : dflt;
+    return {
+      region: pick(o.region, FILTER_REGIONS, FILTER_DEFAULT.region),
+      tier: pick(o.tier, FILTER_TIERS, FILTER_DEFAULT.tier),
+      position: pick(o.position, FILTER_POSITIONS, FILTER_DEFAULT.position),
+      version: 'auto'
+    };
+  }
+  function applyFilters(f) {
+    const next = normalizeFilterLocal(f);
+    if (JSON.stringify(next) === JSON.stringify(_filters)) return;
+    _filters = next;
+    // 所有 table 都按地区/段位分过组，缓存键虽不冲突，但留着只是占内存。
+    reset();
+    if (_lastSession) {
+      try { const p = refresh(_lastSession); if (p && typeof p.catch === 'function') p.catch(() => {}); }
+      catch (e) {}
+    }
+  }
+  try {
+    const api = root.lolAPI;
+    if (api && typeof api.onBpFilterChanged === 'function') api.onBpFilterChanged(applyFilters);
+    if (api && typeof api.bpOverlayStatus === 'function') {
+      const p = api.bpOverlayStatus();
+      if (p && typeof p.then === 'function') {
+        p.then(s => { if (s && s.filter) applyFilters(s.filter); }).catch(() => {});
+      }
+    }
+  } catch (e) {}
 
   root.PoroBPAdvisor = {
     readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, buildPanels, cardHtml, teamPicksHtml,
-    countersOf, loadCounters, splitCounters, dataHtml, statsOf, whyText, pushOverlay, subTextOf,
-    refresh, clear, reset, showNote,
-    MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT
+    countersOf, loadCounters, splitCounters, dataHtml, statsOf, loadStats, whyText, pushOverlay, subTextOf,
+    applyFilters, normalizeFilterLocal, filterOpts, refresh, clear, reset, showNote,
+    MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT,
+    FILTER_DEFAULT, FILTER_REGIONS, FILTER_TIERS, FILTER_POSITIONS
   };
 })(typeof window !== 'undefined' ? window : this);

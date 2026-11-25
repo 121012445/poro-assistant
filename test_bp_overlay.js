@@ -185,7 +185,75 @@ const lolAPI = {
     assert.ok(preload.includes(api2), 'preload 缺 ' + api2);
   }
 
-  // ---------- 8. 页面下线与驱动 ----------
+  // ---------- 8. 1.6.72 筛选条：四项控件 + 真能驱动重算 ----------
+  for (const id of ['fRegion', 'fTier', 'fPos', 'fVer', 'fltNote']) {
+    assert.ok(ovHtml.includes('id="' + id + '"'), '浮窗筛选条缺控件 ' + id);
+  }
+  const nOpts = v => (ovHtml.match(new RegExp('<option value="' + v + '"', 'g')) || []).length;
+  assert.ok(ovJs.includes('bpOverlayFilter') && /\[fRegion, fTier, fPos\]/.test(ovJs),
+    '三个真筛选下拉 change 后要把选择交给主进程');
+  assert.ok(!/fVer\.addEventListener/.test(ovJs), '版本不可切换，不能给只读控件绑 change');
+  assert.ok(/bpOverlayStatus/.test(ovJs), '浮窗重建时要恢复已保存的筛选');
+  assert.ok(/version/.test(ovJs) && /filterNote/.test(ovJs), '要展示当前数据版本与筛选摘要');
+  assert.ok(nOpts('gold_plus') === 1 && nOpts('challenger') === 1, '段位筛选要有完整档位');
+  assert.ok(nOpts('auto') >= 2, '位置筛选要有自动项');
+
+  const seenOpts = [];
+  const benchCalls = [];
+  let filterCb = null;
+  const filterApi = {
+    getOpggCounters: async (id, pos, opts) => {
+      seenOpts.push({ id, pos, opts });
+      return { championId: id, position: pos, rows: [
+        { championId: 2, play: 800, win: 460 }, { championId: 3, play: 700, win: 300 }
+      ] };
+    },
+    getOpggBench: async (tier, region) => {
+      benchCalls.push({ tier, region });
+      return { version: '16.23', champions: { '1': { MID: { winRate: 55.5, pickRate: 12.3, banRate: 4.5, rank: 8 } } } };
+    },
+    bpOverlayUpdate: (p) => { pushes.push(p); return Promise.resolve(true); },
+    bpOverlayStatus: () => Promise.resolve({ filter: { region: 'kr', tier: 'all', position: 'auto', version: 'auto' } }),
+    onBpFilterChanged: (cb) => { filterCb = cb; }
+  };
+  pushes.length = 0;
+  const filtered = load({ lolAPI: filterApi, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
+  await filtered.api.refresh(session);
+  assert.strictEqual(JSON.stringify(seenOpts[0] && seenOpts[0].opts), JSON.stringify({ region: 'kr', tier: 'all' }),
+    '默认口径仍是 KR/全部段位');
+  assert.strictEqual(pushes[0].filters.region, 'kr', '推送要带筛选状态，浮窗才能恢复');
+  assert.strictEqual(pushes[0].version, '16.23', '版本要从 bench 的 meta 带给浮窗');
+  assert.ok(typeof filterCb === 'function', '主窗口要订阅筛选变更');
+
+  // 改段位 + 地区 + 位置：必须重新取数、重算、重推，而不是只改下拉文字
+  pushes.length = 0;
+  filterCb({ region: 'global', tier: 'gold', position: 'top', version: 'auto' });
+  await new Promise(r => setTimeout(r, 30));
+  const changed = seenOpts.find(o => o.opts && o.opts.region === 'global' && o.opts.tier === 'gold');
+  assert.ok(changed, '改筛选后必须按新地区/段位重新请求对位');
+  assert.ok(seenOpts.some(o => o.pos === 'top'), '位置筛选应覆盖"自动跟随我的分路"');
+  assert.ok(benchCalls.some(c => c.tier === 'gold' && c.region === 'global'), '概要条也要用新段位/地区的基准');
+  assert.ok(pushes.length >= 1, '改筛选后要重新推一帧');
+  const last = pushes[pushes.length - 1];
+  assert.strictEqual(last.filters.tier, 'gold', '推送里的段位要更新');
+  assert.strictEqual(last.filters.position, 'top', '推送里的位置要更新');
+  assert.ok(last.cnt.includes('55.50%'), '概要条胜率要换成新段位的统计值');
+
+  // 主进程：维度白名单、缓存分维、筛选落盘转发
+  assert.ok(/BP_FILTER_TIERS/.test(mainSrc) && /BP_FILTER_REGIONS/.test(mainSrc), '主进程要有维度白名单');
+  assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:filter'"), '主进程要接收浮窗筛选');
+  assert.ok(/bp-overlay:filter-changed/.test(mainSrc), '筛选要转发给主窗口重算');
+  assert.ok(/bp-overlay-filter\.json/.test(mainSrc), '筛选要落盘，重开后沿用');
+  assert.ok(/filter: Object\.assign\(\{}, bpFilter\)/.test(mainSrc), 'status 要返回当前筛选');
+  assert.ok(/region \+ '\|' \+ tier \+ '\|' \+ id/.test(mainSrc), '对位缓存键必须带地区与段位');
+  assert.ok(mainSrc.includes("/api/' + region + '/champions/ranked/")
+    && mainSrc.includes("'?tier=' + encodeURIComponent(tier)"), '对位请求要真的按地区/段位取数');
+  const preload2 = read('main/preload.js');
+  assert.ok(preload2.includes("invoke('bp-overlay:filter'") && preload2.includes("'bp-overlay:filter-changed'"),
+    'preload 要暴露筛选提交与变更订阅');
+  assert.ok(/getOpggCounters: \(championId, position, opts\)/.test(preload2), '对位接口要能传筛选参数');
+
+  // ---------- 9. 页面下线与驱动 ----------
   const idx = read('renderer/index.html');
   assert.ok(!/data-page="counters"/.test(idx), '导航里的克制关系项应已移除');
   assert.ok(!/id="counterLayout"/.test(idx), '克制页容器应已移除');

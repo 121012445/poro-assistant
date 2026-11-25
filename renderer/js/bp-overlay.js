@@ -10,6 +10,20 @@
   const tabData = document.getElementById('tabData');
   const tabBp = document.getElementById('tabBp');
   const pinBtn = document.getElementById('pin');
+  // 1.6.72 筛选条：浮窗只发选择，重算仍由主窗口做（这里不碰 OP.GG 也不算分）。
+  const fRegion = document.getElementById('fRegion');
+  const fTier = document.getElementById('fTier');
+  const fPos = document.getElementById('fPos');
+  const fVer = document.getElementById('fVer');
+  const fltNote = document.getElementById('fltNote');
+  const REGION_CN = { kr: '韩服 KR', global: '全球', na: '美服 NA', euw: '欧服 EUW', eune: '欧东 EUNE',
+    jp: '日服 JP', tw: '台服 TW', vn: '越南 VN', br: '巴西 BR', lan: '拉美 LAN' };
+  const TIER_CN = {
+    all: '全部段位', iron: '黑铁', bronze: '青铜', silver: '白银', gold: '黄金', gold_plus: '黄金以上',
+    platinum: '铂金', platinum_plus: '铂金以上', emerald: '翡翠', emerald_plus: '翡翠以上',
+    diamond: '钻石', diamond_plus: '钻石以上', master: '大师', master_plus: '大师以上',
+    grandmaster: '宗师', challenger: '王者'
+  };
 
   const EMPTY_DATA = '<div class="empty">进入选人并亮出英雄后，这里给出你这一路的对位数据：胜率、选禁率，以及能打谁、打不过谁。</div>';
   const EMPTY_BP = '<div class="empty">己方每个空位的候选，加上推荐 Pick / Ban。</div>';
@@ -29,11 +43,71 @@
   tabData.addEventListener('click', () => setTab('data'));
   tabBp.addEventListener('click', () => setTab('bp'));
 
+  function currentFilters() {
+    return {
+      region: fRegion ? fRegion.value : 'kr',
+      tier: fTier ? fTier.value : 'all',
+      position: fPos ? fPos.value : 'auto',
+      version: 'auto'
+    };
+  }
+  function setSelect(el, v) {
+    if (el && v && el.value !== v && [...el.options].some(o => o.value === v)) el.value = v;
+  }
+  function filterNote(f, ver) {
+    if (!fltNote) return;
+    const region = REGION_CN[f.region] || String(f.region || '').toUpperCase();
+    const tier = TIER_CN[f.tier] || String(f.tier || '全部段位');
+    const pos = f.position === 'auto' ? '跟随我的位置' :
+      ({ top: '上路', jungle: '打野', mid: '中路', adc: '下路', support: '辅助' }[f.position] || f.position);
+    fltNote.textContent = 'OP.GG · ' + region + ' · ' + tier + ' · ' + pos
+      + (ver ? ' · 版本 ' + ver : '');
+  }
+  function syncFilters(f, ver) {
+    if (!f || !fRegion || !fTier || !fPos) return;
+    setSelect(fRegion, f.region);
+    setSelect(fTier, f.tier);
+    setSelect(fPos, f.position);
+    if (fVer && ver) {
+      const opt = [...fVer.options].find(o => o.value === ver);
+      if (!opt) {
+        const o = document.createElement('option');
+        o.value = ver; o.textContent = ver;
+        fVer.insertBefore(o, fVer.firstChild);
+      }
+      fVer.value = ver;
+    }
+    filterNote(currentFilters(), ver);
+  }
+  function sendFilters() {
+    const f = currentFilters();
+    filterNote(f, fVer && fVer.value !== 'auto' ? fVer.value : '');
+    if (api && typeof api.bpOverlayFilter === 'function') {
+      try {
+        const r = api.bpOverlayFilter(f);
+        if (r && typeof r.catch === 'function') r.catch(() => {});
+      } catch (e) {}
+    }
+  }
+  for (const el of [fRegion, fTier, fPos]) {
+    if (el) el.addEventListener('change', sendFilters);
+  }
+  // 浮窗重建时先恢复已保存的选择；主进程推送的第一帧还会再同步一次。
+  if (api && typeof api.bpOverlayStatus === 'function') {
+    try {
+      const p = api.bpOverlayStatus();
+      if (p && typeof p.then === 'function') {
+        p.then(s => { if (s && s.filter) syncFilters(s.filter, s.version); }).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
   function render(data) {
     const d = data || {};
     const bp = String(d.html || '');
     const cnt = String(d.cnt || '');
     const sub = String(d.sub || '');
+    if (d.filters || d.version) syncFilters(d.filters, d.version);
 
     // 副标题可能单独变（阶段文案），正文没变就不重排 DOM
     if (sub !== lastSub) { lastSub = sub; subEl.textContent = sub || '选人助手'; }

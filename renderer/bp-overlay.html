@@ -100,6 +100,36 @@
   .tabs button:hover { color: var(--txt); background: rgba(255, 255, 255, 0.05); }
   .tabs button.on { background: var(--bg-3); color: #fff; box-shadow: 0 0 0 1px var(--line-2) inset; }
 
+  /* ---------- 1.6.72 筛选条：数据源 / 段位 / 位置 / 版本 ---------- */
+  .filters {
+    flex: 0 0 auto;
+    display: flex; gap: 5px;
+    padding: 0 8px 5px;
+  }
+  .flt { flex: 1 1 0; min-width: 0; }
+  .flt label {
+    display: block; font-size: 9px; color: var(--faint);
+    line-height: 1.1; margin: 0 0 2px 1px; letter-spacing: .04em;
+  }
+  .flt select {
+    width: 100%; height: 24px;
+    padding: 0 3px;
+    background: var(--bg-2); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 3px;
+    font-family: inherit; font-size: 10.5px;
+    outline: none; cursor: pointer;
+  }
+  .flt select:hover { border-color: var(--line-2); }
+  .flt select:focus { border-color: #5b7ea8; }
+  .flt select option { background: var(--bg-2); color: var(--txt); }
+  /* OP.GG 不提供历史版本，版本只有"当前"一项：仍是 select 的外观，
+     但改不了数值，title 里把原因说清楚，不装成能筛选。 */
+  .flt select.ro { color: var(--dim); cursor: default; }
+  .flt-note {
+    font-size: 9px; color: #6d6d75; line-height: 1.4;
+    margin: 0 9px 5px;
+  }
+
   /* ---------- 内容区 ---------- */
   .body {
     -webkit-app-region: no-drag;
@@ -275,6 +305,62 @@
       <button id="tabData" class="on" type="button">英雄数据</button>
       <button id="tabBp" type="button">选人助手</button>
     </div>
+    <div class="filters" id="filters">
+      <div class="flt">
+        <label for="fRegion">数据源</label>
+        <select id="fRegion" title="OP.GG 统计地区；国服不在 OP.GG 支持列表，用全球或韩服参考">
+          <option value="kr">韩服 KR</option>
+          <option value="global">全球</option>
+          <option value="na">美服 NA</option>
+          <option value="euw">欧服 EUW</option>
+          <option value="eune">欧东 EUNE</option>
+          <option value="jp">日服 JP</option>
+          <option value="tw">台服 TW</option>
+          <option value="vn">越南 VN</option>
+          <option value="br">巴西 BR</option>
+          <option value="lan">拉美 LAN</option>
+        </select>
+      </div>
+      <div class="flt">
+        <label for="fTier">段位</label>
+        <select id="fTier" title="按段位统计对位胜率，切换后会自动重算 BP 建议">
+          <option value="all">全部段位</option>
+          <option value="iron">黑铁</option>
+          <option value="bronze">青铜</option>
+          <option value="silver">白银</option>
+          <option value="gold">黄金</option>
+          <option value="gold_plus">黄金以上</option>
+          <option value="platinum">铂金</option>
+          <option value="platinum_plus">铂金以上</option>
+          <option value="emerald">翡翠</option>
+          <option value="emerald_plus">翡翠以上</option>
+          <option value="diamond">钻石</option>
+          <option value="diamond_plus">钻石以上</option>
+          <option value="master">大师</option>
+          <option value="master_plus">大师以上</option>
+          <option value="grandmaster">宗师</option>
+          <option value="challenger">王者</option>
+        </select>
+      </div>
+      <div class="flt">
+        <label for="fPos">位置</label>
+        <select id="fPos" title="对位数据按哪个分路统计；自动 = 跟随你当前被分配的分路">
+          <option value="auto">自动</option>
+          <option value="top">上路</option>
+          <option value="jungle">打野</option>
+          <option value="mid">中路</option>
+          <option value="adc">下路</option>
+          <option value="support">辅助</option>
+        </select>
+      </div>
+      <div class="flt">
+        <label for="fVer">版本</label>
+        <select id="fVer" class="ro" title="OP.GG 只提供当前版本数据，不开放历史版本切换">
+          <option value="auto">当前</option>
+        </select>
+      </div>
+    </div>
+    <div class="flt-note" id="fltNote">数据源 OP.GG · 当前版本加载中…</div>
     <div class="body" id="paneData"><div class="empty">进入选人并亮出英雄后，这里给出你这一路的对位数据：胜率、选禁率，以及能打谁、打不过谁。</div></div>
     <div class="body" id="paneBp" hidden><div class="empty">己方每个空位的候选，加上推荐 Pick / Ban。</div></div>
   </div>
