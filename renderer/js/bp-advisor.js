@@ -668,18 +668,18 @@
       + ' · 数据 OP.GG 韩服排位 · 只做建议，不替你点</div>';
   }
 
-  // 浮窗分两页（阵容 BP / 克制关系），所以两块内容分别产出。
+  // 浮窗两页严格分工（1.6.76）：
+  //   html = 选人助手页，只放排位 BP（根据敌我预选/已选 + OP.GG 给 pick/ban）；
+  //   cnt  = 英雄数据页，只放某个英雄的概要条 + 对位网格，任何模式都能查。
+  // 无分路（训练/盲选）没有 BP 可言 —— BP 页整块不出，浮窗靠 bpAvailable 把那个页签藏起来，
+  // 不再往 BP 页塞"没有分路分配"这类说明（那句话本身就是在讲英雄数据，会把两页搅混）。
   function buildPanels(state, picks, bans, extra) {
     const e = extra || {};
-    // 1.6.74: 无分路时 BP 页只给一句原因，英雄数据页照常出 —— 两页不能一起被 guard 切掉。
-    const note = e.noLaneNote
-      ? '<div class="bp-empty">' + esc(e.noLaneNote)
-        + (e.posGuessed ? '；英雄数据页按推断位置照常显示' : '') + '</div>'
-      : '';
+    const bpAvailable = e.bpAvailable !== false;
     return {
-      // 两页内容分开产出：html = 选人助手（阵容 BP），cnt = 英雄数据（概要条 + 对位网格）。
-      html: note || buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })),
-      cnt: dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats, e.posGuessed)
+      html: bpAvailable ? buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })) : '',
+      cnt: dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats, e.posGuessed),
+      bpAvailable
     };
   }
 
@@ -725,10 +725,14 @@
     const obj = (parts && typeof parts === 'object') ? parts : { html: String(parts || ''), cnt: '' };
     const html = String(obj.html || '');
     const cnt = String(obj.cnt || '');
+    // 1.6.76: 没有 BP 的模式（训练/盲选）显式告诉浮窗藏起"选人助手"页签。
+    // 缺省按"有 BP"处理，兼容只传字符串的旧调用（showNote 的纯说明帧）。
+    const bpAvailable = obj.bpAvailable !== false;
     try {
       const r = api.bpOverlayUpdate({
         html,
         cnt,
+        bpAvailable,
         sub: subTextOf(st),
         // 1.6.75: 主进程据此放行"phase 没到 ChampSelect 但选人会话是活的"的训练模式。
         inCs: !!(st && st.inChampSelect),
@@ -753,14 +757,19 @@
     pushOverlay('', null);
   }
 
-  function showNote(text) {
+  function showNote(text, opts) {
+    const o = opts || {};
     const html = '<div class="bp-empty">' + esc(text) + '</div>';
     const box = el('bpAdvisor');
     const body = el('bpAdvisorBody');
     if (box && body) { box.hidden = false; body.innerHTML = html; }
-    // 浮窗也要说清"为什么没内容"，否则玩家只看到一个空窗。
-    pushOverlay(html, null);
-    _lastKey = 'note:' + text;
+    // 1.6.76: 无分路模式没有 BP，说明只能落到英雄数据页；有 BP 但数据未加载的说明仍在 BP 页。
+    // 主窗口面板照旧显示这句说明（它本来就是单页的）。
+    const parts = o.noBp
+      ? { html: '', cnt: html, bpAvailable: false }
+      : { html, cnt: '', bpAvailable: true };
+    pushOverlay(parts, null);
+    _lastKey = 'note:' + text + ':' + (o.noBp ? 'data' : 'bp');
     _lastLive = _csLive;
   }
 
@@ -837,12 +846,15 @@
     // 1.6.68: 自己那路没有候选池时不一定要收面板 —— 只要己方还有空位，阵容建议仍然有用
     // (例如数据里我这路刚好没条目，但队友三路都空着)。
     const noLane = !state.myPosition && !state.openPositions.length;
-    const noLaneNote = '盲选/无分路模式没有分路分配，BP 建议只在有选位环节的模式里可用';
-    // 1.6.74: 没有英雄可分析时仍然只给说明；有英雄就按主玩位置推断一张对位表，
-    // 让英雄数据页在训练模式/盲选里也能用。这个推断位置不进 BP 打分。
+    // 1.6.76: BP 页只属于有选位环节的排位；无分路模式整页不出，说明归英雄数据页。
+    // 没有英雄可分析时仍只给一句说明；有英雄就按其主玩位置推断一张对位表喂数据页。
     const dataHeroId = state.myChampionId || state.myIntentId || 0;
     const dataPosGuess = noLane && dataHeroId ? inferPosForData(dataHeroId) : '';
-    if (noLane && !dataHeroId) { showNote(noLaneNote); return; }
+    const noBpNote = '选人并亮出英雄后，这里显示这个英雄的对位数据（BP 建议只在有选位环节的排位里提供）';
+    if (noLane && !dataHeroId) {
+      showNote(noBpNote, { noBp: true });
+      return;
+    }
     const pools = poolFor(state.myPosition);
     if (!noLane && !pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
     const key = stateKey(state);
@@ -899,13 +911,23 @@
       const panels = buildPanels(state, picks, bans, {
         ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks,
         counters, counterHeroId, counterPos, counterStats, posGuessed,
-        noLaneNote: noLane ? noLaneNote : ''
+        bpAvailable: !noLane
       });
+      // 无 BP 模式选了英雄但拿不到对位数据时，数据页也别空着
+      if (noLane && !panels.cnt) {
+        panels.cnt = '<div class="bp-empty">' + esc(noBpNote) + '</div>';
+      }
       // 主窗口面板若还在（旧布局/测试用的假 DOM）就照旧填，同时推一份给浮窗 ——
       // 两处用同一份 HTML，不会出现"面板和浮窗结论不一样"。
       const box = el('bpAdvisor');
       const body = el('bpAdvisorBody');
-      if (box && body) { body.innerHTML = panels.html; box.hidden = false; }
+      if (box && body) {
+        // 主窗口里的旧面板是单页布局：无 BP 时给一句说明；浮窗 BP 页则整页不出（两页严格分工）。
+        body.innerHTML = panels.html || (noLane
+          ? '<div class="bp-empty">盲选/无分路模式没有分路分配，BP 建议只在有选位环节的模式里可用</div>'
+          : '');
+        box.hidden = false;
+      }
       pushOverlay(panels, state);
       _lastKey = key;
       _lastLive = !!live;

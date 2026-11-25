@@ -33,12 +33,26 @@
   let lastSub = null;
   let active = 'data';
 
+  // 1.6.76: 选人助手页只属于排位（有选位环节）。训练/盲选时整个页签藏起来，
+  // 玩家看到的就是一个纯英雄数据窗，不再冒出一个讲 BP 的空页。
+  let bpAvailable = true;
+  // 1.6.76: 筛选条只属于「英雄数据」页（它是 OP.GG 对位数据的查询条件）。
+  // 「选人助手」是纯 BP 页，按当前选人会话出 pick/ban，不吃这些筛选，
+  // 所以切页时连筛选条和说明行一起收起，别让 BP 页挂着一组无效的控件。
+  const filtersEl = document.getElementById('filters');
   function setTab(name) {
-    active = name === 'bp' ? 'bp' : 'data';
+    active = name === 'bp' && bpAvailable ? 'bp' : 'data';
     tabData.className = active === 'data' ? 'on' : '';
     tabBp.className = active === 'bp' ? 'on' : '';
     paneData.hidden = active !== 'data';
     paneBp.hidden = active !== 'bp';
+    if (filtersEl) filtersEl.hidden = active !== 'data';
+    if (fltNote) fltNote.hidden = active !== 'data';
+  }
+  function applyBpAvailability(on) {
+    bpAvailable = !!on;
+    tabBp.hidden = !bpAvailable;
+    if (!bpAvailable && active === 'bp') setTab('data');
   }
   tabData.addEventListener('click', () => setTab('data'));
   tabBp.addEventListener('click', () => setTab('bp'));
@@ -109,8 +123,10 @@
     const sub = String(d.sub || '');
     if (d.filters || d.version) syncFilters(d.filters, d.version);
 
+    // 1.6.76: 有 BP 才显示"选人助手"页签。缺省 true —— 兼容还没带这个字段的旧帧。
+    applyBpAvailability(d.bpAvailable !== false);
     // 副标题可能单独变（阶段文案），正文没变就不重排 DOM
-    if (sub !== lastSub) { lastSub = sub; subEl.textContent = sub || '选人助手'; }
+    if (sub !== lastSub) { lastSub = sub; subEl.textContent = sub || (bpAvailable ? '选人助手' : '英雄数据'); }
     if (bp !== lastBp) {
       lastBp = bp;
       paneBp.innerHTML = bp || EMPTY_BP;
@@ -121,8 +137,9 @@
       paneData.innerHTML = cnt || EMPTY_DATA;
       paneData.scrollTop = 0;
     }
-    // 数据页没内容（还没亮英雄）时自动落到阵容页，别停在一页空白上
-    if (!cnt && bp && active === 'data') setTab('bp');
+    // 1.6.76: 默认且始终停在「英雄数据」页。旧版在这里写了一条
+    // "数据页没内容就自动落到 BP 页"，结果一进选人、还没亮英雄时就被弹到选人助手，
+    // 与"英雄数据是默认页"相悖。现在只有用户手动点页签才切换，推送不再改页。
   }
 
   document.getElementById('hide').addEventListener('click', () => {

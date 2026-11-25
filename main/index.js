@@ -624,7 +624,7 @@ ipcMain.handle('overlay:status', async () => ({
 //   · 可见条件不绑大乱斗备战席 —— 任何有选位环节的选人 (排位/征召) 都该看到它。
 // 内容仍由主窗口算完再推过来: 浮窗不碰 LCU, 也不重复实现一遍打分。
 let bpOverlayWindow = null;
-let bpOverlayPayload = { html: '', cnt: '', sub: '', filters: { region: 'kr', tier: 'all', position: 'auto', version: 'auto' }, version: '' };
+let bpOverlayPayload = { html: '', cnt: '', sub: '', bpAvailable: true, filters: { region: 'kr', tier: 'all', position: 'auto', version: 'auto' }, version: '' };
 let bpOverlayVisible = false;
 const BP_OVERLAY_BOUNDS_FILE = () => path.join(USER_DATA, 'bp-overlay.json');
 const BP_OVERLAY_SIZE = { width: 466, height: 700 };
@@ -755,6 +755,8 @@ ipcMain.handle('bp-overlay:update', async (e, payload) => {
     html: rawHtml.length > BP_HTML_MAX ? '' : rawHtml,
     cnt: rawCnt.length > BP_HTML_MAX ? '' : rawCnt,
     sub: String(p.sub || '').substring(0, 160),
+    // 1.6.76: 无分路模式（训练/盲选）没有 BP，浮窗据此藏起"选人助手"页签
+    bpAvailable: p.bpAvailable !== false,
     // 1.6.72: 筛选状态跟内容一起走, 浮窗重建/切页后能恢复下拉与版本显示
     filters: normalizeBpFilter(p.filters || bpFilter),
     version: String(p.version || '').substring(0, 20)
@@ -829,6 +831,7 @@ ipcMain.handle('bp-overlay:status', async () => ({
   clientRect: lastBpClientRect,
   htmlLength: bpOverlayPayload.html.length,
   cntLength: bpOverlayPayload.cnt.length,
+  bpAvailable: bpOverlayPayload.bpAvailable,
   filter: Object.assign({}, bpFilter),
   version: bpOverlayPayload.version,
   winRectAvailable: winRect.isAvailable()

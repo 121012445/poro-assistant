@@ -99,6 +99,8 @@
   }
   .tabs button:hover { color: var(--txt); background: rgba(255, 255, 255, 0.05); }
   .tabs button.on { background: var(--bg-3); color: #fff; box-shadow: 0 0 0 1px var(--line-2) inset; }
+  /* 1.6.76: 无 BP 模式（训练/盲选）藏起"选人助手"页签，只留纯英雄数据窗 */
+  .tabs button[hidden] { display: none; }
 
   /* ---------- 1.6.72 筛选条：数据源 / 段位 / 位置 / 版本 ---------- */
   .filters {
@@ -106,6 +108,9 @@
     display: flex; gap: 5px;
     padding: 0 8px 5px;
   }
+  /* 1.6.76: 选人助手(BP)页不需要 OP.GG 查询条件，随页签一起收起 */
+  .filters[hidden] { display: none; }
+  .flt-note[hidden] { display: none; }
   .flt { flex: 1 1 0; min-width: 0; }
   .flt label {
     display: block; font-size: 9px; color: var(--faint);

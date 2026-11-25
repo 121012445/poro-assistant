@@ -103,6 +103,22 @@ const lolAPI = {
   assert.ok(api.dataHtml(c, 1, 'mid', opggPosList[0].stats, true).includes('推断 · 中单'),
     '1.6.74: 无分路推出来的位置必须标注推断，不能冒充真实分路');
 
+  // 1.6.76 两页严格分工：BP 页只有 BP 内容，数据页只有英雄数据，互不串味。
+  const panels = api.buildPanels(
+    { myPosition: 'mid', ally: [], enemy: [{ id: 3, pos: 'mid' }] },
+    [{ id: 2, score: 1, whyText: 'x', edges: [], name: '维克托' }], [],
+    { counters: c, counterHeroId: 1, counterPos: 'mid', counterStats: opggPosList[0].stats, bpAvailable: true }
+  );
+  assert.ok(panels.html.includes('BP 建议') && !panels.html.includes('劣势对位'),
+    '选人助手页不能有对位网格（那是英雄数据页的内容）');
+  assert.ok(panels.cnt.includes('劣势对位') && !panels.cnt.includes('BP 建议'),
+    '英雄数据页不能有 BP 建议');
+  const noBp = api.buildPanels({ myPosition: '', ally: [], enemy: [] }, [], [],
+    { counters: c, counterHeroId: 1, counterPos: 'mid', counterStats: opggPosList[0].stats, bpAvailable: false });
+  assert.strictEqual(noBp.html, '', '无 BP 时选人助手页必须整块为空');
+  assert.strictEqual(noBp.bpAvailable, false, 'buildPanels 要明确标出无 BP');
+  assert.ok(noBp.cnt.includes('劣势对位'), '无 BP 时英雄数据页照常出');
+
   // ---------- 3. 推送：正常态 ----------
   pushes.length = 0;
   const live = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
@@ -134,13 +150,15 @@ const lolAPI = {
   assert.strictEqual(pushes[0].visible, false, '离开选人必须收起浮窗');
   assert.strictEqual(pushes[0].html, '', '收起时不应留内容');
 
-  // 盲选/无分路模式：给一句说明，但浮窗仍可见（让玩家知道为什么没内容）
+  // 盲选/无分路模式（没有英雄可分析）：说明落在英雄数据页，BP 页整块为空
   pushes.length = 0;
   await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 5 }], theirTeam: [{ cellId: 6, championId: 3 }], bans: {} }, true);
-  assert.ok(pushes.length === 1 && pushes[0].html.includes('盲选'), '无分路时要推说明文案');
+  assert.ok(pushes.length === 1 && pushes[0].cnt.includes('对位数据'), '无分路时说明要落到英雄数据页');
+  assert.strictEqual(pushes[0].html, '', '无分路时 BP 页必须为空');
+  assert.strictEqual(pushes[0].bpAvailable, false, '无分路要告诉浮窗藏起选人助手页签');
 
-  // 1.6.74/75: 训练模式 = 无分路 + 已选英雄 + gameflow phase 永远不到 ChampSelect。
-  // BP 页保留原因，英雄数据页照常出；关键是实时帧要标 csLive 才能过主进程门禁。
+  // 1.6.76: 训练模式 = 无分路 + 已选英雄 + gameflow phase 永远不到 ChampSelect。
+  // 只有英雄数据页（概要条 + 对位网格）；BP 页整块不出、页签隐藏。实时帧仍要标 csLive 过门禁。
   pushes.length = 0;
   const training = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ReadyCheck' });
   const trainingSession = {
@@ -153,7 +171,8 @@ const lolAPI = {
   assert.strictEqual(pushes[0].phase, 'ReadyCheck', '训练模式 phase 确实不是 ChampSelect');
   assert.strictEqual(pushes[0].csLive, true, '实时选人帧必须标 csLive，否则主进程会把窗挡掉');
   assert.strictEqual(pushes[0].inCs, true, '要告诉主进程会话确实在选人');
-  assert.ok(pushes[0].html.includes('盲选'), 'BP 页仍要说明没有分路分配');
+  assert.strictEqual(pushes[0].bpAvailable, false, '训练模式没有 BP，页签必须藏起来');
+  assert.strictEqual(pushes[0].html, '', 'BP 页不能塞说明，那会把两页搅成都是英雄数据');
   assert.ok(pushes[0].cnt.includes('劣势对位') && pushes[0].cnt.includes('class="cell"'),
     '训练模式英雄数据页要照常出对位网格');
   assert.ok(pushes[0].cnt.includes('推断 · 中单'), '推断位置要在数据页显式标注');
@@ -193,6 +212,21 @@ const lolAPI = {
     assert.ok(!ovJs.includes(bad), '浮窗脚本不应出现 ' + bad);
   }
   assert.ok(/bodyEl\.innerHTML = html/.test(ovJs) || /paneBp\.innerHTML = bp/.test(ovJs), '浮窗只负责把 HTML 贴进来');
+  // 1.6.76: 无 BP 模式要藏起选人助手页签，并把停在 BP 页的用户带回数据页
+  assert.ok(/applyBpAvailability\(d\.bpAvailable !== false\)/.test(ovJs), '浮窗要按 bpAvailable 切换页签可见性');
+  assert.ok(/tabBp\.hidden = !bpAvailable/.test(ovJs), '无 BP 时选人助手页签要隐藏');
+  assert.ok(/if \(!bpAvailable && active === 'bp'\) setTab\('data'\)/.test(ovJs), '页签隐藏时要自动切回英雄数据页');
+  assert.ok(/\.tabs button\[hidden\]\s*\{\s*display:\s*none/.test(ovHtml), '隐藏页签要有 CSS 兜底（button 有 display 声明）');
+  // 1.6.76: 筛选条是英雄数据页的查询条件，切到 BP 页必须一起收起
+  assert.ok(/getElementById\('filters'\)/.test(ovJs), '浮窗要拿到筛选条容器');
+  assert.ok(/filtersEl\.hidden = active !== 'data'/.test(ovJs), '切到选人助手页要隐藏筛选条');
+  assert.ok(/fltNote\.hidden = active !== 'data'/.test(ovJs), '切到选人助手页要隐藏筛选说明行');
+  assert.ok(/\.filters\[hidden\]\s*\{\s*display:\s*none/.test(ovHtml)
+    && /\.flt-note\[hidden\]\s*\{\s*display:\s*none/.test(ovHtml),
+    '筛选条/说明行要有 hidden 的 CSS 兜底（flex 容器会覆盖默认 hidden）');
+  // 1.6.76: 默认且始终停在英雄数据页，推送不能把用户自动弹到 BP 页
+  assert.ok(/let active = 'data'/.test(ovJs), '浮窗默认页必须是英雄数据');
+  assert.ok(!/!cnt && bp && bpAvailable/.test(ovJs), '数据页没内容时不能再自动跳到选人助手页');
 
   // ---------- 7. 主进程接线 ----------
   const mainSrc = read('main/index.js');
@@ -207,6 +241,8 @@ const lolAPI = {
   assert.ok(/lastReportedPhase === 'ChampSelect'/.test(mainSrc), '主进程要按阶段兜底门禁');
   assert.ok(mainSrc.includes("p.csLive === true") && mainSrc.includes('|| csLive)'),
     '1.6.75 主进程要用实时选人帧放行训练模式（phase 不到 ChampSelect）');
+  assert.ok(mainSrc.includes("bpAvailable: p.bpAvailable !== false"), '1.6.76 主进程要透传 bpAvailable 给浮窗');
+  assert.ok(/bpAvailable: bpOverlayPayload\.bpAvailable/.test(mainSrc), 'status 要暴露 bpAvailable 供自检');
   assert.ok(/'bp-overlay:data'/.test(mainSrc), '要能把内容推给浮窗');
   assert.ok(/bp-overlay\.json/.test(mainSrc), '拖拽位置要落盘，下次沿用');
 
