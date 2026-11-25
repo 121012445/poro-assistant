@@ -1,0 +1,186 @@
+'use strict';
+// 选人助手浮窗（1.6.70）：克制关系 + 阵容 BP 建议从软件内的页面搬到贴客户端的独立浮窗。
+// 这个测试守三件事：
+//   1. bp-advisor 推给浮窗的内容确实带上了克制清单，且开关关掉时可见位必须是 false；
+//   2. 浮窗页/渲染脚本本身不会被塞进任何可执行的注入面（只贴主窗口算好的 HTML）；
+//   3. 主进程窗口与 IPC 接线齐全（置顶、不抢焦点、阶段门禁、HTML 长度上限）。
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+
+const read = p => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+const src = read('renderer/js/bp-advisor.js');
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const CHAMPS = {
+  1: { id: 'Annie', name: '安妮' },
+  2: { id: 'Viktor', name: '维克托' },
+  3: { id: 'Ahri', name: '阿狸' }
+};
+const champNumMap = Object.assign({}, CHAMPS);
+const statsOf = (wr, play) => ({ win_rate: wr, play, pick_rate: 0.05, ban_rate: 0.1, tier_data: { tier: 2 } });
+const opggPosList = [
+  { championId: 1, positionKey: 'MID', position: '中单', stats: statsOf(0.50, 5000) },
+  { championId: 2, positionKey: 'MID', position: '中单', stats: statsOf(0.52, 5000) },
+  { championId: 3, positionKey: 'MID', position: '中单', stats: statsOf(0.49, 5000) }
+];
+// 1 的对位表：2 打 1 有 60%（威胁），3 打 1 只有 40%；2 的对位表里 1 是 50% → 1 是 2 的"猎物"
+const opggMap = {
+  1: { id: 1, positions: [{ name: 'MID', counters: [{ champion_id: 2, play: 600, win: 360 }, { champion_id: 3, play: 600, win: 240 }] }] },
+  2: { id: 2, positions: [{ name: 'MID', counters: [{ champion_id: 1, play: 600, win: 300 }] }] },
+  3: { id: 3, positions: [{ name: 'MID', counters: [] }] }
+};
+
+function load(opts) {
+  const o = opts || {};
+  const nodes = {};
+  const document = {
+    getElementById(id) { return nodes[id] || (nodes[id] = { id, hidden: true, innerHTML: '' }); }
+  };
+  const win = {};
+  const sandbox = {
+    console, Date, Map, Set, Promise, JSON, Number, String, Array, Object, Math,
+    escapeHtml, champNumMap, champImg: id => 'https://ddragon.leagueoflegends.com/cdn/14.1.1/img/champion/' + id + '.png',
+    opggPosList, opggMap: o.opggMap || opggMap, document, window: win
+  };
+  if (o.lolAPI) sandbox.lolAPI = o.lolAPI;
+  if (o.bpOverlayOn !== undefined) sandbox.bpOverlayOn = o.bpOverlayOn;
+  if (o.gameflowPhase !== undefined) { sandbox._gameflowPhase = o.gameflowPhase; win._gameflowPhase = o.gameflowPhase; }
+  const ctx = vm.createContext(sandbox);
+  win.lolAPI = sandbox.lolAPI;
+  vm.runInContext(src, ctx, { filename: 'bp-advisor.js' });
+  return { ctx, nodes, api: win.PoroBPAdvisor };
+}
+
+const session = {
+  localPlayerCellId: 2,
+  myTeam: [{ cellId: 2, championId: 1, assignedPosition: 'MIDDLE' }],
+  theirTeam: [{ cellId: 6, championId: 3, assignedPosition: 'MIDDLE' }],
+  actions: [], bans: { myTeamBans: [], theirTeamBans: [] }
+};
+
+const pushes = [];
+const lolAPI = {
+  getOpggCounters: async (id, pos) => ({ championId: id, position: pos, rows: [{ championId: 1, play: 800, win: 420 }] }),
+  bpOverlayUpdate: (p) => { pushes.push(p); return Promise.resolve(true); }
+};
+
+(async () => {
+  // ---------- 1. 克制清单：方向不能反 ----------
+  const { api } = load();
+  const c = api.countersOf(1);
+  assert.ok(c && c.threats.length === 2, '英雄 1 应有两个被克制对象');
+  assert.strictEqual(c.threats[0].id, 2, '被克制按胜率降序：维克托 60% 在前');
+  assert.strictEqual(Math.round(c.threats[0].wr * 100), 60, '威胁胜率应换算成 60%');
+  assert.ok(c.preys.some(t => t.id === 2), '英雄 2 的对位表里有 1 → 1 克制 2');
+  assert.strictEqual(api.countersOf(999), null, '没有 op.gg 数据的英雄应返回 null 而不是空壳');
+
+  // 样本 <50 场的不列（宁可少给，不拿小样本吹克制）
+  const tiny = {
+    9: { id: 9, positions: [{ name: 'MID', counters: [{ champion_id: 2, play: 10, win: 9 }] }] }
+  };
+  const tinyApi = load({ opggMap: tiny }).api;
+  assert.deepStrictEqual(tinyApi.countersOf(9).threats, [], '样本 10 场不该进克制清单');
+
+  // ---------- 2. 克制块渲染 ----------
+  const cntHtml = api.counterHtml(c, 1);
+  assert.ok(cntHtml.includes('被克制') && cntHtml.includes('克制（你打他们更好打）'), '两段标题都要在');
+  assert.ok(cntHtml.includes('bp-cnt-cell'), '克制项应是网格单元');
+  assert.ok(cntHtml.includes('60.0%'), '胜率要显示出来');
+  assert.ok(cntHtml.includes('https://ddragon.leagueoflegends.com'), '头像要走 CDN（浮窗 CSP 已放行）');
+  assert.strictEqual(api.counterHtml(null, 0), '', '没有数据时整块不渲染');
+
+  // ---------- 3. 推送：正常态 ----------
+  pushes.length = 0;
+  const live = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
+  await live.api.refresh(session);
+  assert.strictEqual(pushes.length, 1, '一次刷新应推一帧');
+  const p0 = pushes[0];
+  assert.strictEqual(p0.visible, true, '选人且开关打开时应可见');
+  assert.strictEqual(p0.phase, 'ChampSelect', '要带上阶段，主进程用它做兜底门禁');
+  assert.ok(p0.html.includes('BP 建议'), '推送内容应包含 BP 面板');
+  assert.ok(p0.cnt.includes('bp-cnt'), '克制关系单独一页推送（浮窗分两个页签）');
+  assert.ok(p0.cnt.includes('60.0%'), '克制页要带上对位胜率');
+  assert.ok(p0.sub.includes('中单'), '副标题应写位置');
+
+  // 同一会话重复刷新不重复推（去重由 stateKey 保证）
+  await live.api.refresh(session);
+  assert.strictEqual(pushes.length, 1, '相同会话不应重复推送');
+
+  // ---------- 4. 推送：开关关掉 ----------
+  pushes.length = 0;
+  const off = load({ lolAPI, bpOverlayOn: false, gameflowPhase: 'ChampSelect' });
+  await off.api.refresh(session);
+  assert.strictEqual(pushes[0].visible, false, '开关关掉时只能推不可见，不能自己弹出来');
+
+  // ---------- 5. 推送：离开选人 ----------
+  pushes.length = 0;
+  live.api.clear();
+  assert.strictEqual(pushes.length, 1, 'clear 应推一帧空内容');
+  assert.strictEqual(pushes[0].visible, false, '离开选人必须收起浮窗');
+  assert.strictEqual(pushes[0].html, '', '收起时不应留内容');
+
+  // 盲选/无分路模式：给一句说明，但浮窗仍可见（让玩家知道为什么没内容）
+  pushes.length = 0;
+  await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 5 }], theirTeam: [{ cellId: 6, championId: 3 }], bans: {} });
+  assert.ok(pushes.length === 1 && pushes[0].html.includes('盲选'), '无分路时要推说明文案');
+
+  // ---------- 6. 浮窗页面本体 ----------
+  const ovHtml = read('renderer/bp-overlay.html');
+  assert.ok(/id="paneBp"/.test(ovHtml) && /id="paneCnt"/.test(ovHtml), '浮窗要有两个页签容器');
+  assert.ok(/id="tabBp"/.test(ovHtml) && /id="tabCnt"/.test(ovHtml), '浮窗要有页签按钮');
+  assert.ok(/id="hide"/.test(ovHtml), '浮窗要能收起');
+  assert.ok(/js\/bp-overlay\.js/.test(ovHtml), '浮窗要引入自己的渲染脚本');
+  assert.ok(/-webkit-app-region:\s*drag/.test(ovHtml), '标题栏要可拖动');
+  for (const cls of ['.bp-card', '.bp-tp-chip', '.bp-cnt-cell', '.bp-fusion', '.bpt-brief']) {
+    assert.ok(ovHtml.includes(cls), '浮窗缺样式 ' + cls);
+  }
+  // CSP 必须放行 hero 头像，但不能再放开其它来源
+  assert.ok(/img-src[^"]*https:\/\/ddragon\.leagueoflegends\.com/.test(ovHtml), 'CSP 应放行 ddragon 头像');
+  assert.ok(!/img-src[^"]*\*/.test(ovHtml), 'CSP 不能通配图片来源');
+  assert.ok(/default-src 'none'/.test(ovHtml), '浮窗默认什么都别加载');
+
+  const ovJs = read('renderer/js/bp-overlay.js');
+  assert.ok(/onBpOverlayData/.test(ovJs), '渲染脚本要订阅主进程推送');
+  assert.ok(/bpOverlayHide/.test(ovJs), '渲染脚本要能收起');
+  for (const bad of ['eval(', 'new Function', 'require(', 'innerHTML = html']) {
+    // innerHTML 只允许贴主窗口算好的块，不允许在浮窗里再拼逻辑
+    if (bad === 'innerHTML = html') continue;
+    assert.ok(!ovJs.includes(bad), '浮窗脚本不应出现 ' + bad);
+  }
+  assert.ok(/bodyEl\.innerHTML = html/.test(ovJs) || /paneBp\.innerHTML = bp/.test(ovJs), '浮窗只负责把 HTML 贴进来');
+
+  // ---------- 7. 主进程接线 ----------
+  const mainSrc = read('main/index.js');
+  assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:update'"), '主进程要有 bp-overlay:update');
+  assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:status'"), '主进程要有 status');
+  assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:hide'"), '主进程要有 hide');
+  assert.ok(/width:\s*372,\s*height:\s*560/.test(mainSrc), '浮窗尺寸应为 372x560');
+  assert.ok(/BP_HTML_MAX/.test(mainSrc), '推送内容要有长度上限');
+  assert.ok(/win\.showInactive\(\)/.test(mainSrc), '显示浮窗不能抢客户端焦点');
+  assert.ok(/setAlwaysOnTop\(true, 'screen-saver'\)/.test(mainSrc), '要压过客户端 window 层级');
+  assert.ok(/lastReportedPhase === 'ChampSelect'/.test(mainSrc), '主进程要按阶段兜底门禁');
+  assert.ok(/'bp-overlay:data'/.test(mainSrc), '要能把内容推给浮窗');
+  assert.ok(/bp-overlay\.json/.test(mainSrc), '拖拽位置要落盘，下次沿用');
+
+  const preload = read('main/preload.js');
+  for (const api2 of ["invoke('bp-overlay:update'", "invoke('bp-overlay:status'", "invoke('bp-overlay:hide'", "'bp-overlay:data'"]) {
+    assert.ok(preload.includes(api2), 'preload 缺 ' + api2);
+  }
+
+  // ---------- 8. 页面下线与驱动 ----------
+  const idx = read('renderer/index.html');
+  assert.ok(!/data-page="counters"/.test(idx), '导航里的克制关系项应已移除');
+  assert.ok(!/id="counterLayout"/.test(idx), '克制页容器应已移除');
+  assert.ok(/id="bpOverlayToggle"/.test(idx), '工具箱要有开关');
+  const benchSrc = read('renderer/js/bench.js');
+  assert.ok(/bp\.refresh\(session\)/.test(benchSrc), '选人 tick 要驱动刷新');
+  const hexSrc = read('renderer/js/hex.js');
+  assert.ok(!/calcCounterData/.test(hexSrc), 'hex.js 里的旧克制实现应已删除（只留 bp-advisor 一份）');
+  const liveSrc = read('renderer/js/live.js');
+  assert.ok(/bpApi\.countersOf\(/.test(liveSrc), '选人克制提醒应改用 PoroBPAdvisor.countersOf');
+  const evSrc = read('renderer/js/lcu-events.js');
+  assert.ok(/PoroBPAdvisor\?\.clear\(\)/.test(evSrc), '离开选人要主动收起浮窗');
+
+  console.log('选人助手浮窗测试通过');
+})().catch(e => { console.error(e); process.exitCode = 1; });

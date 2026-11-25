@@ -2394,7 +2394,10 @@ let _counterHintKey = '';
 function updateChampSelectCounterHint(data) {
   if (window._gameflowPhase !== 'ChampSelect') return;
   const area = document.getElementById('liveGameArea');
-  if (!area || typeof calcCounterData !== 'function') return;
+  // 1.6.70: 克制数据只剩一个来源 —— bp-advisor 的 countersOf（克制页删掉后
+  // hex.js 那份实现一并移除，两处各算一套迟早会不一致）。
+  const bpApi = window.PoroBPAdvisor;
+  if (!area || !bpApi || typeof bpApi.countersOf !== 'function') return;
   let strip = document.getElementById('csCounterHint');
   try {
     const me = data.find(p => p.puuid && p.puuid === window._myPuuid);
@@ -2411,7 +2414,7 @@ function updateChampSelectCounterHint(data) {
     if (key === _counterHintKey && strip) return;
     _counterHintKey = key;
     ensureChampMap();
-    const cData = calcCounterData(myChampId);
+    const cData = bpApi.countersOf(myChampId);
     const pick = list => (list || [])
       .filter(t => enemies.includes(+t.id))
       .slice(0, 4)

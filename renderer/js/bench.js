@@ -222,6 +222,10 @@ async function _benchLoadHexWinRates(ids) {
   benchRenderSwapButtons();
 }
 
+// 选人助手浮窗 (克制关系 + 阵容 BP 建议)。1.6.70 起软件内的克制页下线，全交给浮窗。
+// 默认开：它替代的就是原来那个页面，默认关会让人觉得功能消失了。
+let bpOverlayOn = true;
+
 // 浮窗只认得三个语义色类; text-muted 之类的主题变量名传过去会失效, 一律降级为空。
 function _benchOverlayColorToClass(colorKey) {
   return (colorKey === 'positive' || colorKey === 'negative' || colorKey === 'accent') ? colorKey : '';
@@ -288,6 +292,27 @@ function toggleBenchOverlay(on) {
   _benchOverlayKey = '';   // 强制推一帧: 开→立刻出现, 关→立刻收起
   _benchOverlaySync();
   toolMsg(on ? '选人浮窗已开启（进入大乱斗/海斗选人时浮在客户端旁边）' : '选人浮窗已关闭');
+}
+
+// 选人助手浮窗开关。关掉时下一次选人事件就会把窗收起来（bp-advisor 会推 visible:false），
+// 不需要等离开选人。
+function _bpOverlayStateText() {
+  const el = document.getElementById('bpOverlayState');
+  if (el) el.textContent = bpOverlayOn ? '已开启（选人时浮在客户端旁边）' : '已关闭';
+}
+function toggleBpOverlay(on) {
+  bpOverlayOn = !!on;
+  storeSet('bpOverlay', on ? '1' : '0');
+  _bpOverlayStateText();
+  // 立刻推一帧，不用等下一次选人事件
+  const bp = window.PoroBPAdvisor;
+  if (bp) {
+    if (!on && typeof bp.clear === 'function') bp.clear();
+    else if (typeof bp.refresh === 'function' && _benchLastSession) {
+      try { Promise.resolve(bp.refresh(_benchLastSession)).catch(() => {}); } catch (e) {}
+    }
+  }
+  toolMsg(on ? '选人助手浮窗已开启（选人时显示克制关系与 BP 建议）' : '选人助手浮窗已关闭');
 }
 
 // 诊断行: 让用户一眼看出各数据源到底有没有拿到 (真机排查"为什么没按钮"的唯一手段)
@@ -613,7 +638,15 @@ function handleChampSelectEvent(session) {
     const mySlot = session.myTeam.find(p => p.puuid === window._myPuuid);
     if (mySlot && mySlot.championId > 0) doAutoRune(mySlot.championId, session);
   }
-  if (document.querySelector(".page.active")?.id === "page-counters") updateCounterClientPick();
+  // 选人助手浮窗：每轮选人事件直接拿这份 session 重算（bp-advisor 内部按会话 key 去重，
+  // 不会每次都发请求）。1.6.70 起不再依赖"克制页有没有打开"——页面已经下线了。
+  try {
+    const bp = window.PoroBPAdvisor;
+    if (bp && typeof bp.refresh === 'function') {
+      const p = bp.refresh(session);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch (e) {}
 }
 // 组队提示: 根据近期共同对局推断，见 inferPremadeGroups / announceInferredPremades。
 let _premadeNotifiedFor = '';

@@ -613,6 +613,161 @@ ipcMain.handle('overlay:status', async () => ({
   winRectAvailable: winRect.isAvailable()
 }));
 
+// ---------- 选人助手浮窗 (阵容 BP 建议 + 克制关系) ----------
+// 与备战区浮窗同构: 无边框置顶、贴客户端外侧、拖拽位置落盘、showInactive 不抢焦点。
+// 差别只有两点:
+//   · 内容体量大得多 (己方阵容逐位候选 + Pick/Ban + 克制网格), 所以窗口是 372x560;
+//   · 可见条件不绑大乱斗备战席 —— 任何有选位环节的选人 (排位/征召) 都该看到它。
+// 内容仍由主窗口算完再推过来: 浮窗不碰 LCU, 也不重复实现一遍打分。
+let bpOverlayWindow = null;
+let bpOverlayPayload = { html: '', cnt: '', sub: '' };
+let bpOverlayVisible = false;
+const BP_OVERLAY_BOUNDS_FILE = () => path.join(USER_DATA, 'bp-overlay.json');
+const BP_OVERLAY_SIZE = { width: 372, height: 560 };
+const BP_HTML_MAX = 60000;         // 推送的 HTML 上限, 防止渲染层失控时把 IPC 撑爆
+let bpProgrammaticMove = false;
+let lastBpClientRect = null;
+
+function loadBpOverlayBounds() {
+  try {
+    const b = JSON.parse(fs.readFileSync(BP_OVERLAY_BOUNDS_FILE(), 'utf8'));
+    if (b && ['x', 'y', 'width', 'height'].every(k => Number.isFinite(b[k]))) return b;
+  } catch (e) {}
+  return null;
+}
+
+function saveBpOverlayBounds() {
+  if (!bpOverlayWindow || bpOverlayWindow.isDestroyed()) return;
+  try {
+    if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
+    fs.writeFileSync(BP_OVERLAY_BOUNDS_FILE(), JSON.stringify(bpOverlayWindow.getBounds()));
+  } catch (e) {}
+}
+
+function bpOverlayBoundsForShow() {
+  const saved = loadBpOverlayBounds();
+  let clientRect = null;
+  try { clientRect = winRect.getLeagueClientRect(); } catch (e) { clientRect = null; }
+  lastBpClientRect = clientRect;
+  let workArea = null;
+  try {
+    const display = clientRect ? electronScreen.getDisplayMatching(clientRect) : electronScreen.getPrimaryDisplay();
+    if (display && display.workArea) workArea = display.workArea;
+  } catch (e) {}
+  if (!workArea) {
+    let wa = { x: 0, y: 0, width: 1280, height: 720 };
+    try { wa = electronScreen.getPrimaryDisplay().workArea; } catch (e) {}
+    return overlayPosition.defaultOverlayBounds(wa, BP_OVERLAY_SIZE);
+  }
+  return overlayPosition.computeOverlayBounds({ clientRect, workArea, size: BP_OVERLAY_SIZE, saved });
+}
+
+function applyBpOverlayBounds(win, bounds) {
+  bpProgrammaticMove = true;
+  try { win.setBounds(bounds); } catch (e) {}
+  setTimeout(() => { bpProgrammaticMove = false; }, 500);
+}
+
+function pushBpOverlayData() {
+  if (!bpOverlayWindow || bpOverlayWindow.isDestroyed()) return;
+  try { bpOverlayWindow.webContents.send('bp-overlay:data', bpOverlayPayload); } catch (e) {}
+}
+
+function createBpOverlayWindow() {
+  if (bpOverlayWindow && !bpOverlayWindow.isDestroyed()) return bpOverlayWindow;
+  const bounds = bpOverlayBoundsForShow();
+  bpOverlayWindow = new BrowserWindow(Object.assign({}, bounds, {
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    alwaysOnTop: true,
+    title: 'Poro 选人助手',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: !rendererCompatActive,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js'),
+      devTools: !app.isPackaged
+    }
+  }));
+  // 跟备战区浮窗同一层级: 只有 screen-saver 才稳盖在客户端之上
+  bpOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  try { bpOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
+  bpOverlayWindow.loadFile(path.join(__dirname, '..', 'renderer', 'bp-overlay.html'));
+  bpOverlayWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  bpOverlayWindow.webContents.on('did-finish-load', pushBpOverlayData);
+  bpOverlayWindow.webContents.on('did-fail-load', (e, code, desc) => logErr('[BP-OVERLAY LOAD FAILED] ' + code + ' ' + desc));
+  bpOverlayWindow.on('moved', () => { if (!bpProgrammaticMove) saveBpOverlayBounds(); });
+  bpOverlayWindow.on('closed', () => {
+    bpOverlayWindow = null;
+    bpOverlayVisible = false;
+  });
+  return bpOverlayWindow;
+}
+
+// 渲染层每次重算完 BP/克制内容后调用。主进程只做形状校验与阶段门禁 ——
+// 内容对不对是 bp-advisor 的事, 这里只保证"不该显示的时候一定不显示"。
+ipcMain.handle('bp-overlay:update', async (e, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  const p = payload || {};
+  const rawHtml = typeof p.html === 'string' ? p.html : '';
+  const rawCnt = typeof p.cnt === 'string' ? p.cnt : '';
+  bpOverlayPayload = {
+    // 两个页签各一块内容, 任一块超长就整块丢弃 —— 宁可空着一页, 也不把超大字符串塞进 IPC
+    html: rawHtml.length > BP_HTML_MAX ? '' : rawHtml,
+    cnt: rawCnt.length > BP_HTML_MAX ? '' : rawCnt,
+    sub: String(p.sub || '').substring(0, 160)
+  };
+  const payloadPhase = String(p.phase || '');
+  const hasContent = !!(bpOverlayPayload.html || bpOverlayPayload.cnt);
+  const want = !!p.visible && hasContent
+    && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
+  try {
+    logErr('[BP-OVERLAY] want=' + want + ' visible=' + !!p.visible
+      + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase
+      + ' html=' + bpOverlayPayload.html.length + ' cnt=' + bpOverlayPayload.cnt.length
+      + ' win=' + !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()));
+  } catch (e2) {}
+  if (want) {
+    const win = createBpOverlayWindow();
+    bpOverlayVisible = true;
+    applyBpOverlayBounds(win, bpOverlayBoundsForShow());
+    if (!win.isVisible()) win.showInactive();
+    pushBpOverlayData();
+  } else if (bpOverlayWindow && !bpOverlayWindow.isDestroyed() && bpOverlayWindow.isVisible()) {
+    bpOverlayVisible = false;
+    bpOverlayWindow.hide();
+  } else {
+    bpOverlayVisible = false;
+  }
+  return true;
+});
+
+ipcMain.handle('bp-overlay:hide', async (e) => {
+  if (!bpOverlayWindow || bpOverlayWindow.isDestroyed() || e.sender.id !== bpOverlayWindow.webContents.id) return false;
+  bpOverlayWindow.hide();
+  bpOverlayVisible = false;
+  return true;
+});
+
+ipcMain.handle('bp-overlay:status', async () => ({
+  visible: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed() && bpOverlayWindow.isVisible()),
+  exists: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()),
+  bounds: (bpOverlayWindow && !bpOverlayWindow.isDestroyed()) ? bpOverlayWindow.getBounds() : null,
+  clientRect: lastBpClientRect,
+  htmlLength: bpOverlayPayload.html.length,
+  cntLength: bpOverlayPayload.cnt.length,
+  winRectAvailable: winRect.isAvailable()
+}));
+
 // ---------- 对局内强化识别与推荐浮层 ----------
 // 与选人浮窗分开：前者贴 RCLIENT 并可点击，强化浮层贴 RiotWindowClass、完全穿透鼠标。
 let augmentOverlayWindow = null;

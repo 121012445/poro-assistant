@@ -127,7 +127,7 @@ async function importPoroBackup() {
     'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme',
     'dutyLabels',
     'augmentJournal', 'autoHonor', 'autoReconnect', 'autoReturnLobby', 'autoReturnQueue',
-    'benchAlert', 'benchOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
+    'benchAlert', 'benchOverlay', 'bpOverlay', 'chatLock', 'chatLockValue', 'chatStatusMessage',
     'spellLockOn', 'spellLockIds',
     'compliance', 'gsCameraMode', 'hexDataScope', 'includePractice', 'opggLoadout',
     'sideAnnounce', 'uiTheme', 'navCollapsed',
@@ -198,6 +198,13 @@ function loadConfig() {
       benchOverlayOn = true;
       const bo = document.getElementById('benchOverlayToggle');
       if (bo) bo.checked = true;
+    }
+    // 选人助手浮窗默认开（它替代了已下线的克制关系页），只有用户明确关过才关。
+    bpOverlayOn = storeGet('bpOverlay') !== '0';
+    {
+      const bp = document.getElementById('bpOverlayToggle');
+      if (bp) bp.checked = bpOverlayOn;
+      if (typeof _bpOverlayStateText === 'function') _bpOverlayStateText();
     }
     blacklist = safeParseStore('blacklist', blacklist, Array.isArray);
     // 遭遇记录由 loadEncounters 统一迁移和校验，避免这里先按旧格式重复载入。

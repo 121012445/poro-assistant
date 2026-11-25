@@ -300,12 +300,10 @@
   }
 
   // ---------- 渲染 ----------
-  function cardHtml(item, kind) {
-    const key = champKeyOf(item.id);
-    if (!key) return '';
-    const name = esc(champName(item.id));
+  // 一张卡片的"依据"文案。面板 HTML 与浮窗 HTML 共用同一段，
+  // 免得同一个候选在主窗口和浮窗里给出两种说法。
+  function whyText(item, kind) {
     let why = '';
-    let scoreText = sign(item.score);
     if (kind === 'pick') {
       const best = item.edges[0];
       const bits = [];
@@ -317,23 +315,35 @@
       bits.push('自身 ' + (item.base * 100).toFixed(1) + '%');
       if (item.missing) bits.push(item.missing + ' 人无对位样本');
       why = bits.join(' · ');
-      // 没有任何对位样本时：如果这手是靠"补我方缺口"进来的，就把补位后的总分显示出来，
-      // 否则显示「无对位样本」——那才是这张卡的真实依据。
-      if (!best && !item.edges.length) scoreText = item.fit ? sign(item.total) : '无对位样本';
-      else if (item.fit) scoreText = sign(item.total);
     } else if (item.basis === 'counter') {
-      // ban 的分数是" ban 优先级", 不是胜率差 —— 不带正负号, 免得看成 +7% 优势
-      scoreText = item.score.toFixed(1);
       why = '克制你 ' + (50 + item.delta).toFixed(1) + '% · 样本 ' + item.play;
     } else if (item.basis === 'intent') {
-      scoreText = item.score.toFixed(1);
       const top = item.hits && item.hits[0];
       why = '克制队友 ' + esc(item.forName || '') + (top ? ' ' + (top.wr * 100).toFixed(1) + '%' : '')
         + (item.hits && item.hits.length > 1 ? ' · 还克 ' + esc(champName(item.hits[1].forId)) : '');
     } else {
-      scoreText = item.score.toFixed(1);
       why = '版本强势 ' + (50 + item.delta).toFixed(1) + '% · ban ' + ((item.banRate || 0) * 100).toFixed(1) + '%';
     }
+    return why;
+  }
+
+  function cardHtml(item, kind) {
+    const key = champKeyOf(item.id);
+    if (!key) return '';
+    const name = esc(champName(item.id));
+    let scoreText = sign(item.score);
+    if (kind === 'pick') {
+      // 没有任何对位样本时：如果这手是靠"补我方缺口"进来的，就把补位后的总分显示出来，
+      // 否则显示「无对位样本」——那才是这张卡的真实依据。
+      if (!item.edges.length) scoreText = item.fit ? sign(item.total) : '无对位样本';
+      else if (item.fit) scoreText = sign(item.total);
+    } else if (item.basis === 'counter') {
+      // ban 的分数是" ban 优先级", 不是胜率差 —— 不带正负号, 免得看成 +7% 优势
+      scoreText = item.score.toFixed(1);
+    } else {
+      scoreText = item.score.toFixed(1);
+    }
+    const why = whyText(item, kind);
     const cls = kind === 'pick' ? (item.score >= 0 ? 'pos' : 'neg') : 'ban';
     return '<div class="bp-card" title="' + esc(why) + '">'
       + '<img class="bp-icon" src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" loading="lazy" alt="">'
@@ -342,6 +352,79 @@
       + '<div class="bp-why">' + why + '</div>'
       + '</div></div>';
   }
+
+  // ---------- 克制关系 ----------
+  // 直接用 op.gg 首页数据里每个位置自带的 counters，不需要额外请求。
+  // 1.6.70: 从 hex.js 的 calcCounterData 迁过来 —— 克制页下线后浮窗是唯一消费者，
+  // 留两份实现迟早会一处改了另一处忘。
+  function countersOf(numId) {
+    const id = +numId;
+    const map = (typeof opggMap !== 'undefined' && opggMap) ? opggMap : null;
+    if (!map || !id || !map[id]) return null;
+    const norm = v => (typeof normalizeChampId === 'function'
+      ? normalizeChampId(v) : (+v >= 60000 ? +v - 60000 : +v));
+    const add = (bucket, cid, ct) => {
+      if (!bucket[cid]) bucket[cid] = { id: cid, play: 0, win: 0 };
+      bucket[cid].play += Number(ct && ct.play) || 0;
+      bucket[cid].win += Number(ct && ct.win) || 0;
+    };
+    const threats = {};
+    for (const pos of (map[id].positions || [])) {
+      for (const ct of (pos.counters || [])) {
+        const cid = norm(ct.champion_id);
+        if (cid === id) continue;
+        add(threats, cid, ct);
+      }
+    }
+    const preys = {};
+    for (const ch of Object.values(map)) {
+      if (!ch || +ch.id === id) continue;
+      for (const pos of (ch.positions || [])) {
+        for (const ct of (pos.counters || [])) {
+          if (norm(ct.champion_id) === id) add(preys, +ch.id, ct);
+        }
+      }
+    }
+    const top = bucket => Object.values(bucket)
+      .filter(t => t.play >= MIN_PLAY)
+      .map(t => ({ ...t, wr: t.win / t.play }))
+      .sort((a, b) => b.wr - a.wr || b.play - a.play)
+      .slice(0, 8);
+    return { threats: top(threats), preys: top(preys) };
+  }
+
+  function counterCells(rows) {
+    return (rows || []).map(t => {
+      const key = champKeyOf(t.id);
+      if (!key) return '';
+      return '<div class="bp-cnt-cell" title="' + esc(champName(t.id) + ' · 样本 ' + t.play) + '">'
+        + '<img src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" loading="lazy" alt="">'
+        + '<span class="nm">' + esc(champName(t.id)) + '</span>'
+        + '<span class="w ' + (t.wr >= 0.5 ? 'pos' : 'neg') + '">' + (t.wr * 100).toFixed(1) + '%</span>'
+        + '</div>';
+    }).join('');
+  }
+
+  function counterHtml(counters, myId) {
+    if (!counters) return '';
+    const key = myId ? champKeyOf(myId) : '';
+    const hero = key
+      ? '<div class="bp-cnt-hero">'
+        + '<img src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" alt="">'
+        + '<div><div class="n">' + esc(champName(myId)) + '</div>'
+        + '<div class="t">对位胜率来自 OP.GG 韩服排位 · 样本 &lt;' + MIN_PLAY + ' 场不列</div></div>'
+        + '</div>'
+      : '';
+    const threatCells = counterCells(counters.threats);
+    const preyCells = counterCells(counters.preys);
+    if (!threatCells && !preyCells) return '';
+    return '<div class="bp-cnt">' + hero
+      + (threatCells ? '<div class="bp-cnt-title">被克制（他们打你更好打）</div><div class="bp-cnt-grid">' + threatCells + '</div>' : '')
+      + (preyCells ? '<div class="bp-cnt-title">克制（你打他们更好打）</div><div class="bp-cnt-grid">' + preyCells + '</div>' : '')
+      + '</div>';
+  }
+
+
 
   // 1.6.68 阵容建议里每个候选的一句话依据（塞进 title，不占行宽）
   function tpWhy(item) {
@@ -434,6 +517,15 @@
       + ' · 数据 OP.GG 韩服排位 · 只做建议，不替你点</div>';
   }
 
+  // 浮窗分两页（阵容 BP / 克制关系），所以两块内容分别产出。
+  function buildPanels(state, picks, bans, extra) {
+    const e = extra || {};
+    return {
+      html: buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })),
+      cnt: counterHtml(e.counters, e.counterHeroId)
+    };
+  }
+
   // ---------- 运行时 ----------
   const _tables = new Map();
   // 失败也记时间戳: 网络抖一次就永久放弃这对英雄的话, 整局面板会静默变空。
@@ -441,22 +533,60 @@
   const _failed = new Map();
   const FAIL_RETRY_MS = 60000;
   let _refreshing = false;
+  let _pendingSession = null;
   let _lastKey = '';
 
   function el(id) { return document.getElementById(id); }
+
+  // ---------- 浮窗推送 ----------
+  // 只推"算好的结果"，浮窗那边不做任何判断。开关由工具箱的 bpOverlayOn 决定:
+  // 关掉时也照常推送（便宜），只是可见位传 false —— 这样再打开时不用等下一次选人事件。
+  function overlayEnabled() {
+    try { return typeof bpOverlayOn === 'undefined' ? true : !!bpOverlayOn; } catch (e) { return true; }
+  }
+
+  function subTextOf(state) {
+    const bits = [];
+    if (state && state.myPosition) bits.push(KEY_CN[state.myPosition] || '');
+    if (state && state.enemy && state.enemy.length) bits.push('敌方已亮 ' + state.enemy.length);
+    if (state && state.ally && state.ally.length) bits.push('我方已亮 ' + state.ally.length);
+    if (state && state.myAction) bits.push(state.myAction === 'ban' ? '轮到你 ban' : '轮到你选');
+    return bits.filter(Boolean).join(' · ');
+  }
+
+  // parts: { html, cnt } 或一段纯 HTML（说明文案用）
+  function pushOverlay(parts, state) {
+    const api = root.lolAPI;
+    if (!api || typeof api.bpOverlayUpdate !== 'function') return;
+    const obj = (parts && typeof parts === 'object') ? parts : { html: String(parts || ''), cnt: '' };
+    const html = String(obj.html || '');
+    const cnt = String(obj.cnt || '');
+    try {
+      const r = api.bpOverlayUpdate({
+        html,
+        cnt,
+        sub: subTextOf(state),
+        visible: !!(html || cnt) && overlayEnabled(),
+        phase: (typeof root._gameflowPhase === 'string' ? root._gameflowPhase : '')
+      });
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    } catch (e) {}
+  }
 
   function clear() {
     const box = el('bpAdvisor');
     if (box) box.hidden = true;
     _lastKey = '';
+    pushOverlay('', null);
   }
 
   function showNote(text) {
+    const html = '<div class="bp-empty">' + esc(text) + '</div>';
     const box = el('bpAdvisor');
     const body = el('bpAdvisorBody');
-    if (!box || !body) return;
-    box.hidden = false;
-    body.innerHTML = '<div class="bp-empty">' + esc(text) + '</div>';
+    if (box && body) { box.hidden = false; body.innerHTML = html; }
+    // 浮窗也要说清"为什么没内容"，否则玩家只看到一个空窗。
+    pushOverlay(html, null);
     _lastKey = 'note:' + text;
   }
 
@@ -523,6 +653,10 @@
   async function refresh(session) {
     const state = readSession(session);
     if (!state.inChampSelect) { clear(); return; }
+    // 大乱斗/海斗没有选位环节，克制与阵容建议都不成立；那两个模式有自己的备战区浮窗，
+    // 这里再弹一个"没有分路分配"的空窗只是噪声。
+    const mode = modeOfSession();
+    if (mode === 'aram' || mode === 'mayhem') { clear(); return; }
     // 1.6.68: 自己那路没有候选池时不一定要收面板 —— 只要己方还有空位，阵容建议仍然有用
     // (例如数据里我这路刚好没条目，但队友三路都空着)。
     if (!state.myPosition && !state.openPositions.length) {
@@ -533,7 +667,9 @@
     if (!pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
     const key = stateKey(state);
     if (key === _lastKey) return;
-    if (_refreshing) return;
+    // 拉对位表是异步的。旧版遇到"刷新中又来新事件"直接 return，那一步状态就丢了 ——
+    // 浮窗成了唯一出口后，丢一步就等于选人末尾停在上一版阵容。这里记下来，本轮结束后补跑。
+    if (_refreshing) { _pendingSession = session; return; }
     _refreshing = true;
     try {
       // 我方视角：队友已锁/预选的结构（把自己排除 —— 我正在考虑的这手还没定，
@@ -561,9 +697,6 @@
       // 所以"补前排/缺物伤"这类缺口对每个位置都成立，不会只照顾我这一路。
       const posPicks = teamPicks(state, tables, { fitOf, perPos: 3 });
       const bans = recommendBans(state, tables, { intents: team ? team.intents : [] });
-      const box = el('bpAdvisor');
-      const body = el('bpAdvisorBody');
-      if (!box || !body) return;
       // 复盘→BP：读取最近一局沉淀的「下局补位」信号，作为融合的第四源。
       let reviewHints = [];
       try {
@@ -572,19 +705,37 @@
           reviewHints = bridge.adopt(bridge.load({ get: k => storeGet(k) }));
         }
       } catch (e) { reviewHints = []; }
-      body.innerHTML = buildHtml(state, picks, bans, {
-        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks
+      // 1.6.70: 克制关系跟着我当前选/预选的英雄走。没选人时整块不渲染。
+      const counterHeroId = state.myChampionId || state.myIntentId || 0;
+      const counters = counterHeroId ? countersOf(counterHeroId) : null;
+      const panels = buildPanels(state, picks, bans, {
+        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks,
+        counters, counterHeroId
       });
-      box.hidden = false;
+      // 主窗口面板若还在（旧布局/测试用的假 DOM）就照旧填，同时推一份给浮窗 ——
+      // 两处用同一份 HTML，不会出现"面板和浮窗结论不一样"。
+      const box = el('bpAdvisor');
+      const body = el('bpAdvisorBody');
+      if (box && body) { body.innerHTML = panels.html; box.hidden = false; }
+      pushOverlay(panels, state);
       _lastKey = key;
-    } finally { _refreshing = false; }
+    } finally {
+      _refreshing = false;
+      // 期间来过新事件就补跑一次（只补一次，避免在事件风暴里循环）
+      if (_pendingSession) {
+        const next = _pendingSession;
+        _pendingSession = null;
+        try { await refresh(next); } catch (e) {}
+      }
+    }
   }
 
   // 换版本/换会话时清缓存（英雄池与对位表都会变）
   function reset() { _tables.clear(); _failed.clear(); _lastKey = ''; }
 
   root.PoroBPAdvisor = {
-    readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, cardHtml, teamPicksHtml,
+    readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, buildPanels, cardHtml, teamPicksHtml,
+    countersOf, counterHtml, whyText, pushOverlay, subTextOf,
     refresh, clear, reset, showNote,
     MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT
   };

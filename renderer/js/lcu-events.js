@@ -129,6 +129,8 @@ function handleGameflowPhase(phase) {
   // 离开对局后重置"已跳转"标记, 下一局重新自动跳
   if (phase !== "ChampSelect" && phase !== "GameStart" && phase !== "InProgress") _autoLiveSwitched = false;
   if (phase !== "ChampSelect") _benchAlertReset();   // 离开选人即清掉备战区倒计时浮层
+  // 选人结束就收掉选人助手浮窗: 选人 tick 不再触发, 不主动清的话窗会一直挂在客户端旁边。
+  if (phase !== "ChampSelect") { try { window.PoroBPAdvisor?.clear(); } catch (e) {} }
   // GameStart/加载页/对局内仍需展示本局已选英雄的强化排序。只有真正离开本局流程才清空。
   if (!["ChampSelect", "GameStart", "InProgress"].includes(phase)) resetHexRecommendationContext();
   if (["ChampSelect", "GameStart", "InProgress"].includes(phase)) {

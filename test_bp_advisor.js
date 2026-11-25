@@ -263,21 +263,29 @@ const num = (v, d) => Number(v.toFixed(d == null ? 2 : d));
         assert.ok(!lower.includes(bad), 'BP 建议必须只读, 不应出现 ' + bad);
       }
       // ---------- 12. 接线 ----------
-      const hex = read('renderer/js/hex.js');
-      assert.ok(/syncBPAdvisor\(session && !session\.__error \? session : null\)/.test(hex),
-        '选人轮询里应刷新 BP 建议面板');
+      // 1.6.70: 克制页下线, 驱动器从 hex.js 挪到 bench.js 的选人 tick
+      const bench = read('renderer/js/bench.js');
+      assert.ok(/bp\.refresh\(session\)/.test(bench), '选人 tick 里应刷新 BP 建议');
+      assert.ok(!/page-counters/.test(bench), 'bench.js 不应再依赖已下线的克制页');
       const idx = read('renderer/index.html');
       assert.ok(/<script src="js\/bp-advisor\.js\?v=\d+"><\/script>/.test(idx), 'index.html 应引入 bp-advisor.js');
-      assert.ok(/id="bpAdvisor"/.test(idx) && /id="bpAdvisorBody"/.test(idx), 'index.html 应有面板容器');
+      assert.ok(!/id="page-counters"/.test(idx), '1.6.70 起软件内不再有克制关系页');
+      assert.ok(/id="bpOverlayToggle"/.test(idx), '工具箱应有选人助手浮窗开关');
+      // 浮窗页面自身必须带着面板骨架与自己的渲染脚本
+      const ov = read('renderer/bp-overlay.html');
+      assert.ok(/id="paneBp"/.test(ov) && /js\/bp-overlay\.js/.test(ov), '浮窗页应有内容容器与脚本');
+      assert.ok(/img-src[^"]*ddragon\.leagueoflegends\.com/.test(ov), '浮窗 CSP 必须放行英雄头像 CDN');
       const css = read('renderer/css/v4.css');
-      for (const cls of ['.bp-advisor', '.bp-card', '.bp-score', '.bp-why', '.bp-foot']) {
+      for (const cls of ['.bp-card', '.bp-score', '.bp-why', '.bp-foot']) {
         assert.ok(css.includes(cls), '缺少样式 ' + cls);
       }
       const preload = read('main/preload.js');
       assert.ok(preload.includes("invoke('opgg:counters'"), 'preload 应暴露对位接口');
+      assert.ok(preload.includes("invoke('bp-overlay:update'"), 'preload 应暴露浮窗推送接口');
       const mainSrc = read('main/index.js');
       assert.ok(mainSrc.includes("ipcMain.handle('opgg:counters'"), '主进程应有 opgg:counters handler');
       assert.ok(/counters'\)/.test(mainSrc) || mainSrc.includes('/counters'), '主进程应请求对位接口');
+      assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:update'"), '主进程应有浮窗推送 handler');
       console.log('BP 对位建议测试通过');
     })
     .catch(e => { console.error(e); process.exitCode = 1; });

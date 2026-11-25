@@ -134,5 +134,10 @@ contextBridge.exposeInMainWorld('lolAPI', {
   onOverlayHidden: (cb) => { ipcRenderer.on('overlay:hidden', () => cb()); },
   onOverlayData: (cb) => { ipcRenderer.on('overlay:data', (e, d) => cb(d)); },
   overlaySwap: (championId) => ipcRenderer.invoke('overlay:swap', championId),
-  overlayHide: () => ipcRenderer.invoke('overlay:hide')
+  overlayHide: () => ipcRenderer.invoke('overlay:hide'),
+  // 选人助手浮窗 (BP 建议 + 克制关系): 主窗口推算好的 HTML 块, 浮窗只负责贴
+  bpOverlayUpdate: (payload) => ipcRenderer.invoke('bp-overlay:update', payload),
+  bpOverlayStatus: () => ipcRenderer.invoke('bp-overlay:status'),
+  bpOverlayHide: () => ipcRenderer.invoke('bp-overlay:hide'),
+  onBpOverlayData: (cb) => { ipcRenderer.on('bp-overlay:data', (e, d) => cb(d)); }
 });

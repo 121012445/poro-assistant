@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data: https://ddragon.leagueoflegends.com">
+<title>Poro 选人助手</title>
+<style>
+  /* 独立窗口：透明底 + 圆角深色面板。浮在客户端之上，所以底色压深、文字提亮，
+     不跟随主窗口的明暗主题 —— 盖在英雄联盟客户端上只有深色底可读。 */
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #EDEDE8;
+    font-size: 12px;
+    user-select: none;
+    cursor: default;
+  }
+  .panel {
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    background: rgba(16, 18, 22, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    overflow: hidden;
+  }
+  /* 拖拽区：只有标题栏能拖，按钮必须 no-drag 否则点不动 */
+  .bar {
+    -webkit-app-region: drag;
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 8px 7px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex: 0 0 auto;
+  }
+  .bar .dot { width: 6px; height: 6px; border-radius: 50%; background: #EF9F27; flex: 0 0 auto; }
+  .bar .dot.on { background: #7FD44A; }
+  .bar .title { flex: 0 0 auto; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+  .bar .sub {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 10.5px; color: #9C9A92;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .bar .hide {
+    -webkit-app-region: no-drag;
+    flex: 0 0 auto;
+    width: 18px; height: 18px; line-height: 16px; text-align: center;
+    border-radius: 5px; border: 1px solid transparent;
+    color: #B4B2A9; font-size: 14px; cursor: pointer;
+  }
+  .bar .hide:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  /* 页签: 阵容 BP / 克制关系。两页内容各自滚, 不挤在一根长条里 */
+  .tabs {
+    -webkit-app-region: no-drag;
+    display: flex; gap: 4px;
+    padding: 0 9px 6px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .tabs button {
+    flex: 1 1 auto;
+    padding: 4px 0 5px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.05);
+    color: #9C9A92;
+    font-family: inherit; font-size: 11px; font-weight: 600;
+    cursor: pointer;
+  }
+  .tabs button:hover { background: rgba(255, 255, 255, 0.1); color: #E6E4DC; }
+  .tabs button.on { background: rgba(127, 212, 74, 0.16); border-color: rgba(127, 212, 74, 0.35); color: #C6EBA6; }
+  .body {
+    -webkit-app-region: no-drag;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 9px 10px;
+  }
+  .body[hidden] { display: none; }
+  .body::-webkit-scrollbar { width: 6px; }
+  .body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+
+  /* ---------- 推送内容的通用骨架 (与 bp-advisor 的 HTML 结构对齐) ---------- */
+  .empty { color: #888780; font-size: 11px; padding: 10px 4px; line-height: 1.6; }
+
+  .bp-head { display: flex; flex-direction: column; gap: 2px; margin: 0 0 8px; }
+  .bp-head b { font-size: 12px; color: #EDEDE8; letter-spacing: .04em; }
+  .bp-head span { font-size: 10.5px; color: #9C9A92; line-height: 1.5; }
+
+  /* 我方阵容简报 */
+  .bpt-brief { border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.04); }
+  .bpt-side { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .bpt-side b { font-size: 10px; color: #9C9A92; font-weight: 700; }
+  .bpt-chip { font-size: 10.5px; color: #EDEDE8; background: rgba(255, 255, 255, 0.09); border-radius: 5px; padding: 1px 6px; }
+  .bpt-chip-lock { background: rgba(127, 212, 74, 0.16); color: #C6EBA6; }
+  .bpt-none { font-size: 10.5px; color: #77756E; }
+  .bpt-needs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 5px; }
+  .bpt-needs b { font-size: 10px; color: #9C9A92; }
+  .bpt-gap { font-size: 10.5px; color: #F2C77E; background: rgba(239, 159, 39, 0.14); border-radius: 5px; padding: 1px 6px; }
+
+  /* 己方阵容逐位候选 */
+  .bp-team { border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 8px; padding: 6px 8px 7px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.035); }
+  .bp-team-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 5px; }
+  .bp-team-head b { font-size: 11px; color: #EDEDE8; }
+  .bp-team-head span { font-size: 9.5px; color: #77756E; line-height: 1.4; }
+  .bp-tp-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid rgba(255, 255, 255, 0.05); }
+  .bp-tp-row:first-of-type { border-top: none; }
+  .bp-tp-pos { flex: 0 0 40px; font-size: 10.5px; color: #9C9A92; }
+  .bp-tp-pos i { font-style: normal; color: #7FD44A; margin-left: 2px; }
+  .bp-tp-list { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+  .bp-tp-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px 1px 1px; border-radius: 5px; background: rgba(255, 255, 255, 0.06); }
+  .bp-tp-chip img { width: 18px; height: 18px; border-radius: 4px; display: block; }
+  .bp-tp-name { font-size: 10.5px; color: #EDEDE8; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bp-tp-score { font-size: 10px; font-variant-numeric: tabular-nums; }
+  .bp-tp-more { flex: 0 0 auto; font-size: 9px; color: #6F6D66; }
+
+  /* 综合首选 */
+  .bp-fusion { border: 1px solid rgba(127, 212, 74, 0.22); border-radius: 8px; padding: 7px 9px; margin-bottom: 8px; background: rgba(127, 212, 74, 0.07); }
+  .bp-fusion-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+  .bp-fusion-head b { font-size: 11px; color: #C6EBA6; }
+  .bp-fusion-head span { font-size: 9.5px; color: #7E8B72; line-height: 1.4; }
+  .bp-fusion-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .bp-fusion-name { font-size: 14px; font-weight: 700; color: #fff; }
+  .bp-fusion-total { font-size: 12px; font-weight: 700; color: #7FD44A; font-variant-numeric: tabular-nums; }
+  .bp-fusion-why { font-size: 10px; color: #9C9A92; line-height: 1.45; }
+  .bp-fusion-alts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 10px; color: #9C9A92; }
+  .bp-fusion-alt { color: #C9C7BF; }
+  .bp-fusion-alt i { font-style: normal; color: #9C9A92; margin-left: 2px; font-variant-numeric: tabular-nums; }
+
+  /* 两栏 (浮窗窄, 强制单列) */
+  .bp-cols { display: flex; flex-direction: column; gap: 9px; }
+  .bp-col-title { font-size: 10px; color: #9C9A92; letter-spacing: .08em; margin-bottom: 4px; }
+  .bp-list { display: flex; flex-direction: column; gap: 4px; }
+  .bp-card { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 7px; background: rgba(255, 255, 255, 0.055); border: 1px solid rgba(255, 255, 255, 0.07); }
+  .bp-icon { width: 28px; height: 28px; border-radius: 6px; flex: 0 0 auto; display: block; }
+  .bp-body { flex: 1 1 auto; min-width: 0; }
+  .bp-name { display: flex; align-items: baseline; gap: 6px; }
+  .bp-name > span { font-size: 11.5px; font-weight: 600; color: #EDEDE8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bp-score { margin-left: auto; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+  .bp-score.pos { color: #7FD44A; }
+  .bp-score.neg { color: #F09595; }
+  .bp-score.ban { color: #B4B2A9; }
+  .bp-why { font-size: 9.5px; color: #8E8C84; line-height: 1.45; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 克制关系 */
+  .bp-cnt { margin-top: 10px; }
+  .bp-cnt-hero { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 7px; }
+  .bp-cnt-hero img { width: 36px; height: 36px; border-radius: 7px; display: block; }
+  .bp-cnt-hero .n { font-size: 13px; font-weight: 700; color: #fff; }
+  .bp-cnt-hero .t { font-size: 9.5px; color: #8E8C84; }
+  .bp-cnt-title { font-size: 10px; color: #9C9A92; letter-spacing: .08em; margin: 6px 0 4px; }
+  .bp-cnt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .bp-cnt-cell { position: relative; border-radius: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.05); }
+  .bp-cnt-cell img { width: 100%; aspect-ratio: 1 / 1; display: block; object-fit: cover; }
+  .bp-cnt-cell .w { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; text-align: center; padding: 1px 0 2px; background: rgba(0, 0, 0, 0.62); font-variant-numeric: tabular-nums; }
+  .bp-cnt-cell .w.pos { color: #7FD44A; }
+  .bp-cnt-cell .w.neg { color: #F09595; }
+  .bp-cnt-cell .nm { position: absolute; left: 0; right: 0; top: 0; font-size: 8px; color: #E6E4DC; text-align: center; padding: 1px 0; background: rgba(0, 0, 0, 0.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .bp-foot { margin-top: 9px; font-size: 9px; color: #6F6D66; line-height: 1.5; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="bar">
+      <span class="dot" id="dot"></span>
+      <span class="title">选人助手</span>
+      <span class="sub" id="sub">等待选人…</span>
+      <span class="hide" id="hide" title="收起（下次进选人自动出现）">×</span>
+    </div>
+    <div class="tabs">
+      <button id="tabBp" class="on" type="button">阵容 BP</button>
+      <button id="tabCnt" type="button">克制关系</button>
+    </div>
+    <div class="body" id="paneBp"><div class="empty">进入排位/征召选人后自动出现：己方每个空位给几个候选，外加推荐 Pick / Ban。</div></div>
+    <div class="body" id="paneCnt" hidden><div class="empty">这里显示你当前选/预选英雄的被克制与克制对位（需要先亮出英雄）。</div></div>
+  </div>
+  <script src="js/bp-overlay.js"></script>
+</body>
+</html>

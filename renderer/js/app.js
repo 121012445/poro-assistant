@@ -204,7 +204,6 @@ function switchPage(page) {
   if (page === "live" && typeof scheduleLiveRowAlignment === "function") scheduleLiveRowAlignment();
   if (page === "champions") renderChampionGrid();
   if (page === "champions" && typeof PoroMastery !== 'undefined') PoroMastery.load();
-  if (page === "counters") updateCounterClientPick();
   // 「我的画像」的两块内容(擅长与提升 / 趣味档案)是懒渲染的: 首屏不再计算它们,
   // 进页面时才用首页已加载的战绩现算一次。数据没到就显示空状态。
   if (page === "profile" && typeof renderProfilePage === "function") renderProfilePage();
