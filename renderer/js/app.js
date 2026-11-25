@@ -323,7 +323,9 @@ async function init() {
       PoroChallenge.load().then(() => { if (typeof renderChallengeCard === 'function') renderChallengeCard(); }).catch(() => {});
     }
     // 静态数据 (DDragon/符文图标/英雄网格) 与首页数据并行: 首页不再等待静态资源
-    const staticLoad = (async () => {
+    // 1.6.69: 原来是 const staticLoad = (async ...)() 但没人 await 也没人读这个变量,
+    // 改成纯 IIFE —— 副作用照常跑, 去掉一个白拿的绑定。
+    (async () => {
       try {
         version = await lolAPI.getVersion();
         setVersionText(version);
@@ -508,11 +510,6 @@ function switchPlayerMemoryTab(tab) {
   if (tabC) tabC.classList.toggle('active', friends);
   if (recent) renderRecentPlayers();
   if (friends && typeof PoroFriends !== 'undefined') PoroFriends.refresh();
-}
-
-// 好友行上的旁观按钮（inline handler 只传 puuid，按钮自己找）
-function spectateFriendByPuuid(puuid) {
-  if (typeof PoroFriends !== 'undefined') return PoroFriends.spectate(null, puuid);
 }
 
 // 背景原画开关：写进本机设置，重启后保持

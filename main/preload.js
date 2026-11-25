@@ -19,10 +19,6 @@ contextBridge.exposeInMainWorld('lolAPI', {
   getHexChampionAugments: (championId, scope) => ipcRenderer.invoke('hex:championAugments', championId, scope),
   // 反向: 某个强化在已缓存英雄里的收益排行 (只读本机缓存)
   getHexAugmentFit: (augmentId, scope) => ipcRenderer.invoke('hex:augmentFit', augmentId, scope),
-  // Riot API (远程战绩)
-  getAccount: (region, gameName, tagLine, apiKey) => ipcRenderer.invoke('riot:getAccount', region, gameName, tagLine, apiKey),
-  getMatchIds: (region, puuid, apiKey) => ipcRenderer.invoke('riot:getMatchIds', region, puuid, apiKey),
-  getMatch: (region, matchId, apiKey) => ipcRenderer.invoke('riot:getMatch', region, matchId, apiKey),
   // LCU (本地客户端)
   lcuStatus: () => ipcRenderer.invoke('lcu:status'),
   lcuReconnect: () => ipcRenderer.invoke('lcu:reset'),

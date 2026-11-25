@@ -207,7 +207,6 @@ function log() {
 }
 
 const API_HOST = 'ddragon.leagueoflegends.com';
-const RIOT_REGIONS = ['americas', 'europe', 'asia', 'sea'];
 const FALLBACK_VERSION = '14.18.1';
 const MAX_JSON_RESPONSE_BYTES = 20 * 1024 * 1024;
 const MAX_USER_FILE_BYTES = 5 * 1024 * 1024;
@@ -279,12 +278,6 @@ function httpsPost(hostname, port, urlPath, headers, body, timeoutMs) {
 }
 
 const ddragonRequest = (p) => httpGet(API_HOST, p);
-
-// Riot API - 区域路由 (americas/europe/asia/sea)
-function riotRequest(region, urlPath, apiKey) {
-  if (!RIOT_REGIONS.includes(region)) return Promise.reject(new Error('无效区域: ' + region));
-  return httpGet(region + '.api.riotgames.com', urlPath, { 'X-Riot-Token': apiKey });
-}
 
 // ---------- Data Dragon 静态数据磁盘缓存 ----------
 // 具体实现见 main/gamedata.js (可独立单测); 这里注入 userData 目录与日志函数。
@@ -1957,25 +1950,6 @@ ipcMain.handle('ddragon:getSummonerSpells', async (e, version) => {
   const v = version || await resolveVersion();
   const hit = await gamedata.get('summoner.json', v, ver => ddragonRequest(`/cdn/${ver}/data/zh_CN/summoner.json`));
   return hit && hit.data ? hit.data : { data: {} };
-});
-
-// ---------- Riot 远程 API (战绩查询) ----------
-ipcMain.handle('riot:getAccount', async (e, region, gameName, tagLine, apiKey) => {
-  try {
-    return await riotRequest(region, `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`, apiKey);
-  } catch (err) { return { __error: err.message }; }
-});
-
-ipcMain.handle('riot:getMatchIds', async (e, region, puuid, apiKey) => {
-  try {
-    return await riotRequest(region, `/lol/match/v5/matches/by-puuid/${puuid}/ids?start=0&count=10`, apiKey);
-  } catch (err) { return { __error: err.message }; }
-});
-
-ipcMain.handle('riot:getMatch', async (e, region, matchId, apiKey) => {
-  try {
-    return await riotRequest(region, `/lol/match/v5/matches/${matchId}`, apiKey);
-  } catch (err) { return { __error: err.message }; }
 });
 
 // ---------- OP.GG: 大乱斗平衡性调整 + 单英雄推荐配置 (见 main/opgg.js) ----------

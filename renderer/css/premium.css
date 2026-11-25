@@ -82,7 +82,7 @@
   --fs-lg: 16px;
   --fs-xl: 20px;
   --fs-2xl: 24px;   /* 卡片主数值 */
-  --fs-3xl: 30px;
+  --fs-3xl: 30px;   /* 1.6.69 复核: 当前无消费方, 但 test_ui_tokens 门禁要求 9 档字号齐全, 保留 */
 
   /* 焦点环：键盘可达性，全站统一一处 */
   --focus-ring: 0 0 0 3px rgba(37, 99, 235, .28);
@@ -175,24 +175,11 @@ body::before { content: none; }
 .nav-item.active svg { filter: none; }
 
 .sidebar-footer { margin-top: 10px; padding: 12px 4px 0; border-top: 1px solid var(--border); }
-.lcu-status {
-  padding: 8px 8px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  font-size: var(--fs-sm);
-}
+
 .status-dot.on { box-shadow: none; }
 .sidebar-extras { margin-top: 8px; }
-.theme-toggle {
-  display: grid; place-items: center;
-  width: 30px; height: 30px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  cursor: pointer;
-}
-.theme-toggle:hover { background: var(--bg-hover); }
+
+
 .sidebar-footer .version { color: var(--text-muted); font-size: var(--fs-xs); }
 
 /* ============================ 主内容 ============================ */
@@ -836,8 +823,8 @@ body.dark #liveBuildBtn {
 
 /* 作战计划摘要挤进页头后, 建议文字只留一行、超出省略; 点开时以浮层盖在阵容上方,
    不把下面的队伍顶下去 —— 否则展开一次就把省下来的高度又还回去了。 */
-.live-head-slot { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; }
-.live-head-slot:empty { display: none; }
+
+
 .live-head-slot .live-decision { position: relative; flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; box-shadow: none; }
 .live-head-slot .live-decision summary { min-height: 0; height: 22px; padding: 0; gap: 6px; }
 .live-head-slot .live-decision summary > b { font-size: var(--fs-xs); }
@@ -922,13 +909,7 @@ body.dark .ei-champ { background: rgba(255, 255, 255, .05); }
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--accent) 38%, transparent) transparent;
 }
-#page-live .live-head-slot {
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent) 7%, var(--bg-card));
-  box-shadow: 0 2px 10px rgba(25, 35, 55, .05);
-}
+
 #page-live .live-head-slot .live-decision summary {
   height: 25px;
   gap: 8px;
@@ -1168,10 +1149,6 @@ body.dark #page-live .lp-overview { background: rgba(255,255,255,.035); }
 #page-live .lp-winrate { font-size: 19px; }
 #page-live .lp-record { font-size: var(--fs-2xs); }
 #page-live .lp-kda b { font-size: 16px; }
-
-
-
-
 
 #page-live .lp-inline-stats {
   display: inline-flex;
@@ -1598,8 +1575,8 @@ body.live-drawer-open { overflow: hidden; }
 .dc-title span,.dc-card small { color:var(--text-muted); font-size:var(--fs-xs); }
 .dc-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
 .dc-grid p,.dc-win span { display:block; margin:4px 0 0; color:var(--text-secondary); font-size:var(--fs-sm); }
-.dc-win { margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
-.dc-win b { color:var(--accent-deep); margin-right:6px; }
+
+
 .ld-ask { display:flex; align-items:center; gap:8px; margin-top:10px; padding-top:8px; border-top:1px solid var(--border); color:var(--text-muted); font-size:var(--fs-xs); }
 .ld-ask select { margin-left:4px; max-width:180px; }
 .ld-ask span { color:var(--text-secondary); }
@@ -1861,10 +1838,8 @@ body.dark .pp-wrap { background: radial-gradient(120% 60% at 50% 0%, #20294a 0%,
   font-variant-numeric: tabular-nums; color: var(--pp-ink); line-height: 1.2; }
 .pp-ovn.pp-wr { color: var(--pp-win); }
 .pp-ovn.pp-gold { color: var(--pp-gold); }
-.pp-wbar { height: 5px; border-radius: 3px; overflow: hidden;
-  background: color-mix(in srgb, var(--pp-ink) 11%, transparent); }
-.pp-wbar i { display: block; height: 100%; border-radius: 3px;
-  background: linear-gradient(90deg, #0E8A4F, #2BC98B); }
+
+
 body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
 .pp-ovs { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--pp-ink-3); }
 .pp-ovs b { color: var(--pp-ink-2); font-variant-numeric: tabular-nums; }
@@ -1900,16 +1875,7 @@ body.dark .pp-wbar i { background: linear-gradient(90deg, #1F8F5F, #26C281); }
 .pp-bar b { text-align: right; color: var(--pp-ink-2); font-variant-numeric: tabular-nums; }
 
 /* ---- 英雄 ---- */
-.pp-champs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.pp-champ { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px;
-  border-radius: 12px; background: var(--pp-fill); border: 1px solid var(--pp-line); }
-.pp-champ img, .pp-champ-ph { flex: none; width: 34px; height: 34px; border-radius: 10px;
-  object-fit: cover; background: var(--pp-line); }
-.pp-champ-t { min-width: 0; }
-.pp-champ-t b { display: block; font-size: 12px; font-weight: 600; color: var(--pp-ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
-.pp-champ-t span { font-size: 10.5px; color: var(--pp-ink-3); }
-.pp-champ-t i { font-style: normal; }
+
 .pp-champ-t i.good { color: var(--pp-win); }
 .pp-champ-t i.bad { color: var(--pp-lose); }
 

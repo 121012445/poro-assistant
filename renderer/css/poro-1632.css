@@ -81,7 +81,7 @@ body.dark .chg-badge { background: var(--surface-3); border-color: var(--line-st
 .fr-name { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fr-name > i { font-style: normal; color: var(--text-muted); font-size: 10.5px; }
 .fr-meta { color: var(--text-muted); font-size: 10.5px; }
-.fr-offline { opacity: .55; }
+
 .fr-btn {
   flex: 0 0 auto; padding: 2px 9px; border-radius: 7px; cursor: pointer;
   border: 1px solid var(--brand-line); background: var(--brand-soft); color: var(--brand-deep);

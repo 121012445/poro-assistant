@@ -117,7 +117,6 @@
   window.refreshAutomationModeContext = refreshContext;
   window.getAutomationModeContext = () => ({ ...context });
   window.getEffectiveAutomationFeatures = effectiveFeatures;
-  window.renderAutomationModeMatrix = render;
   window.reloadAutomationModeMatrix = () => { load(); render(); };
   if (typeof window?.addEventListener === 'function') {
     window.addEventListener('DOMContentLoaded', () => {

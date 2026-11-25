@@ -1,6 +1,6 @@
 {
   "name": "poro-assistant",
-  "version": "1.6.68",
+  "version": "1.6.69",
   "description": "Poro - 英雄联盟游戏助手",
   "main": "main/index.js",
   "scripts": {

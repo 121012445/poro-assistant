@@ -74,12 +74,9 @@
   --ctl-h-sm: 28px;
   --ctl-h: 32px;
   --ctl-h-lg: 36px;
-  --ctl-pad: 10px;
 
   /* ---- 动效 ---- */
   --t-fast: 110ms cubic-bezier(.4, 0, .2, 1);
-  --t-base: 170ms cubic-bezier(.4, 0, .2, 1);
-  --t-pop: 200ms cubic-bezier(.2, .8, .3, 1);
 }
 
 body.dark {
@@ -459,33 +456,6 @@ select.tool-select, .toolbar select, .hex-bar select { padding-right: var(--s8);
    5. 表格：行高收紧，斑马纹取消，hover 才给底色，数字等宽对齐
    ========================================================================== */
 
-.champion-table, .bl-table, table.data-table {
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: var(--fs-xs);
-}
-.champion-table thead th, .bl-table thead th, table.data-table thead th {
-  background: var(--surface-2);
-  color: var(--ink-3);
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: .3px;
-  text-transform: none;
-  padding: var(--s4) var(--s5);
-  border-bottom: 1px solid var(--line-subtle);
-  position: sticky;
-  top: 0;
-}
-.champion-table tbody td, .bl-table tbody td, table.data-table tbody td {
-  padding: var(--s2) var(--s5);
-  border-bottom: 1px solid var(--line-subtle);
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-.champion-table tbody tr:hover td, .bl-table tbody tr:hover td,
-table.data-table tbody tr:hover td { background: var(--surface-2); }
-.champion-table tbody tr:last-child td, .bl-table tbody tr:last-child td,
-table.data-table tbody tr:last-child td { border-bottom: none; }
 .champion-table .num, .bl-table .num, table.data-table .num { font-variant-numeric: tabular-nums; }
 
 /* ============================================================================
@@ -548,7 +518,7 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 }
 body.dark .poro-empty-icon { box-shadow: none; }
 /* 空态不画虚线框：卡片本身已有底色，虚线只是又一层噪点 */
-.hex-empty { border: 0; min-height: 150px; }
+
 .poro-empty b,
 .hex-empty b {
   font-size: var(--fs-base);
@@ -563,7 +533,7 @@ body.dark .poro-empty-icon { box-shadow: none; }
   line-height: 1.7;
   color: var(--ink-3);
 }
-.poro-empty-action { margin-top: var(--s2); }
+
 
 /* 行内级：不放图标、不居中，就是一句解释 */
 .poro-empty-inline,
@@ -571,13 +541,6 @@ body.dark .poro-empty-icon { box-shadow: none; }
   color: var(--ink-3);
   font-size: var(--fs-xs);
   line-height: 1.65;
-}
-
-.empty-state, .msg-empty, .loading-state {
-  color: var(--ink-3);
-  font-size: var(--fs-xs);
-  line-height: 1.6;
-  padding: var(--s9) var(--s6);
 }
 
 /* ============================================================================
@@ -1169,12 +1132,7 @@ body.dark .lp-metric-dmgGold, body.dark .lp-metric-kp, body.dark .lp-metric-visi
 #page-live .ri-row:hover { background: var(--surface-2); }
 
 /* ---- 顶部「本局作战计划」条 ---- */
-#page-live .live-head-slot {
-  background: var(--surface-1);
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  box-shadow: var(--e1);
-}
+
 body.dark #page-live .live-head-slot { border-color: var(--line-subtle); box-shadow: none; }
 
 /* 战绩行：原来每行左侧 3px 红/蓝竖条，行高只有 12px，连在一起就成了一条
@@ -2106,11 +2064,11 @@ body.dark #page-live .lp-recent-hint { background: var(--surface-2); box-shadow:
    实时页的计划条只需贴着队区, 省出 20px (探针实测真实对局头部存在时
    recent 掉回 203px / 7 行)。空槽位不占位。 ---- */
 #page-live .page-header { margin-bottom: 4px; }
-#page-live .live-head-slot:empty { display: none; }
+
 #page-live .lp-row { padding: 2px var(--s3); }
 /* 22.3 计划条实高: extras.css 的 summary min-height:38px 会压过 premium 的
    height:25px (min-height 恒胜 height), 实测计划条实占 47px。压到 24px 高。 */
-#page-live .live-head-slot { padding: 2px 8px; }
+
 #page-live .live-head-slot .live-decision summary { min-height: 0; height: 24px; }
 #page-live .page-header { margin-bottom: 2px; }
 /* 22.4 最后 6px: 到 8 行的零头, 各处 1-2px 汇总 */
@@ -2939,7 +2897,7 @@ body.dark .scp-head, body.dark .scp-foot { border-color:rgba(255,255,255,.09); }
 #page-live .lp-habit-info { --pill-c: #46648c; }
 
 /* ---- 3. 战绩行: 统一 28px, 整行淡底 + 左侧 2px 同色条 ---- */
-#page-live .ri-recent { gap: 2px; }
+
 #page-live .ri-card {
   flex: 0 0 28px; min-height: 28px; height: auto;
   grid-template-columns: 20px minmax(0, 1fr) auto; gap: 6px;

@@ -23,29 +23,14 @@ gs_lock.json
 *.exe
 !main/native/PoroInput.exe
 
-# 调试脚手架: 临时产物与备份不入库, 只保留有长期价值的工具脚本
-_debug_archive/*
-!_debug_archive/analyze_sections.py
-!_debug_archive/probe_renderer.js
-!_debug_archive/split_renderer.py
-# 以下三个是长期复用的工具: 打 asar / 校验 asar 内容 / 端到端读界面版本号
-!_debug_archive/build_asar.js
-!_debug_archive/verify_asar.js
-!_debug_archive/probe_version_ui.js
-!_debug_archive/probe_bench_live.js
-# 一键闭环: 测试 -> 打包 -> 替换 -> 实测界面版本号
-!_debug_archive/deploy.js
-# 选人浮窗的端到端验证 (不依赖游戏: 直接推一帧, 看窗是否建出来/渲染/点击回传)
-!_debug_archive/probe_overlay.js
-# 用 koffi 枚举窗口, 找客户端窗口类名与矩形 (贴边定位的数据来源)
-!_debug_archive/probe_client_window.js
+# 调试脚手架: 临时产物与备份不入库
+# 1.6.69: 整目录已移出仓库 (备份在 D:/poro-build/_attic/_debug_archive)。
+# 里面的脚本写死了本机路径、只对当时的目录结构有效, 需要时从 git 历史翻。
+_debug_archive/
 
 # 临时验证脚本与会话数据, 不入库
 .verify-*.js
 .workbuddy/
-# 1.5.9x 起的包内自检工具 (每次构建后跑 32 项断言), 长期复用
-!_debug_archive/verify_installed.js
-!_debug_archive/verify_cross_region_build.js
 
 # 临时离屏渲染探针（复现/验证 UI 几何，不入库）
 preview_live/
