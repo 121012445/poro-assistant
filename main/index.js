@@ -557,12 +557,16 @@ ipcMain.handle('overlay:update', async (e, payload) => {
   // 主进程是最终门禁：即使渲染层收到迟到的 champ-select/列表事件，只要已经进入
   // GameStart（加载页）或 InProgress，就拒绝重新显示备战区浮窗。
   // 阶段兜底: payload 自己带 phase 时也认（Poro 中途启动会错过 phase:report）
+  // 模式门禁: 只有大乱斗/海斗(aram)才有备战区; 渲染层漏判时也绝不弹到排位/峡谷模式上。
   const payloadPhase = String(p.phase || '');
-  const want = !!p.visible && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
+  const payloadMode = String(p.mode || '').substring(0, 16);
+  const want = !!p.visible && payloadMode === 'aram'
+    && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
   // 诊断: 每次都记（渲染层已经做了去重, 频率与选人事件同量级）, 这样"为什么没出"也一定留痕
   try {
     logErr('[OVERLAY] want=' + want + ' visible=' + !!p.visible
       + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase
+      + ' mode=' + payloadMode
       + ' items=' + overlayPayload.items.length
       + ' win=' + !!(overlayWindow && !overlayWindow.isDestroyed()));
   } catch (e) {}

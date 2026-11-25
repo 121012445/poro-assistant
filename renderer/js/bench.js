@@ -231,10 +231,33 @@ function _benchOverlayColorToClass(colorKey) {
   return (colorKey === 'positive' || colorKey === 'negative' || colorKey === 'accent') ? colorKey : '';
 }
 
-// 只有"当前确实在大乱斗/海斗选人"时才让浮窗出现: 别的模式没有备战区, 浮着也是噪声。
+// 备战区浮窗只在大乱斗/海斗出现。
+// 不能只看 benchChampions 字段: 其他模式的 champ-select session 也可能带这个键(哪怕是空数组),
+// 于是排位里会浮一个没用的窗。模式判定统一走 automation-mode 的 gameflow 上下文,
+// 未就绪时退回 hex 的队列识别与 session 自带字段; 仍未识别就宁可不显示。
+function _benchModeKey() {
+  if (typeof window.getAutomationModeContext === 'function') {
+    const ctx = window.getAutomationModeContext();
+    if (ctx && ctx.known) return ctx.key === 'aram' ? 'aram' : '';
+  }
+  if (typeof hexRecommendContext !== 'undefined' && hexRecommendContext) {
+    const q = Number(hexRecommendContext.queueId) || 0;
+    if (q === 450 || q === 2400 || hexRecommendContext.isHex) return 'aram';
+  }
+  const s = _benchLastSession;
+  if (s) {
+    const q = Number(s.queueId || (s.queue && s.queue.id) || 0);
+    const mode = String(s.gameMode || (s.queue && s.queue.gameMode) || '').toUpperCase();
+    if ([450, 2400].includes(q) || /ARAM|KIWI|JADE|MAYHEM|海斗|大乱斗/.test(mode)) return 'aram';
+    if (q || mode) return '';
+  }
+  return '';
+}
+
 function _benchOverlayVisible() {
   const s = _benchLastSession;
   return window._gameflowPhase === 'ChampSelect' && !!benchOverlayOn && !_benchOverlayDismissed
+    && _benchModeKey() === 'aram'
     && !!(s && Array.isArray(s.benchChampions));
 }
 
@@ -267,7 +290,9 @@ try {
       stateClass: _benchOverlayStateClass,
       visible: visible,
       // 主进程拿它兜底判断阶段: 只靠 phase:report 的话, Poro 中途启动会丢这一步
-      phase: window._gameflowPhase || ''
+      phase: window._gameflowPhase || '',
+      // 主进程是最终门禁: 只有 ARAM 类(大乱斗/海斗)才允许开这个窗
+      mode: _benchModeKey()
     })).then(ok => {
       // 主进程重启/窗口创建竞态时允许下一帧重发，不能让去重 key 永久吞掉这次更新。
       if (!ok && _benchOverlayKey === key) _benchOverlayKey = '';
