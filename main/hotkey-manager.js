@@ -28,6 +28,7 @@ const MOD_NAMES = Object.freeze({ ctrl: 'ctrl', control: 'ctrl', alt: 'alt', shi
 // 多词键的规范显示名 (VK 表里是小写键名, 展示/accelerator 不能全大写)
 const KEY_DISPLAY = Object.freeze({ home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown', insert: 'Insert', delete: 'Delete', space: 'Space' });
 const MOD_VK = Object.freeze({ ctrl: VK.control, alt: VK.alt, shift: VK.shift, meta: VK.meta });
+const MOD_ORDER = Object.freeze(['ctrl', 'alt', 'shift', 'meta']);
 
 function displayName(base) {
   if (/^n[0-9]$/.test(base)) return base.slice(1);
@@ -61,6 +62,9 @@ function parse(combo) {
   }
   if (!base) return null;
   if (!SOLO_OK.has(base) && !mods.length) return null; // 裸字母/数字不许绑
+  // 修饰键固定顺序: display / accelerator / 冲突检测都靠字符串比对,
+  // 输入顺序不同 (shift+ctrl+d vs Ctrl+Shift+D) 必须归一成同一个名字。
+  mods.sort((a, b) => MOD_ORDER.indexOf(a) - MOD_ORDER.indexOf(b));
   const display = mods.map(m => ({ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Win' }[m]))
     .concat([displayName(base)]).join('+');
   return {

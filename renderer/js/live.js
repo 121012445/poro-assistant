@@ -2288,6 +2288,29 @@ async function sendDutyChat() {
   }
 }
 
+// 1.6.67: 选人阶段快捷键 (默认 Ctrl+Shift+D) 一键发分工表。
+// 主进程只在 ChampSelect 注册这个键, 阶段判断仍是双保险 (热键注册与阶段切换之间有几十毫秒窗口)。
+// 刚进选人就按的情况, 缓存可能还没算好 —— 先驱动一次实时页刷新把 10 人战绩拉齐, 再发。
+async function sendDutyChatByHotkey() {
+  if (window._gameflowPhase !== 'ChampSelect') {
+    if (typeof showToast === 'function') showToast('只在选人阶段可用', 'negative');
+    return;
+  }
+  const cached = window._poroDutyRank;
+  if (!cached || !cached.ready) {
+    if (typeof showToast === 'function') showToast('正在拉取本局战绩…', 'neutral');
+    try { if (typeof updateLivePage === 'function') await updateLivePage('ChampSelect'); } catch (e) {}
+  }
+  await sendDutyChat();
+}
+
+if (window.lolAPI && lolAPI.onDutyShortcut) {
+  lolAPI.onDutyShortcut(() => {
+    try { lolAPI.debugLog('[DUTY] hotkey fired'); } catch (e) {}
+    sendDutyChatByHotkey();
+  });
+}
+
 // ---------- 浮窗技能计时: 推"敌方 5 人 + 基础 CD" ----------
 let _gameCdKey = '';
 function pushGameCdRows(data) {

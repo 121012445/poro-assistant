@@ -74,7 +74,7 @@ assert.ok(benchSource.includes('maybeAnnounceChampSelectSide(session)'), '蓝红
 assert.ok(lcuEventsSource.includes('resetChampSelectSideAnnouncement()'), '离开选人后必须清理发送去重状态');
 const mainSource = fs.readFileSync('main/index.js', 'utf8');
 assert.ok(mainSource.includes("require('./hotkey-poller')"), '游戏吞掉 Electron 快捷键时必须启用 Win32 轮询兜底');
-assert.ok(mainSource.includes("dispatchInGameHotkey(action, 'win32-poll')"), 'Win32 轮询结果必须接入统一快捷键分发');
+assert.ok(mainSource.includes("dispatchHotkey(action, 'win32-poll')"), 'Win32 轮询结果必须接入统一快捷键分发');
 assert.ok(mainSource.includes('hotkeyPoller.stop()'), '离开对局或退出时必须停止按键轮询');
 assert.ok(mainSource.includes("encoding: 'buffer'") && mainSource.includes("new TextDecoder('gbk')"),
   '原生输入错误输出必须兼容 UTF-8 与 Windows 中文代码页，不能在界面显示乱码');

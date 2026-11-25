@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   // 全局快捷键 (游戏内 F7/F8 发送 KDA 简报)
   onShortcut: (cb) => { ipcRenderer.on('shortcut:kda', (e, ally) => cb(ally)); },
   onAugmentShortcut: (cb) => { ipcRenderer.on('shortcut:augment', () => cb()); },
+  onDutyShortcut: (cb) => { ipcRenderer.on('shortcut:duty', () => cb()); },
   recognizeAugments: (candidates) => ipcRenderer.invoke('game:recognizeAugments', candidates),
   augmentOverlayUpdate: (payload) => ipcRenderer.invoke('augment-overlay:update', payload),
   augmentOverlayStatus: () => ipcRenderer.invoke('augment-overlay:status'),

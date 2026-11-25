@@ -2194,26 +2194,36 @@ ipcMain.handle('game-settings:clear-full', async () => {
 
 // 渲染层兜底轮询上报的阶段变化 (WS 不可用时快捷键仍能联动)
 let lastReportedPhase = null;
-let inProgressHotkeysActive = false;
-const lastHotkeyDispatchAt = { f6: -Infinity, f7: -Infinity, f8: -Infinity, f9: -Infinity, f10: -Infinity };
-let hotkeyPoller = hotkeyPollerFactory.createNativePoller(
-  (action) => dispatchInGameHotkey(action, 'win32-poll'),
-  logErr
-);
+const lastHotkeyDispatchAt = {};
+let hotkeyPoller = null;   // 按当前阶段懒建, 见 syncHotkeys()
+let activeHotkeyActions = new Set();   // 当前阶段真正注册/轮询的动作
 
-// ---------- 自定义热键 (工具箱改键, 存 poro-config.json 的 hotkey_* 键, 进局后生效) ----------
+// ---------- 自定义热键 (工具箱改键, 存 poro-config.json 的 hotkey_* 键) ----------
+// 动作 → 生效阶段: 对局键只在对局内注册, 分工表只发选人聊天所以只在 ChampSelect 注册。
+// 拆开是为了不在桌面/大厅误触 (Ctrl+Shift+D 在桌面按下去不该弹"只在选人阶段可用")。
 const hotkeyManager = require('./hotkey-manager');
-const HOTKEY_DEFAULTS = Object.freeze({ f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10', f11: 'F11' });
+const HOTKEY_DEFAULTS = Object.freeze({ f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10', f11: 'F11', duty: 'Ctrl+Shift+D' });
 const HOTKEY_ACTIONS = Object.freeze({
   f6: '强化识别 (海克斯三选一重扫)',
   f7: 'KDA 简报 · 己方',
   f8: 'KDA 简报 · 敌方',
   f9: '对局战报浮窗开关',
   f10: '聊天弹幕 · 打字输入',
-  f11: '技能计时 · 浮窗可点 (点技能开始倒计时)'
+  f11: '技能计时 · 浮窗可点 (点技能开始倒计时)',
+  duty: '分工表 · 一键发到选人聊天'
+});
+const HOTKEY_PHASES = Object.freeze({
+  f6: ['InProgress'],
+  f7: ['InProgress'],
+  f8: ['InProgress'],
+  f9: ['InProgress'],
+  f10: ['InProgress'],
+  f11: ['InProgress'],
+  duty: ['ChampSelect']
 });
 let hotkeyBindings = Object.assign({}, HOTKEY_DEFAULTS);
 let hotkeyParsed = buildHotkeyParsed();
+let hotkeyPhase = null;   // 最近一次阶段 (hotkey:set 改键后按它重新注册)
 
 function buildHotkeyParsed() {
   const out = {};
@@ -2224,34 +2234,50 @@ function buildHotkeyParsed() {
   return out;
 }
 
-function rebuildHotkeyPoller() {
-  const wasRunning = hotkeyPoller.isRunning();
-  try { hotkeyPoller.stop(); } catch (e) {}
-  const keys = {};
-  for (const [action, parsed] of Object.entries(hotkeyParsed)) {
-    keys[action] = parsed.mods.length ? { vk: parsed.vk, mods: parsed.mods } : parsed.vk;
-  }
-  hotkeyPoller = hotkeyPollerFactory.createNativePoller(
-    (action) => dispatchInGameHotkey(action, 'win32-poll'),
-    logErr,
-    { keys }
-  );
-  if (wasRunning) hotkeyPoller.start();
+function hotkeyActionsForPhase(phase) {
+  if (!phase) return [];
+  return Object.keys(hotkeyParsed).filter(action => (HOTKEY_PHASES[action] || []).includes(phase));
 }
 
-function registerInProgressHotkeys() {
+function registerHotkeys(actions) {
   const results = {};
-  for (const [action, parsed] of Object.entries(hotkeyParsed)) {
-    try { results[action] = globalShortcut.isRegistered(parsed.accelerator) || globalShortcut.register(parsed.accelerator, () => dispatchInGameHotkey(action, 'electron')); }
+  for (const action of actions) {
+    const parsed = hotkeyParsed[action];
+    if (!parsed) continue;
+    try { results[action] = globalShortcut.isRegistered(parsed.accelerator) || globalShortcut.register(parsed.accelerator, () => dispatchHotkey(action, 'electron')); }
     catch (e) { results[action] = false; }
   }
   return results;
 }
 
-function unregisterInProgressHotkeys() {
+function unregisterHotkeys() {
   for (const parsed of Object.values(hotkeyParsed)) {
     try { if (globalShortcut.isRegistered(parsed.accelerator)) globalShortcut.unregister(parsed.accelerator); } catch (e) {}
   }
+}
+
+// 阶段切换 / 改键后统一走这里: 先全部注销, 再只注册当前阶段该生效的动作。
+// 轮询器也按同一份动作集合重建, 避免选人阶段还在轮询 F6-F11 (或反之)。
+function syncHotkeys(phase) {
+  hotkeyPhase = phase || null;
+  if (hotkeyPoller) { try { hotkeyPoller.stop(); } catch (e) {} }
+  unregisterHotkeys();
+  const wanted = hotkeyActionsForPhase(hotkeyPhase);
+  activeHotkeyActions = new Set(wanted);
+  if (!wanted.length) { hotkeyPoller = null; return { reg: {}, pollStarted: false }; }
+  const keys = {};
+  for (const action of wanted) {
+    const parsed = hotkeyParsed[action];
+    if (parsed) keys[action] = parsed.mods.length ? { vk: parsed.vk, mods: parsed.mods } : parsed.vk;
+  }
+  hotkeyPoller = hotkeyPollerFactory.createNativePoller(
+    (action) => dispatchHotkey(action, 'win32-poll'),
+    logErr,
+    { keys }
+  );
+  const reg = registerHotkeys(wanted);
+  const pollStarted = hotkeyPoller.start();
+  return { reg, pollStarted };
 }
 
 ipcMain.handle('hotkey:set', async (e, payload) => {
@@ -2264,12 +2290,8 @@ ipcMain.handle('hotkey:set', async (e, payload) => {
   if (clash) return { ok: false, error: '与「' + (HOTKEY_ACTIONS[clash[0]] || clash[0]) + '」的键位重复' };
   hotkeyBindings[action] = parsed.display;
   hotkeyParsed = buildHotkeyParsed();
-  if (inProgressHotkeysActive) {
-    unregisterInProgressHotkeys();
-    registerInProgressHotkeys();
-  }
-  rebuildHotkeyPoller();
-  logErr('[HOTKEY] ' + action + ' -> ' + parsed.display);
+  syncHotkeys(hotkeyPhase);
+  logErr('[HOTKEY] ' + action + ' -> ' + parsed.display + ' (phase=' + (hotkeyPhase || '-') + ')');
   return { ok: true, display: parsed.display };
 });
 
@@ -2284,12 +2306,16 @@ ipcMain.on('phase:report', (e, phase) => {
   handlePhaseChange(phase);
 });
 
-function dispatchInGameHotkey(action, source) {
-  if (!inProgressHotkeysActive) return;
+function dispatchHotkey(action, source) {
+  if (!activeHotkeyActions.has(action)) return;
   const now = Date.now();
   if (now - (lastHotkeyDispatchAt[action] || 0) < 250) return;
   lastHotkeyDispatchAt[action] = now;
-  if (action === 'f7') {
+  if (action === 'duty') {
+    // 分工表只能发到选人聊天, 内容与发送逻辑都在渲染层 (要 PoroDuty + LCU 会话识别)
+    logErr('[SHORTCUT] duty fired source=' + source + ' -> DutyChat(ChampSelect)');
+    sendToWindow('shortcut:duty', true);
+  } else if (action === 'f7') {
     logErr('[SHORTCUT] F7 fired source=' + source + ' -> KDABriefing(ally)');
     sendToWindow('shortcut:kda', true);
   } else if (action === 'f8') {
@@ -2715,21 +2741,21 @@ function handlePhaseChange(phase) {
       stopAugmentOcrWorker();
       stopChatOcrWorker();
     }
-    if (phase === 'InProgress') {
-      inProgressHotkeysActive = true;
-      const pollStarted = hotkeyPoller.start();
-      const reg = registerInProgressHotkeys();
-      const fmt = (act) => (hotkeyBindings[act] || act) + '=' + (reg[act] ? 'ok' : 'x');
-      logErr('[SHORTCUT] register ' + Object.keys(hotkeyParsed).map(fmt).join(' ') + (Object.values(reg).every(Boolean) ? '' : ' (注册失败项由 Win32轮询接管)'));
-      logErr('[HOTKEY POLL] available=' + hotkeyPoller.available + ' running=' + hotkeyPoller.isRunning() + ' started=' + pollStarted);
+    // 热键按阶段分组: 对局键只在 InProgress, 分工表只在 ChampSelect (见 HOTKEY_PHASES)
+    const hotkeyPhaseNow = (phase === 'InProgress' || phase === 'ChampSelect') ? phase : null;
+    const hot = syncHotkeys(hotkeyPhaseNow);
+    if (hotkeyPhaseNow) {
+      const fmt = (act) => (hotkeyBindings[act] || act) + '=' + (hot.reg[act] ? 'ok' : 'x');
+      const missing = Object.keys(hot.reg).filter(a => !hot.reg[a]);
+      logErr('[SHORTCUT] register phase=' + hotkeyPhaseNow + ' ' + Object.keys(hotkeyParsed).filter(a => activeHotkeyActions.has(a)).map(fmt).join(' ') + (missing.length ? ' (注册失败项由 Win32轮询接管)' : ''));
+      logErr('[HOTKEY POLL] available=' + hotkeyPoller.available + ' running=' + hotkeyPoller.isRunning() + ' started=' + hot.pollStarted);
     } else {
-      inProgressHotkeysActive = false;
-      hotkeyPoller.stop();
-      unregisterInProgressHotkeys();
+      logErr('[SHORTCUT] unregistered (phase=' + phase + ')');
+    }
+    if (phase !== 'InProgress') {
       if (augmentOverlayWindow && !augmentOverlayWindow.isDestroyed()) augmentOverlayWindow.hide();
       hideGameTranslateWindow();
       hideGameLiveWindow();
-      logErr('[SHORTCUT] unregistered (left InProgress)');
     }
   } catch (e) { logErr('[SHORTCUT] ' + e.message); }
 }

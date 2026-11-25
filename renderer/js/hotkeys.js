@@ -2,11 +2,17 @@
 // 键位数据只有一份真源: main/hotkey-manager.js 负责校验/去重/归一化, 这里只负责采集与展示。
 let _hkRecording = null;   // 正在录制的 action
 
-function hkActionList() { return ['f6', 'f7', 'f8', 'f9', 'f10']; }
+// 与 main/index.js 的 HOTKEY_ACTIONS / HOTKEY_DEFAULTS 一一对应
+// duty = 分工表一键发送, 只在选人阶段生效 (对局内没有选人聊天房间)
+const HK_DEFAULTS = Object.freeze({
+  f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10', duty: 'Ctrl+Shift+D'
+});
+
+function hkActionList() { return ['f6', 'f7', 'f8', 'f9', 'f10', 'duty']; }
 
 function hkCurrentCombo(action) {
   const stored = storeGet('hotkey_' + action);
-  return stored || { f6: 'F6', f7: 'F7', f8: 'F8', f9: 'F9', f10: 'Ctrl+F10' }[action] || '';
+  return stored || HK_DEFAULTS[action] || '';
 }
 
 function hkRender() {
@@ -70,7 +76,7 @@ async function hkCaptureKeydown(ev) {
   const st = document.getElementById('hkState');
   if (r && r.ok) {
     storeSet('hotkey_' + action, r.display);
-    if (st) st.textContent = '已生效: ' + (hkActionLabel(action)) + ' → ' + r.display + ' (下次进对局的热键注册同步更新)';
+    if (st) st.textContent = '已生效: ' + (hkActionLabel(action)) + ' → ' + r.display + ' (进入对应阶段时热键自动同步)';
     hkRender();
   } else {
     if (st) st.textContent = (r && r.error) || '设置失败';

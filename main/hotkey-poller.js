@@ -25,8 +25,9 @@ function createPoller(readKey, onHotkey, options) {
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
   const setTimer = typeof opts.setIntervalFn === 'function' ? opts.setIntervalFn : setInterval;
   const clearTimer = typeof opts.clearIntervalFn === 'function' ? opts.clearIntervalFn : clearInterval;
-  const previous = { f6: false, f7: false, f8: false, f9: false, f10: false };
-  const lastFiredAt = { f6: -Infinity, f7: -Infinity, f8: -Infinity, f9: -Infinity, f10: -Infinity };
+  // 动作集合由调用方决定 (对局内 f6-f11 / 选人阶段 duty), 这里不写死键名
+  const previous = {};
+  const lastFiredAt = {};
   let timer = null;
 
   function isDown(vk) {
@@ -59,7 +60,7 @@ function createPoller(readKey, onHotkey, options) {
     if (timer === null) return false;
     clearTimer(timer);
     timer = null;
-    previous.f6 = previous.f7 = previous.f8 = previous.f9 = previous.f10 = false;
+    for (const action of Object.keys(previous)) previous[action] = false;
     return true;
   }
 
