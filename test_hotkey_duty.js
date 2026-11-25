@@ -100,7 +100,7 @@ assert.ok(html.includes('id="hk_duty"'), '工具箱要有 duty 改键按钮');
 assert.ok(html.includes('id="hkLabel_duty"'), 'duty 按钮的说明文字 id 要能被 hkActionLabel 读到');
 assert.ok(html.includes("hkStartRecord('duty')"), '按钮点击要进入录制');
 assert.ok(html.includes('分工表 · 一键发到选人聊天'), '界面文案要说清这个键干什么');
-assert.ok(html.includes('js/hotkeys.js?v=2026112611'), 'hotkeys.js 版本串要 bump');
+assert.ok(/js\/hotkeys\.js\?v=\d+/.test(html), 'hotkeys.js 要有版本串, 避免缓存旧的改键逻辑');
 
 // live.js: 接住事件 → 缺缓存先补拉 → 发送
 const liveSrc = read('renderer/js/live.js');

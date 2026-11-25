@@ -56,6 +56,7 @@
       myIntentId: 0,
       enemy: [],          // [{ id, pos, guessed }]
       ally: [],           // [{ id, pos }]
+      openPositions: [],  // 己方还没定人的分路 [{ pos, cellId, mine }] —— 阵容视角的候选位
       unavailable: new Set(),
       bannedMy: [],
       bannedTheir: [],
@@ -122,6 +123,26 @@
 
     if (state.myChampionId) state.unavailable.add(state.myChampionId);
     if (state.myIntentId) state.unavailable.add(state.myIntentId);
+
+    // 1.6.68: 己方还没定人的分路 —— 阵容视角要给每个空位都出候选，而不是只看自己那路。
+    // 顺序: 自己在最前（他的候选不该被队友位抢走），其余按 cellId（= 选人顺位）。
+    // 位置已定（有人锁了/预选了）就把这个位置标为占用，第二个人乱选同一位置时不再重复出现。
+    const myCell = session.localPlayerCellId;
+    const orderedSlots = myTeam.slice().sort((a, b) => {
+      if (a.cellId === myCell) return -1;
+      if (b.cellId === myCell) return 1;
+      return (Number(a.cellId) || 0) - (Number(b.cellId) || 0);
+    });
+    const seenPos = new Set();
+    for (const p of orderedSlots) {
+      const pos = posKeyOf(p);
+      if (!pos || seenPos.has(pos)) continue;
+      seenPos.add(pos);
+      const decided = state.ally.some(a => a.cellId === p.cellId && (a.locked || a.intent))
+        || +p.championId > 0 || +p.championPickIntent > 0;
+      if (decided) continue;
+      state.openPositions.push({ pos, cellId: p.cellId, mine: p.cellId === myCell });
+    }
     return state;
   }
 
@@ -152,11 +173,17 @@
   // tables: { '敌人id:位置键' -> { '候选id' -> { play, wr } } }
   // opts.fitOf(id) -> 补位加分（百分点），来自 bp-team 的阵容缺口分析。
   //   不传时行为与 1.6.31 完全一致（score 就是对位分），旧测试与旧调用不受影响。
-  function recommend(state, tables, opts) {
+  // pos: 要评估的候选位置，缺省 = 我自己那一路（1.6.68 起阵容建议要按别的位置算）。
+  //   对位权重按"敌方这个人是不是和我这个候选同位置"判断，所以换了 pos 之后
+  //   权重也跟着换 —— 给队友中单位的建议，不会拿我上路那条对位线去算。
+  function recommendFor(state, tables, pos, opts) {
     const t = tables || {};
-    const fitOf = (opts && typeof opts.fitOf === 'function') ? opts.fitOf : null;
+    const o = opts || {};
+    const fitOf = (typeof o.fitOf === 'function') ? o.fitOf : null;
+    const limit = Number(o.limit) > 0 ? Number(o.limit) : PICK_COUNT;
+    const position = pos || state.myPosition;
     const rows = [];
-    for (const c of poolFor(state.myPosition)) {
+    for (const c of poolFor(position)) {
       if (state.unavailable.has(c.id)) continue;
       let score = (c.winRate - 0.5) * 100 * BASE_WEIGHT;
       const edges = [];
@@ -167,9 +194,9 @@
         const row = table[String(c.id)];
         if (!row || row.play < MIN_PLAY) { missing++; continue; }
         const delta = (row.wr - 0.5) * 100;
-        const w = (en.pos === state.myPosition ? LANE_WEIGHT : OFF_WEIGHT) * Math.min(1, row.play / SAMPLE_FULL);
+        const w = (en.pos === position ? LANE_WEIGHT : OFF_WEIGHT) * Math.min(1, row.play / SAMPLE_FULL);
         score += delta * w;
-        edges.push({ enemyId: en.id, enemyName: champName(en.id), delta, play: row.play, lane: en.pos === state.myPosition });
+        edges.push({ enemyId: en.id, enemyName: champName(en.id), delta, play: row.play, lane: en.pos === position });
       }
       edges.sort((a, b) => b.delta * b.play - a.delta * a.play);
       const fit = fitOf ? (Number(fitOf(c.id)) || 0) : 0;
@@ -179,7 +206,42 @@
       });
     }
     rows.sort((a, b) => (b.total - a.total) || b.score - a.score || b.base - a.base);
-    return rows.slice(0, PICK_COUNT);
+    return rows.slice(0, limit);
+  }
+
+  // 老签名保持不变：就是"我那一路"的推荐。
+  function recommend(state, tables, opts) {
+    return recommendFor(state, tables, state.myPosition, opts);
+  }
+
+  // 1.6.68: 己方阵容视角 —— 每个还空着的位置各出 perPos 个候选。
+  // 打分口径与单路完全一致（对位 + 缺口补位 + 本位置强度），只是把候选池换成
+  // 那个位置自己的池子。跨位置做一次去重：一个英雄只出现在第一处（自己在最前），
+  // 否则面板上会出现"打野阿木木 / 辅助阿木木"这种看起来像算错了的重复。
+  function teamPicks(state, tables, opts) {
+    const o = opts || {};
+    const perPos = Number(o.perPos) > 0 ? Number(o.perPos) : 3;
+    // 自己那一路下面已经有完整的「推荐 Pick」栏（带补位理由），这里只给首选，
+    // 免得同一批候选在同一屏里出现两遍。
+    const mineCount = Number(o.minePerPos) >= 0 ? Number(o.minePerPos) : 1;
+    const slots = Array.isArray(state.openPositions) ? state.openPositions : [];
+    if (!slots.length) return [];
+    const used = new Set();
+    const out = [];
+    for (const slot of slots) {
+      const want = slot.mine ? Math.max(1, mineCount) : perPos;
+      // 去重会吃掉候选，多取几个再筛，保证每个位置都凑得够
+      const rows = recommendFor(state, tables, slot.pos, { fitOf: o.fitOf, limit: want + used.size });
+      const picks = [];
+      for (const r of rows) {
+        if (used.has(r.id)) continue;
+        used.add(r.id);
+        picks.push(r);
+        if (picks.length >= want) break;
+      }
+      if (picks.length) out.push({ pos: slot.pos, posCn: KEY_CN[slot.pos] || slot.pos, mine: !!slot.mine, picks });
+    }
+    return out;
   }
 
   // ban 建议：我已选/预选 → 优先 ban 掉最克制我的；还没选 → 退化成版本强势（胜率 + ban 率）
@@ -281,6 +343,42 @@
       + '</div></div>';
   }
 
+  // 1.6.68 阵容建议里每个候选的一句话依据（塞进 title，不占行宽）
+  function tpWhy(item) {
+    const bits = [];
+    const best = item.edges && item.edges[0];
+    if (best) bits.push('对位 ' + best.enemyName + (best.lane ? '' : '（非对线）') + ' ' + sign(best.delta));
+    if (item.fit) bits.push('补位 +' + item.fit.toFixed(1));
+    bits.push('本位置胜率 ' + (item.base * 100).toFixed(1) + '%');
+    return bits.join(' · ');
+  }
+
+  function teamPicksHtml(rows) {
+    if (!Array.isArray(rows) || !rows.length) return '';
+    const lines = rows.map(row => {
+      const chips = (row.picks || []).map(p => {
+        const key = champKeyOf(p.id);
+        if (!key) return '';
+        const total = p.total != null ? p.total : p.score;
+        return '<span class="bp-tp-chip" title="' + esc(tpWhy(p)) + '">'
+          + '<img src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" loading="lazy" alt="">'
+          + '<span class="bp-tp-name">' + esc(champName(p.id)) + '</span>'
+          + '<b class="bp-tp-score ' + (total >= 0 ? 'pos' : 'neg') + '">' + sign(total) + '</b></span>';
+      }).join('');
+      if (!chips) return '';
+      return '<div class="bp-tp-row' + (row.mine ? ' bp-tp-mine' : '') + '">'
+        + '<span class="bp-tp-pos">' + esc(row.posCn || '') + (row.mine ? '<i>你</i>' : '') + '</span>'
+        + '<span class="bp-tp-list">' + chips + '</span>'
+        + (row.mine ? '<span class="bp-tp-more">详情见下方 Pick</span>' : '')
+        + '</div>';
+    }).filter(Boolean).join('');
+    if (!lines) return '';
+    return '<div class="bp-team">'
+      + '<div class="bp-team-head"><b>己方阵容</b><span>还空着的位置各给几个候选 · 同一个英雄只出现一次</span></div>'
+      + lines
+      + '</div>';
+  }
+
   function buildHtml(state, picks, bans, extra) {
     const head = [];
     if (state.myPosition) head.push('你的位置：' + KEY_CN[state.myPosition]);
@@ -305,6 +403,8 @@
     // 有 team 时用 bp-team 出结论 —— 补位分已经并进 picks 的 total，再走 bp-fusion 会重复计分。
     const team = extra && extra.team;
     const briefHtml = team && root.PoroBPTeam ? root.PoroBPTeam.briefHtml(team, ctx) : '';
+    // 1.6.68: 己方阵容逐位候选。没给出（旧调用/测试）时整块不渲染。
+    const posPicksHtml = teamPicksHtml(extra && extra.posPicks);
     let fusionHtml = '';
     if (team && root.PoroBPTeam && picks.length) {
       try { fusionHtml = root.PoroBPTeam.verdictHtml(picks[0], team, ctx); } catch (e) { fusionHtml = ''; }
@@ -323,6 +423,7 @@
     }
     return '<div class="bp-head"><b>BP 建议</b><span>' + esc(head.join(' · ')) + '</span></div>'
       + briefHtml
+      + posPicksHtml
       + fusionHtml
       + '<div class="bp-cols">'
       + '<div class="bp-col"><div class="bp-col-title">推荐 Pick</div><div class="bp-list">' + pickHtml + '</div></div>'
@@ -403,6 +504,7 @@
   function stateKey(state) {
     return [state.myPosition, state.myChampionId, state.myIntentId, state.myAction,
       state.enemy.map(e => e.id + '@' + e.pos).join(','),
+      (state.openPositions || []).map(s => s.pos + (s.mine ? '*' : '')).join(','),
       [...state.unavailable].sort((a, b) => a - b).join(',')].join('|');
   }
 
@@ -421,9 +523,14 @@
   async function refresh(session) {
     const state = readSession(session);
     if (!state.inChampSelect) { clear(); return; }
-    if (!state.myPosition) { showNote('盲选/无分路模式没有分路分配，BP 建议只在有选位环节的模式里可用'); return; }
+    // 1.6.68: 自己那路没有候选池时不一定要收面板 —— 只要己方还有空位，阵容建议仍然有用
+    // (例如数据里我这路刚好没条目，但队友三路都空着)。
+    if (!state.myPosition && !state.openPositions.length) {
+      showNote('盲选/无分路模式没有分路分配，BP 建议只在有选位环节的模式里可用');
+      return;
+    }
     const pools = poolFor(state.myPosition);
-    if (!pools.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
+    if (!pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
     const key = stateKey(state);
     if (key === _lastKey) return;
     if (_refreshing) return;
@@ -450,6 +557,9 @@
           p.fitReasons = f.reasons;
         }
       }
+      // 1.6.68: 己方阵容视角 —— 每个空位给几个候选。用同一套 fitOf，
+      // 所以"补前排/缺物伤"这类缺口对每个位置都成立，不会只照顾我这一路。
+      const posPicks = teamPicks(state, tables, { fitOf, perPos: 3 });
       const bans = recommendBans(state, tables, { intents: team ? team.intents : [] });
       const box = el('bpAdvisor');
       const body = el('bpAdvisorBody');
@@ -463,7 +573,7 @@
         }
       } catch (e) { reviewHints = []; }
       body.innerHTML = buildHtml(state, picks, bans, {
-        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team
+        ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks
       });
       box.hidden = false;
       _lastKey = key;
@@ -474,7 +584,7 @@
   function reset() { _tables.clear(); _failed.clear(); _lastKey = ''; }
 
   root.PoroBPAdvisor = {
-    readSession, recommend, recommendBans, poolFor, buildHtml, cardHtml,
+    readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, cardHtml, teamPicksHtml,
     refresh, clear, reset, showNote,
     MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT
   };
