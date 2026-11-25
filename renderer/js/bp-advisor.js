@@ -58,6 +58,20 @@
     return key || '';
   }
 
+  // 1.6.74: 训练模式/盲选没有 assignedPosition，但英雄数据页本身与分路无关，不该跟着空。
+  // 这里只推一个"取哪张对位表"的位置，不参与 BP 打分；界面会明确标"推断"。
+  function inferPosForData(championId) {
+    const g = guessPos(championId);
+    if (g) return g;
+    const list = (typeof opggPosList !== 'undefined' && Array.isArray(opggPosList)) ? opggPosList : [];
+    for (const row of list) {
+      if (+row.championId !== +championId) continue;
+      const k = RAW_TO_KEY[String(row.positionKey || '').toUpperCase()] || '';
+      if (k) return k;
+    }
+    return '';
+  }
+
   function readSession(session) {
     const state = {
       inChampSelect: false,
@@ -515,7 +529,7 @@
   }
 
   // 英雄数据页 = 概要条（梯队/位置/胜率/登场率/禁用率）+ 劣势/优势两段密集网格。
-  function dataHtml(counters, myId, pos, stats) {
+  function dataHtml(counters, myId, pos, stats, guessed) {
     const id = +myId;
     const key = id ? champKeyOf(id) : '';
     if (!key) return '';
@@ -529,7 +543,8 @@
       + '<div class="hero-name">' + esc(champName(id)) + '</div>'
       + '<div class="hero-sub">'
       + (tier ? '<span class="hero-tier ' + tier.cls + '">' + tier.text + '</span>' : '')
-      + (pos ? '<span class="hero-pos">' + esc(KEY_CN[pos] || '') + '</span>' : '')
+      + (pos ? '<span class="hero-pos"' + (guessed ? ' title="按英雄主玩位置推断，不代表实际分路"' : '')
+        + '>' + (guessed ? '推断 · ' : '') + esc(KEY_CN[pos] || '') + '</span>' : '')
       + '</div></div>'
       + '<div class="hero-stats">'
       + statCell('胜率', st.win_rate)
@@ -656,10 +671,15 @@
   // 浮窗分两页（阵容 BP / 克制关系），所以两块内容分别产出。
   function buildPanels(state, picks, bans, extra) {
     const e = extra || {};
+    // 1.6.74: 无分路时 BP 页只给一句原因，英雄数据页照常出 —— 两页不能一起被 guard 切掉。
+    const note = e.noLaneNote
+      ? '<div class="bp-empty">' + esc(e.noLaneNote)
+        + (e.posGuessed ? '；英雄数据页按推断位置照常显示' : '') + '</div>'
+      : '';
     return {
       // 两页内容分开产出：html = 选人助手（阵容 BP），cnt = 英雄数据（概要条 + 对位网格）。
-      html: buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })),
-      cnt: dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats)
+      html: note || buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })),
+      cnt: dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats, e.posGuessed)
     };
   }
 
@@ -801,12 +821,15 @@
     if (mode === 'aram' || mode === 'mayhem') { clear(); return; }
     // 1.6.68: 自己那路没有候选池时不一定要收面板 —— 只要己方还有空位，阵容建议仍然有用
     // (例如数据里我这路刚好没条目，但队友三路都空着)。
-    if (!state.myPosition && !state.openPositions.length) {
-      showNote('盲选/无分路模式没有分路分配，BP 建议只在有选位环节的模式里可用');
-      return;
-    }
+    const noLane = !state.myPosition && !state.openPositions.length;
+    const noLaneNote = '盲选/无分路模式没有分路分配，BP 建议只在有选位环节的模式里可用';
+    // 1.6.74: 没有英雄可分析时仍然只给说明；有英雄就按主玩位置推断一张对位表，
+    // 让英雄数据页在训练模式/盲选里也能用。这个推断位置不进 BP 打分。
+    const dataHeroId = state.myChampionId || state.myIntentId || 0;
+    const dataPosGuess = noLane && dataHeroId ? inferPosForData(dataHeroId) : '';
+    if (noLane && !dataPosGuess) { showNote(noLaneNote); return; }
     const pools = poolFor(state.myPosition);
-    if (!pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
+    if (!noLane && !pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
     const key = stateKey(state);
     if (key === _lastKey) return;
     // 拉对位表是异步的。旧版遇到"刷新中又来新事件"直接 return，那一步状态就丢了 ——
@@ -848,14 +871,18 @@
         }
       } catch (e) { reviewHints = []; }
       // 1.6.71: 对位跟"我当前选/预选的英雄 + 我的分路"走，拉全量（40+ 条）。
-      const counterHeroId = state.myChampionId || state.myIntentId || 0;
+      const counterHeroId = dataHeroId;
       // 1.6.72: 位置筛选可覆盖"自动跟随我的分路"，用来看同一英雄在别路的对位样本。
-      const counterPos = _filters.position === 'auto' ? (state.myPosition || '') : _filters.position;
+      // 1.6.74: 无分路时退回英雄主玩位置，只服务数据页；用户手选的位置优先，且不算"推断"。
+      const autoPos = state.myPosition || dataPosGuess;
+      const counterPos = _filters.position === 'auto' ? autoPos : _filters.position;
+      const posGuessed = _filters.position === 'auto' && !state.myPosition && !!dataPosGuess;
       const counters = counterHeroId ? await loadCounters(counterHeroId, counterPos) : null;
       const counterStats = counterHeroId ? await loadStats(counterHeroId, counterPos) : null;
       const panels = buildPanels(state, picks, bans, {
         ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks,
-        counters, counterHeroId, counterPos, counterStats
+        counters, counterHeroId, counterPos, counterStats, posGuessed,
+        noLaneNote: noLane ? noLaneNote : ''
       });
       // 主窗口面板若还在（旧布局/测试用的假 DOM）就照旧填，同时推一份给浮窗 ——
       // 两处用同一份 HTML，不会出现"面板和浮窗结论不一样"。
@@ -917,6 +944,7 @@
   root.PoroBPAdvisor = {
     readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, buildPanels, cardHtml, teamPicksHtml,
     countersOf, loadCounters, splitCounters, dataHtml, statsOf, loadStats, whyText, pushOverlay, subTextOf,
+    guessPos, inferPosForData,
     applyFilters, normalizeFilterLocal, filterOpts, refresh, clear, reset, showNote,
     MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT,
     FILTER_DEFAULT, FILTER_REGIONS, FILTER_TIERS, FILTER_POSITIONS

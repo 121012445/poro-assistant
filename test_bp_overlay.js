@@ -100,6 +100,8 @@ const lolAPI = {
   assert.ok(dataHtml.includes('hero-tier') && dataHtml.includes('hero-stats'), '概要条要有梯队与三项统计');
   assert.ok(dataHtml.includes('https://ddragon.leagueoflegends.com'), '头像要走 CDN（浮窗 CSP 已放行）');
   assert.strictEqual(api.dataHtml(null, 0, '', null), '', '没有英雄时整块不渲染');
+  assert.ok(api.dataHtml(c, 1, 'mid', opggPosList[0].stats, true).includes('推断 · 中单'),
+    '1.6.74: 无分路推出来的位置必须标注推断，不能冒充真实分路');
 
   // ---------- 3. 推送：正常态 ----------
   pushes.length = 0;
@@ -135,6 +137,22 @@ const lolAPI = {
   pushes.length = 0;
   await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 5 }], theirTeam: [{ cellId: 6, championId: 3 }], bans: {} });
   assert.ok(pushes.length === 1 && pushes[0].html.includes('盲选'), '无分路时要推说明文案');
+
+  // 1.6.74: 训练模式 = 无分路 + 已选英雄。旧版在这里两页一起空，新版 BP 页保留原因，
+  // 英雄数据页按主玩位置推断后照常出概要条 + 对位网格。
+  pushes.length = 0;
+  const training = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
+  await training.api.refresh({
+    localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 1 }],
+    theirTeam: [], actions: [], bans: {}
+  });
+  assert.strictEqual(pushes.length, 1, '训练模式应推一帧');
+  assert.strictEqual(pushes[0].visible, true, '数据页有内容时浮窗应可见');
+  assert.ok(pushes[0].html.includes('盲选'), 'BP 页仍要说明没有分路分配');
+  assert.ok(pushes[0].cnt.includes('劣势对位') && pushes[0].cnt.includes('class="cell"'),
+    '训练模式英雄数据页要照常出对位网格');
+  assert.ok(pushes[0].cnt.includes('推断 · 中单'), '推断位置要在数据页显式标注');
+  assert.ok(!pushes[0].sub.includes('中单'), '副标题不能把推断位置说成真实分路');
 
   // ---------- 6. 浮窗页面本体 ----------
   const ovHtml = read('renderer/bp-overlay.html');

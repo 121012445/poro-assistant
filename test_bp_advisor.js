@@ -129,6 +129,9 @@ const num = (v, d) => Number(v.toFixed(d == null ? 2 : d));
   assert.strictEqual(pool.map(c => c.id).sort((a, b) => a - b).join(','), '1,2,4,5', '中单池应为 4 个英雄');
   assert.strictEqual(api.poolFor('top').length, 1, '上单池只应有 1 个英雄');
   assert.strictEqual(api.poolFor('support').length, 0, '无数据位置应返回空池');
+  assert.strictEqual(api.inferPosForData(4), 'top', '主玩位置表优先');
+  assert.strictEqual(api.inferPosForData(5), 'mid', '主玩表没有时退回首页榜的位置');
+  assert.strictEqual(api.inferPosForData(999), '', '查不到位置就留空，不编造');
 
   // ---------- 3. 打分: 对位优势优先 ----------
   const tables = { '3:mid': { '2': { play: 800, wr: 0.56 }, '4': { play: 800, wr: 0.44 } } };
