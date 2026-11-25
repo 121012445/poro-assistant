@@ -334,7 +334,9 @@ function toggleBpOverlay(on) {
   if (bp) {
     if (!on && typeof bp.clear === 'function') bp.clear();
     else if (typeof bp.refresh === 'function' && _benchLastSession) {
-      try { Promise.resolve(bp.refresh(_benchLastSession)).catch(() => {}); } catch (e) {}
+      // 1.6.75: 这是 1.5s tick 拿缓存会话重算，不是实时选人事件 ——
+      // 训练模式 phase 不到 ChampSelect，只有实时帧能放行浮窗，缓存帧不能冒充。
+      try { Promise.resolve(bp.refresh(_benchLastSession, false)).catch(() => {}); } catch (e) {}
     }
   }
   toolMsg(on ? '选人助手浮窗已开启（选人时显示克制关系与 BP 建议）' : '选人助手浮窗已关闭');
@@ -668,7 +670,7 @@ function handleChampSelectEvent(session) {
   try {
     const bp = window.PoroBPAdvisor;
     if (bp && typeof bp.refresh === 'function') {
-      const p = bp.refresh(session);
+      const p = bp.refresh(session, true);
       if (p && typeof p.catch === 'function') p.catch(() => {});
     }
   } catch (e) {}

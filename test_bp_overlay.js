@@ -106,10 +106,11 @@ const lolAPI = {
   // ---------- 3. 推送：正常态 ----------
   pushes.length = 0;
   const live = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
-  await live.api.refresh(session);
+  await live.api.refresh(session, true);
   assert.strictEqual(pushes.length, 1, '一次刷新应推一帧');
   const p0 = pushes[0];
   assert.strictEqual(p0.visible, true, '选人且开关打开时应可见');
+  assert.strictEqual(p0.csLive, true, '实时选人事件推的帧要标 csLive');
   assert.strictEqual(p0.phase, 'ChampSelect', '要带上阶段，主进程用它做兜底门禁');
   assert.ok(p0.html.includes('BP 建议'), '推送内容应包含 BP 面板');
   assert.ok(p0.cnt.includes('劣势对位') && p0.cnt.includes('class="cell"'), '数据页应是概要条 + 对位网格');
@@ -117,13 +118,13 @@ const lolAPI = {
   assert.ok(p0.sub.includes('中单'), '副标题应写位置');
 
   // 同一会话重复刷新不重复推（去重由 stateKey 保证）
-  await live.api.refresh(session);
+  await live.api.refresh(session, true);
   assert.strictEqual(pushes.length, 1, '相同会话不应重复推送');
 
   // ---------- 4. 推送：开关关掉 ----------
   pushes.length = 0;
   const off = load({ lolAPI, bpOverlayOn: false, gameflowPhase: 'ChampSelect' });
-  await off.api.refresh(session);
+  await off.api.refresh(session, true);
   assert.strictEqual(pushes[0].visible, false, '开关关掉时只能推不可见，不能自己弹出来');
 
   // ---------- 5. 推送：离开选人 ----------
@@ -135,24 +136,33 @@ const lolAPI = {
 
   // 盲选/无分路模式：给一句说明，但浮窗仍可见（让玩家知道为什么没内容）
   pushes.length = 0;
-  await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 5 }], theirTeam: [{ cellId: 6, championId: 3 }], bans: {} });
+  await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 5 }], theirTeam: [{ cellId: 6, championId: 3 }], bans: {} }, true);
   assert.ok(pushes.length === 1 && pushes[0].html.includes('盲选'), '无分路时要推说明文案');
 
-  // 1.6.74: 训练模式 = 无分路 + 已选英雄。旧版在这里两页一起空，新版 BP 页保留原因，
-  // 英雄数据页按主玩位置推断后照常出概要条 + 对位网格。
+  // 1.6.74/75: 训练模式 = 无分路 + 已选英雄 + gameflow phase 永远不到 ChampSelect。
+  // BP 页保留原因，英雄数据页照常出；关键是实时帧要标 csLive 才能过主进程门禁。
   pushes.length = 0;
-  const training = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
-  await training.api.refresh({
+  const training = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ReadyCheck' });
+  const trainingSession = {
     localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 1 }],
     theirTeam: [], actions: [], bans: {}
-  });
+  };
+  await training.api.refresh(trainingSession, true);
   assert.strictEqual(pushes.length, 1, '训练模式应推一帧');
   assert.strictEqual(pushes[0].visible, true, '数据页有内容时浮窗应可见');
+  assert.strictEqual(pushes[0].phase, 'ReadyCheck', '训练模式 phase 确实不是 ChampSelect');
+  assert.strictEqual(pushes[0].csLive, true, '实时选人帧必须标 csLive，否则主进程会把窗挡掉');
+  assert.strictEqual(pushes[0].inCs, true, '要告诉主进程会话确实在选人');
   assert.ok(pushes[0].html.includes('盲选'), 'BP 页仍要说明没有分路分配');
   assert.ok(pushes[0].cnt.includes('劣势对位') && pushes[0].cnt.includes('class="cell"'),
     '训练模式英雄数据页要照常出对位网格');
   assert.ok(pushes[0].cnt.includes('推断 · 中单'), '推断位置要在数据页显式标注');
   assert.ok(!pushes[0].sub.includes('中单'), '副标题不能把推断位置说成真实分路');
+
+  // 1.5s tick 拿缓存会话重算时不能冒充实时帧，否则大厅里的旧会话会误弹窗
+  pushes.length = 0;
+  await training.api.refresh(trainingSession, false);
+  assert.strictEqual(pushes[0].csLive, false, '缓存帧必须标 csLive=false');
 
   // ---------- 6. 浮窗页面本体 ----------
   const ovHtml = read('renderer/bp-overlay.html');
@@ -195,6 +205,8 @@ const lolAPI = {
   assert.ok(/win\.showInactive\(\)/.test(mainSrc), '显示浮窗不能抢客户端焦点');
   assert.ok(/setAlwaysOnTop\(bpOverlayPinned, 'screen-saver'\)/.test(mainSrc), '置顶要跟图钉状态绑定，并压过客户端层级');
   assert.ok(/lastReportedPhase === 'ChampSelect'/.test(mainSrc), '主进程要按阶段兜底门禁');
+  assert.ok(mainSrc.includes("p.csLive === true") && mainSrc.includes('|| csLive)'),
+    '1.6.75 主进程要用实时选人帧放行训练模式（phase 不到 ChampSelect）');
   assert.ok(/'bp-overlay:data'/.test(mainSrc), '要能把内容推给浮窗');
   assert.ok(/bp-overlay\.json/.test(mainSrc), '拖拽位置要落盘，下次沿用');
 
@@ -236,7 +248,7 @@ const lolAPI = {
   };
   pushes.length = 0;
   const filtered = load({ lolAPI: filterApi, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
-  await filtered.api.refresh(session);
+  await filtered.api.refresh(session, true);
   assert.strictEqual(JSON.stringify(seenOpts[0] && seenOpts[0].opts), JSON.stringify({ region: 'kr', tier: 'all' }),
     '默认口径仍是 KR/全部段位');
   assert.strictEqual(pushes[0].filters.region, 'kr', '推送要带筛选状态，浮窗才能恢复');
@@ -277,7 +289,7 @@ const lolAPI = {
   assert.ok(!/id="counterLayout"/.test(idx), '克制页容器应已移除');
   assert.ok(/id="bpOverlayToggle"/.test(idx), '工具箱要有开关');
   const benchSrc = read('renderer/js/bench.js');
-  assert.ok(/bp\.refresh\(session\)/.test(benchSrc), '选人 tick 要驱动刷新');
+  assert.ok(/bp\.refresh\(session, true\)/.test(benchSrc), '实时选人事件要驱动刷新并标 csLive');
   const hexSrc = read('renderer/js/hex.js');
   assert.ok(!/calcCounterData/.test(hexSrc), 'hex.js 里的旧克制实现应已删除（只留 bp-advisor 一份）');
   const liveSrc = read('renderer/js/live.js');

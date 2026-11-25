@@ -693,6 +693,11 @@
   let _pendingSession = null;
   let _lastKey = '';
   let _lastSession = null;
+  // 1.6.75: 训练模式的 gameflow phase 停在 Lobby/Matchmaking/ReadyCheck，永远不到 ChampSelect。
+  // 用"这一帧来自实时选人事件"作为等价门禁信号；1.5s tick 拿缓存会话重算时不能冒充实时。
+  let _lastState = null;
+  let _csLive = false;
+  let _lastLive = false;
 
   function el(id) { return document.getElementById(id); }
 
@@ -716,6 +721,7 @@
   function pushOverlay(parts, state) {
     const api = root.lolAPI;
     if (!api || typeof api.bpOverlayUpdate !== 'function') return;
+    const st = state || _lastState;
     const obj = (parts && typeof parts === 'object') ? parts : { html: String(parts || ''), cnt: '' };
     const html = String(obj.html || '');
     const cnt = String(obj.cnt || '');
@@ -723,7 +729,10 @@
       const r = api.bpOverlayUpdate({
         html,
         cnt,
-        sub: subTextOf(state),
+        sub: subTextOf(st),
+        // 1.6.75: 主进程据此放行"phase 没到 ChampSelect 但选人会话是活的"的训练模式。
+        inCs: !!(st && st.inChampSelect),
+        csLive: !!_csLive && !!(st && st.inChampSelect),
         visible: !!(html || cnt) && overlayEnabled(),
         phase: (typeof root._gameflowPhase === 'string' ? root._gameflowPhase : ''),
         // 1.6.72: 筛选条件与数据版本跟着内容一起推，浮窗负责显示，不自己记状态
@@ -738,6 +747,9 @@
     const box = el('bpAdvisor');
     if (box) box.hidden = true;
     _lastKey = '';
+    _lastState = null;
+    _csLive = false;
+    _lastLive = false;
     pushOverlay('', null);
   }
 
@@ -749,6 +761,7 @@
     // 浮窗也要说清"为什么没内容"，否则玩家只看到一个空窗。
     pushOverlay(html, null);
     _lastKey = 'note:' + text;
+    _lastLive = _csLive;
   }
 
   async function ensureTables(state, extraNeeds) {
@@ -811,9 +824,11 @@
     } catch (e) { return 'rift'; }
   }
 
-  async function refresh(session) {
+  async function refresh(session, live) {
     _lastSession = session;   // 筛选变化后拿它重算一帧，不必等下一次选人事件
     const state = readSession(session);
+    _lastState = state;
+    _csLive = !!live;
     if (!state.inChampSelect) { clear(); return; }
     // 大乱斗/海斗没有选位环节，克制与阵容建议都不成立；那两个模式有自己的备战区浮窗，
     // 这里再弹一个"没有分路分配"的空窗只是噪声。
@@ -827,11 +842,13 @@
     // 让英雄数据页在训练模式/盲选里也能用。这个推断位置不进 BP 打分。
     const dataHeroId = state.myChampionId || state.myIntentId || 0;
     const dataPosGuess = noLane && dataHeroId ? inferPosForData(dataHeroId) : '';
-    if (noLane && !dataPosGuess) { showNote(noLaneNote); return; }
+    if (noLane && !dataHeroId) { showNote(noLaneNote); return; }
     const pools = poolFor(state.myPosition);
     if (!noLane && !pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
     const key = stateKey(state);
-    if (key === _lastKey) return;
+    // 1.6.75: 同一会话从"缓存 tick"变成"实时事件"时必须重推一次，
+    // 否则训练模式第一次由 tick 推出去的不可见帧会把后续实时帧饿死。
+    if (key === _lastKey && !!live === _lastLive) return;
     // 拉对位表是异步的。旧版遇到"刷新中又来新事件"直接 return，那一步状态就丢了 ——
     // 浮窗成了唯一出口后，丢一步就等于选人末尾停在上一版阵容。这里记下来，本轮结束后补跑。
     if (_refreshing) { _pendingSession = session; return; }
@@ -891,13 +908,14 @@
       if (box && body) { body.innerHTML = panels.html; box.hidden = false; }
       pushOverlay(panels, state);
       _lastKey = key;
+      _lastLive = !!live;
     } finally {
       _refreshing = false;
       // 期间来过新事件就补跑一次（只补一次，避免在事件风暴里循环）
       if (_pendingSession) {
         const next = _pendingSession;
         _pendingSession = null;
-        try { await refresh(next); } catch (e) {}
+        try { await refresh(next, live); } catch (e) {}
       }
     }
   }
@@ -926,7 +944,7 @@
     // 所有 table 都按地区/段位分过组，缓存键虽不冲突，但留着只是占内存。
     reset();
     if (_lastSession) {
-      try { const p = refresh(_lastSession); if (p && typeof p.catch === 'function') p.catch(() => {}); }
+      try { const p = refresh(_lastSession, _csLive); if (p && typeof p.catch === 'function') p.catch(() => {}); }
       catch (e) {}
     }
   }

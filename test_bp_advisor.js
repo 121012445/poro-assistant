@@ -268,7 +268,8 @@ const num = (v, d) => Number(v.toFixed(d == null ? 2 : d));
       // ---------- 12. 接线 ----------
       // 1.6.70: 克制页下线, 驱动器从 hex.js 挪到 bench.js 的选人 tick
       const bench = read('renderer/js/bench.js');
-      assert.ok(/bp\.refresh\(session\)/.test(bench), '选人 tick 里应刷新 BP 建议');
+      assert.ok(/bp\.refresh\(session, true\)/.test(bench), '实时选人事件要标 csLive=true 刷新 BP 建议');
+      assert.ok(/bp\.refresh\(_benchLastSession, false\)/.test(bench), '缓存 tick 不能冒充实时选人帧');
       assert.ok(!/page-counters/.test(bench), 'bench.js 不应再依赖已下线的克制页');
       const idx = read('renderer/index.html');
       assert.ok(/<script src="js\/bp-advisor\.js\?v=\d+"><\/script>/.test(idx), 'index.html 应引入 bp-advisor.js');

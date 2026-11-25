@@ -760,12 +760,17 @@ ipcMain.handle('bp-overlay:update', async (e, payload) => {
     version: String(p.version || '').substring(0, 20)
   };
   const payloadPhase = String(p.phase || '');
+  // 1.6.75: 训练/自定义选人的 gameflow phase 停在 Lobby/Matchmaking/ReadyCheck，
+  // 从不到 ChampSelect。渲染层用"这一帧来自实时选人事件 + session 确实在选人"作等价信号；
+  // 1.5s tick 拿缓存会话重算时 csLive=false，不会让大厅里的旧会话把浮窗叫醒。
+  const csLive = p.csLive === true;
   const hasContent = !!(bpOverlayPayload.html || bpOverlayPayload.cnt);
   const want = !!p.visible && hasContent
-    && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect');
+    && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect' || csLive);
   try {
     logErr('[BP-OVERLAY] want=' + want + ' visible=' + !!p.visible
       + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase
+      + ' inCs=' + (p.inCs === true) + ' csLive=' + csLive
       + ' html=' + bpOverlayPayload.html.length + ' cnt=' + bpOverlayPayload.cnt.length
       + ' win=' + !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()));
   } catch (e2) {}
