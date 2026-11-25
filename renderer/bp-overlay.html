@@ -127,8 +127,8 @@
   .flt select:hover { border-color: var(--line-2); }
   .flt select:focus { border-color: #5b7ea8; }
   .flt select option { background: var(--bg-2); color: var(--txt); }
-  /* OP.GG 不提供历史版本，版本只有"当前"一项：仍是 select 的外观，
-     但改不了数值，title 里把原因说清楚，不装成能筛选。 */
+  /* OP.GG 不提供历史版本：版本框显示当前版本号（ddragon 口径），但是只读，
+     title 里把原因说清楚，不装成能筛选。 */
   .flt select.ro { color: var(--dim); cursor: default; }
   .flt-note {
     font-size: 9px; color: #6d6d75; line-height: 1.4;
@@ -360,12 +360,12 @@
       </div>
       <div class="flt">
         <label for="fVer">版本</label>
-        <select id="fVer" class="ro" title="OP.GG 只提供当前版本数据，不开放历史版本切换">
-          <option value="auto">当前</option>
+        <select id="fVer" class="ro" title="显示当前游戏版本号；OP.GG 不开放历史版本切换">
+          <option value="auto">加载中</option>
         </select>
       </div>
     </div>
-    <div class="flt-note" id="fltNote">数据源 OP.GG · 当前版本加载中…</div>
+    <div class="flt-note" id="fltNote">数据源 OP.GG · 版本号加载中…</div>
     <div class="body" id="paneData"><div class="empty">进入选人并亮出英雄后，这里给出你这一路的对位数据：胜率、选禁率，以及能打谁、打不过谁。</div></div>
     <div class="body" id="paneBp" hidden><div class="empty">己方每个空位的候选，加上推荐 Pick / Ban。</div></div>
   </div>

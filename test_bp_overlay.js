@@ -227,6 +227,11 @@ const lolAPI = {
   // 1.6.76: 默认且始终停在英雄数据页，推送不能把用户自动弹到 BP 页
   assert.ok(/let active = 'data'/.test(ovJs), '浮窗默认页必须是英雄数据');
   assert.ok(!/!cnt && bp && bpAvailable/.test(ovJs), '数据页没内容时不能再自动跳到选人助手页');
+  // 1.6.77: 版本下拉显示真实版本号，不再写死"当前"
+  assert.ok(/getVersion\(\)/.test(ovJs), '浮窗要主动拉 ddragon 当前版本做兜底');
+  assert.ok(/function showVersion\(/.test(ovJs) && /shownVersion = v/.test(ovJs), '要有统一的版本显示函数');
+  assert.ok(/\.textContent = v/.test(ovJs), '下拉项要显示版本号文字，不是"当前"');
+  assert.ok(!ovHtml.includes('<option value="auto">当前</option>'), '初始项不能再写"当前"');
 
   // ---------- 7. 主进程接线 ----------
   const mainSrc = read('main/index.js');

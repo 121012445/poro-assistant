@@ -28,6 +28,25 @@
   const EMPTY_DATA = '<div class="empty">进入选人并亮出英雄后，这里给出你这一路的对位数据：胜率、选禁率，以及能打谁、打不过谁。</div>';
   const EMPTY_BP = '<div class="empty">己方每个空位的候选，加上推荐 Pick / Ban。</div>';
 
+  // 1.6.77: 版本下拉显示真实版本号（如 16.23），不再只写"当前"。
+  // 来源优先级：主进程推送的 OP.GG meta.version > ddragon 当前版本。
+  // bench 在默认 KR/all 口径下不会加载，meta.version 常常为空，所以用 ddragon 兜底。
+  let shownVersion = '';
+  function showVersion(ver) {
+    if (!ver || !fVer) return;
+    const v = String(ver).slice(0, 20);
+    shownVersion = v;
+    let opt = [...fVer.options].find(o => o.value === v || o.textContent === v);
+    if (!opt) {
+      opt = document.createElement('option');
+      opt.value = v; opt.textContent = v;
+      fVer.insertBefore(opt, fVer.firstChild);
+    }
+    fVer.value = v;
+    // 说明行也要跟着显示版本号，而不是停在"当前版本加载中"
+    filterNote(currentFilters(), v);
+  }
+
   let lastBp = null;
   let lastCnt = null;
   let lastSub = null;
@@ -82,16 +101,10 @@
     setSelect(fRegion, f.region);
     setSelect(fTier, f.tier);
     setSelect(fPos, f.position);
-    if (fVer && ver) {
-      const opt = [...fVer.options].find(o => o.value === ver);
-      if (!opt) {
-        const o = document.createElement('option');
-        o.value = ver; o.textContent = ver;
-        fVer.insertBefore(o, fVer.firstChild);
-      }
-      fVer.value = ver;
-    }
-    filterNote(currentFilters(), ver);
+    // 1.6.77: 有外部版本就用它，否则沿用已显示的（ddragon 兜底异步先前到）。
+    if (ver) showVersion(ver);
+    else if (shownVersion) showVersion(shownVersion);
+    else filterNote(currentFilters(), '');
   }
   function sendFilters() {
     const f = currentFilters();
@@ -105,6 +118,16 @@
   }
   for (const el of [fRegion, fTier, fPos]) {
     if (el) el.addEventListener('change', sendFilters);
+  }
+  // 1.6.77: 版本下拉要显示真实版本号。主进程推的 OP.GG meta.version 优先，
+  // 但它常常为空（默认 KR/all 口径不拉 bench），所以这里主动拉一次 ddragon 当前版本兜底。
+  if (api && typeof api.getVersion === 'function') {
+    try {
+      const p = api.getVersion();
+      if (p && typeof p.then === 'function') {
+        p.then(v => { if (v && !shownVersion) showVersion(v); }).catch(() => {});
+      }
+    } catch (e) {}
   }
   // 浮窗重建时先恢复已保存的选择；主进程推送的第一帧还会再同步一次。
   if (api && typeof api.bpOverlayStatus === 'function') {
