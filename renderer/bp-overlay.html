@@ -191,6 +191,51 @@
   }
   .hero-note { font-size: 10px; color: var(--faint); margin: 6px 2px 0; line-height: 1.5; }
 
+  /* ---------- 英雄综合排名（没亮英雄时数据页的默认视图） ---------- */
+  .rank-head { display: flex; align-items: baseline; gap: 6px; margin: 1px 0 6px; }
+  .rank-head b { font-size: 12px; color: #dcdce1; }
+  .rank-head span { font-size: 10px; color: var(--faint); }
+  .rank-table { display: flex; flex-direction: column; gap: 2px; }
+  .rank-row {
+    display: flex; align-items: center; gap: 5px;
+    padding: 2px 5px; border-radius: 3px;
+    background: rgba(255, 255, 255, 0.025);
+  }
+  .rank-row:nth-child(odd) { background: rgba(255, 255, 255, 0.055); }
+  .rank-no {
+    flex: 0 0 18px; text-align: right;
+    font-size: 10px; color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .rank-row img {
+    width: 22px; height: 22px; flex: 0 0 auto;
+    border-radius: 3px; display: block; background: #101014; object-fit: cover;
+  }
+  .rank-name {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 11px; color: var(--txt);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rank-tier {
+    flex: 0 0 28px; text-align: center;
+    font-size: 10px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .rank-tier.t0 { color: #e26b6b; }
+  .rank-tier.t1 { color: #e0913f; }
+  .rank-tier.t2 { color: #c9b24b; }
+  .rank-tier.t3 { color: #6fae7d; }
+  .rank-tier.t4 { color: #7f8fbc; }
+  .rank-tier.t5, .rank-tier.t9 { color: #8a8a92; }
+  .rank-pos { flex: 0 0 28px; font-size: 10px; color: var(--dim); }
+  .rank-stat {
+    flex: 0 0 38px; text-align: right;
+    font-size: 10px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .rank-stat.wr.good { color: var(--blue); }
+  .rank-stat.wr.bad { color: var(--red); }
+
   /* ---------- 对位分区 ---------- */
   .sec { margin-top: 8px; border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px 8px; background: rgba(255, 255, 255, 0.014); }
   .sec-head { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }

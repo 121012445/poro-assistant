@@ -103,6 +103,22 @@ const lolAPI = {
   assert.ok(api.dataHtml(c, 1, 'mid', opggPosList[0].stats, true).includes('推断 · 中单'),
     '1.6.74: 无分路推出来的位置必须标注推断，不能冒充真实分路');
 
+  // 1.6.78: 没亮英雄时给综合排名，不能空着
+  const rank = await api.buildRankHtml();
+  assert.ok(rank.includes('英雄综合排名') && rank.includes('rank-table') && rank.includes('rank-row'),
+    '没英雄时要有综合排名表');
+  assert.ok(rank.includes('维克托') && rank.includes('安妮') && rank.includes('阿狸'),
+    '排名要覆盖榜单里的英雄');
+  assert.ok(rank.indexOf('维克托') < rank.indexOf('安妮')
+    && rank.indexOf('安妮') < rank.indexOf('阿狸'),
+    '同名词次时按胜率从高到低排');
+  assert.ok(rank.includes('52.0%') && rank.includes('5.0%') && rank.includes('10.0%'),
+    '每行要带胜率/登场率/禁用率');
+  const noHeroPanels = api.buildPanels({ myPosition: 'mid', ally: [], enemy: [] }, [], [],
+    { rankHtml: rank, bpAvailable: true });
+  assert.ok(noHeroPanels.cnt.includes('英雄综合排名') && noHeroPanels.html.includes('BP 建议'),
+    '没英雄时数据页给排名、BP 页照常给建议，两页不串味');
+
   // 1.6.76 两页严格分工：BP 页只有 BP 内容，数据页只有英雄数据，互不串味。
   const panels = api.buildPanels(
     { myPosition: 'mid', ally: [], enemy: [{ id: 3, pos: 'mid' }] },
@@ -150,12 +166,27 @@ const lolAPI = {
   assert.strictEqual(pushes[0].visible, false, '离开选人必须收起浮窗');
   assert.strictEqual(pushes[0].html, '', '收起时不应留内容');
 
-  // 盲选/无分路模式（没有英雄可分析）：说明落在英雄数据页，BP 页整块为空
+  // 盲选/训练（没有英雄可分析）：1.6.78 数据页给综合排名，不再是空说明；BP 页整块为空
   pushes.length = 0;
-  await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 5 }], theirTeam: [{ cellId: 6, championId: 3 }], bans: {} }, true);
-  assert.ok(pushes.length === 1 && pushes[0].cnt.includes('对位数据'), '无分路时说明要落到英雄数据页');
+  await live.api.refresh({ localPlayerCellId: 1, myTeam: [{ cellId: 1, championId: 0 }], theirTeam: [{ cellId: 6, championId: 3 }], actions: [], bans: {} }, true);
+  assert.strictEqual(pushes.length, 1, '无分路无英雄应推一帧');
+  assert.ok(pushes[0].cnt.includes('英雄综合排名') && pushes[0].cnt.includes('rank-row'),
+    '没选英雄时英雄数据页要显示综合排名，不能空白');
   assert.strictEqual(pushes[0].html, '', '无分路时 BP 页必须为空');
   assert.strictEqual(pushes[0].bpAvailable, false, '无分路要告诉浮窗藏起选人助手页签');
+
+  // 排位也还没亮英雄时：BP 页照常有建议，数据页同样由综合排名兜底
+  pushes.length = 0;
+  const noHeroRanked = load({ lolAPI, bpOverlayOn: true, gameflowPhase: 'ChampSelect' });
+  await noHeroRanked.api.refresh({
+    localPlayerCellId: 1,
+    myTeam: [{ cellId: 1, championId: 0, assignedPosition: 'MIDDLE' }],
+    theirTeam: [{ cellId: 6, championId: 3, assignedPosition: 'MIDDLE' }],
+    actions: [], bans: {}
+  }, true);
+  assert.ok(pushes.length === 1 && pushes[0].cnt.includes('英雄综合排名'),
+    '排位没亮英雄时数据页也要显示综合排名');
+  assert.ok(pushes[0].bpAvailable === true, '有分路时选人助手页签仍在');
 
   // 1.6.76: 训练模式 = 无分路 + 已选英雄 + gameflow phase 永远不到 ChampSelect。
   // 只有英雄数据页（概要条 + 对位网格）；BP 页整块不出、页签隐藏。实时帧仍要标 csLive 过门禁。
@@ -197,6 +228,10 @@ const lolAPI = {
   assert.ok(/\.grid\s*\{[^}]*gap:\s*8px/.test(ovHtml), '网格间距应为 8px');
   for (const cls of ['.bp-card', '.bp-tp-chip', '.cell', '.hero', '.bp-fusion', '.bpt-brief']) {
     assert.ok(ovHtml.includes(cls), '浮窗缺样式 ' + cls);
+  }
+  // 1.6.78: 综合排名表样式必须在浮窗内，否则排名 HTML 贴进来是裸文本
+  for (const cls of ['.rank-head', '.rank-table', '.rank-row', '.rank-no', '.rank-name', '.rank-tier', '.rank-stat']) {
+    assert.ok(ovHtml.includes(cls), '浮窗缺综合排名样式 ' + cls);
   }
   // CSP 必须放行 hero 头像，但不能再放开其它来源
   assert.ok(/img-src[^"]*https:\/\/ddragon\.leagueoflegends\.com/.test(ovHtml), 'CSP 应放行 ddragon 头像');

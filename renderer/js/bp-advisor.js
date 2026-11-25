@@ -577,6 +577,85 @@
 
 
 
+  // 1.6.78: 没亮英雄时英雄数据页不能空着 —— 给一份 OP.GG 英雄综合排名。
+  // 口径跟随筛选条：能拿到同段位/地区的 bench 就用它的强度名次与胜率/选禁率；
+  // 拿不到就退回首页榜 opggPosList（韩服/全部段位，带 OP~T5 梯队）。
+  // 一个英雄只出一行（取它名次最高的位置），按名次排序，最多 20 行。
+  async function buildRankHtml() {
+    const b = await benchOf();
+    const wantPos = _filters.position === 'auto' ? '' : String(_filters.position).toUpperCase();
+    const rows = [];
+    if (b && b.champions) {
+      for (const k of Object.keys(b.champions)) {
+        const id = +k;
+        if (!id) continue;
+        const positions = b.champions[k] || {};
+        let pick = null;
+        for (const pos of Object.keys(positions)) {
+          if (wantPos && pos !== wantPos) continue;
+          const st = positions[pos];
+          // bench 场次为 0 的行已在上游丢掉；这里只要求有胜率可显示，
+          // 避免某些只给了 rank/胜率的精简 bench 被整张跳过又变回空白。
+          if (!st || !Number.isFinite(Number(st.winRate))) continue;
+          const rank = Number.isFinite(+st.rank) && +st.rank > 0 ? +st.rank : 999;
+          if (!pick || rank < pick.rank) pick = { pos, st, rank };
+        }
+        if (!pick) continue;
+        rows.push({
+          id, pos: pick.pos.toLowerCase(), rank: pick.rank, tier: null,
+          wr: Number(pick.st.winRate) / 100,
+          pr: Number(pick.st.pickRate) / 100,
+          br: Number(pick.st.banRate) / 100
+        });
+      }
+    } else {
+      const list = (typeof opggPosList !== 'undefined' && Array.isArray(opggPosList)) ? opggPosList : [];
+      const seen = new Set();
+      for (const row of list) {
+        const id = +row.championId;
+        if (!id || seen.has(id)) continue;
+        const pkey = RAW_TO_KEY[String(row.positionKey || '').toUpperCase()] || '';
+        if (wantPos && pkey !== wantPos.toLowerCase()) continue;
+        seen.add(id);
+        const st = row.stats || {};
+        const td = st.tier_data || {};
+        rows.push({
+          id, pos: pkey, tier: tierOf(st),
+          rank: Number.isFinite(+td.rank) && +td.rank > 0 ? +td.rank : 999,
+          wr: st.win_rate, pr: st.pick_rate, br: st.ban_rate
+        });
+      }
+    }
+    rows.sort((a, b2) => a.rank - b2.rank || (b2.wr || 0) - (a.wr || 0));
+    const top = rows.slice(0, 20);
+    if (!top.length) return '';
+    const pct = v => (Number.isFinite(+v) ? (+v * 100).toFixed(1) + '%' : '--');
+    const cells = top.map((r, i) => {
+      const key = champKeyOf(r.id);
+      if (!key) return '';
+      const title = champName(r.id) + ' · ' + (KEY_CN[r.pos] || '') + ' · 名次 '
+        + (r.rank === 999 ? '-' : r.rank) + ' · 胜率 ' + pct(r.wr)
+        + ' · 登场 ' + pct(r.pr) + ' · 禁用 ' + pct(r.br);
+      return '<div class="rank-row" title="' + esc(title) + '">'
+        + '<span class="rank-no">' + (i + 1) + '</span>'
+        + '<img src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" loading="lazy" alt="">'
+        + '<span class="rank-name">' + esc(champName(r.id)) + '</span>'
+        + '<span class="rank-tier ' + (r.tier ? r.tier.cls : 't9') + '">'
+        + (r.tier ? r.tier.text : '#' + r.rank) + '</span>'
+        + '<span class="rank-pos">' + esc(KEY_CN[r.pos] || '') + '</span>'
+        + '<span class="rank-stat wr ' + ((+r.wr) >= 0.5 ? 'good' : 'bad') + '">' + pct(r.wr) + '</span>'
+        + '<span class="rank-stat">' + pct(r.pr) + '</span>'
+        + '<span class="rank-stat">' + pct(r.br) + '</span>'
+        + '</div>';
+    }).join('');
+    if (!cells) return '';
+    const scope = b ? (b.region + ' / ' + b.tier) : 'kr / all';
+    return '<div class="rank-head"><b>英雄综合排名</b><span>' + esc(scope)
+      + ' · 前 ' + top.length + ' 名</span></div>'
+      + '<div class="rank-table">' + cells + '</div>'
+      + '<div class="bp-foot">按 OP.GG 强度名次排序 · 亮出英雄后这里换成该英雄的对位数据</div>';
+  }
+
   // 1.6.68 阵容建议里每个候选的一句话依据（塞进 title，不占行宽）
   function tpWhy(item) {
     const bits = [];
@@ -676,9 +755,11 @@
   function buildPanels(state, picks, bans, extra) {
     const e = extra || {};
     const bpAvailable = e.bpAvailable !== false;
+    // 1.6.78: 没亮英雄时 dataHtml 返回空，改用综合排名填住英雄数据页，不让它空着。
+    const data = dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats, e.posGuessed);
     return {
       html: bpAvailable ? buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })) : '',
-      cnt: dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats, e.posGuessed),
+      cnt: data || String(e.rankHtml || ''),
       bpAvailable
     };
   }
@@ -851,10 +932,8 @@
     const dataHeroId = state.myChampionId || state.myIntentId || 0;
     const dataPosGuess = noLane && dataHeroId ? inferPosForData(dataHeroId) : '';
     const noBpNote = '选人并亮出英雄后，这里显示这个英雄的对位数据（BP 建议只在有选位环节的排位里提供）';
-    if (noLane && !dataHeroId) {
-      showNote(noBpNote, { noBp: true });
-      return;
-    }
+    // 1.6.78: 没亮英雄时不再整帧早退成一句说明 —— 继续走下去，
+    // 英雄数据页改用 OP.GG 综合排名占位（buildRankHtml），BP 页该空还是空。
     const pools = poolFor(state.myPosition);
     if (!noLane && !pools.length && !state.openPositions.length) { showNote('英雄强度数据未加载，稍后会自动重试'); return; }
     const key = stateKey(state);
@@ -908,13 +987,15 @@
       const posGuessed = _filters.position === 'auto' && !state.myPosition && !!dataPosGuess;
       const counters = counterHeroId ? await loadCounters(counterHeroId, counterPos) : null;
       const counterStats = counterHeroId ? await loadStats(counterHeroId, counterPos) : null;
+      // 1.6.78: 没英雄可分析时拉一份综合排名填数据页；口径跟随筛选条。
+      const rankHtml = counterHeroId ? '' : await buildRankHtml();
       const panels = buildPanels(state, picks, bans, {
         ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks,
-        counters, counterHeroId, counterPos, counterStats, posGuessed,
+        counters, counterHeroId, counterPos, counterStats, posGuessed, rankHtml,
         bpAvailable: !noLane
       });
-      // 无 BP 模式选了英雄但拿不到对位数据时，数据页也别空着
-      if (noLane && !panels.cnt) {
+      // 连综合排名都没拿到（榜单还没加载完），至少给一句说明，不能留空白。
+      if (!panels.cnt) {
         panels.cnt = '<div class="bp-empty">' + esc(noBpNote) + '</div>';
       }
       // 主窗口面板若还在（旧布局/测试用的假 DOM）就照旧填，同时推一份给浮窗 ——
@@ -984,7 +1065,7 @@
   root.PoroBPAdvisor = {
     readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, buildPanels, cardHtml, teamPicksHtml,
     countersOf, loadCounters, splitCounters, dataHtml, statsOf, loadStats, whyText, pushOverlay, subTextOf,
-    guessPos, inferPosForData,
+    buildRankHtml, guessPos, inferPosForData,
     applyFilters, normalizeFilterLocal, filterOpts, refresh, clear, reset, showNote,
     MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT,
     FILTER_DEFAULT, FILTER_REGIONS, FILTER_TIERS, FILTER_POSITIONS
