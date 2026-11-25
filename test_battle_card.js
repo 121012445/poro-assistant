@@ -271,6 +271,12 @@ function norm(over) {
   // (e) 离屏窗口必须复用: 「新建 → destroy → 再新建」第 2 次 loadURL 必报 ERR_FAILED
   //     且进程随后退出, 这是"第一张卡能出、之后全失败"的根因 (实测复现)。
   assert.ok(/function acquireShareCardWin/.test(mainSrc), '离屏窗口要复用, 不能每次新建');
+  // (f) 1.6.79: 构造时的 height 被 workArea 夹住 (本机 920 逻辑像素), 生涯海报 1784px
+  //     被压到 857 → capturePage 只截到上半截。新建后必须显式 setContentSize 突破限制。
+  const acquire = mainSrc.slice(mainSrc.indexOf('function acquireShareCardWin'),
+    mainSrc.indexOf('// 战报/周报卡:'));
+  assert.ok(/win\.setContentSize\(w, h\)/.test(acquire),
+    '新建离屏窗口后必须显式 setContentSize, 否则长图 (生涯海报) 被 workArea 高度截断');
   const rsc = mainSrc.slice(mainSrc.indexOf('async function renderShareCardPng'),
     mainSrc.indexOf('// 所有战报卡导出串行排队'));
   assert.ok(!/finally\s*\{[^}]*win\.destroy\(\)/.test(rsc), '渲染完不许销毁窗口 (会踩 ERR_FAILED)');

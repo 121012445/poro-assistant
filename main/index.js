@@ -2821,6 +2821,10 @@ function acquireShareCardWin(w, h, dark) {
     backgroundColor: dark ? '#14151a' : '#fafafa', resizable: false, skipTaskbar: true,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: false }
   });
+  // 1.6.79: BrowserWindow 构造时的 height 会被主屏 workArea 高度夹住 (本机 920 逻辑像素,
+  // 用户 DPI 1.5 时 1784px 的生涯海报被压到 857 → capturePage 只截到上半截, 复制出来只剩一部分)。
+  // 构造后必须显式 setContentSize 才能突破 workArea 限制, 拿到完整长图。
+  try { win.setContentSize(w, h); } catch (e) {}
   win.on('closed', () => { if (shareCardWin === win) shareCardWin = null; });
   shareCardWin = win;
   return win;
