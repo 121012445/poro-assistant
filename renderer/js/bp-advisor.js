@@ -353,75 +353,162 @@
       + '</div></div>';
   }
 
-  // ---------- 克制关系 ----------
-  // 直接用 op.gg 首页数据里每个位置自带的 counters，不需要额外请求。
-  // 1.6.70: 从 hex.js 的 calcCounterData 迁过来 —— 克制页下线后浮窗是唯一消费者，
-  // 留两份实现迟早会一处改了另一处忘。
+  // ---------- 对位数据 ----------
+  // 方向（main 的 opgg:counters 注释里有实测）：每条 { champion_id, play, win } 的
+  // win/play 是**列表主人自己**的胜率。所以 map[id].counters 里 wr 越高 = 我打他越顺。
+  // 1.6.71: 以前还倒着扫一遍"别人的 counters 里有没有我"，当成"克制我的人"，
+  // 但那份数据同样是他自己的胜率 —— 两侧都按降序取前 8，页面上两组标题正好互换。
+  // 现在只认一个方向：我一个英雄的对位表，wr ≥ 50% 是优势，< 50% 是劣势。
+  const CNT_MIN_PLAY = 30;                 // 网格展示下限（计分仍用 MIN_PLAY = 50）
+  const CNT_CACHE_MS = 10 * 60 * 1000;
+
+  function splitCounters(rows, myId) {
+    const id = +myId;
+    const list = [];
+    const seen = new Set();
+    for (const r of (rows || [])) {
+      const cid = +((r && (r.championId != null ? r.championId : r.champion_id)) || 0);
+      const play = +((r && r.play) || 0);
+      const win = +((r && r.win) || 0);
+      if (!cid || cid === id || seen.has(cid)) continue;
+      if (!(play >= CNT_MIN_PLAY) || win < 0 || win > play) continue;
+      seen.add(cid);
+      list.push({ id: cid, play, win, wr: win / play });
+    }
+    if (!list.length) return null;
+    list.sort((a, b) => b.wr - a.wr || b.play - a.play);
+    return {
+      good: list.filter(t => t.wr >= 0.5),
+      bad: list.filter(t => t.wr < 0.5).sort((a, b) => a.wr - b.wr || b.play - a.play),
+      total: list.length
+    };
+  }
+
+  // 降级：没有位置 / 对位接口不可用时，用首页榜每个位置自带的 3 条 counters（可能稀疏）。
   function countersOf(numId) {
     const id = +numId;
     const map = (typeof opggMap !== 'undefined' && opggMap) ? opggMap : null;
     if (!map || !id || !map[id]) return null;
     const norm = v => (typeof normalizeChampId === 'function'
       ? normalizeChampId(v) : (+v >= 60000 ? +v - 60000 : +v));
-    const add = (bucket, cid, ct) => {
-      if (!bucket[cid]) bucket[cid] = { id: cid, play: 0, win: 0 };
-      bucket[cid].play += Number(ct && ct.play) || 0;
-      bucket[cid].win += Number(ct && ct.win) || 0;
-    };
-    const threats = {};
+    const rows = [];
     for (const pos of (map[id].positions || [])) {
       for (const ct of (pos.counters || [])) {
-        const cid = norm(ct.champion_id);
-        if (cid === id) continue;
-        add(threats, cid, ct);
+        rows.push({ championId: norm(ct && ct.champion_id), play: ct && ct.play, win: ct && ct.win });
       }
     }
-    const preys = {};
-    for (const ch of Object.values(map)) {
-      if (!ch || +ch.id === id) continue;
-      for (const pos of (ch.positions || [])) {
-        for (const ct of (pos.counters || [])) {
-          if (norm(ct.champion_id) === id) add(preys, +ch.id, ct);
-        }
-      }
-    }
-    const top = bucket => Object.values(bucket)
-      .filter(t => t.play >= MIN_PLAY)
-      .map(t => ({ ...t, wr: t.win / t.play }))
-      .sort((a, b) => b.wr - a.wr || b.play - a.play)
-      .slice(0, 8);
-    return { threats: top(threats), preys: top(preys) };
+    const out = splitCounters(rows, id);
+    if (!out) return null;
+    out.source = 'board';
+    return out;
   }
 
-  function counterCells(rows) {
+  const _cntCache = new Map();
+
+  // 全量对位（40+ 条）走 op.gg 的对位接口；同一 (英雄,位置) 10 分钟内只拉一次。
+  async function loadCounters(numId, pos) {
+    const id = +numId;
+    const key = id + ':' + (pos || '-');
+    const hit = _cntCache.get(key);
+    if (hit) {
+      if (Date.now() - hit.t <= CNT_CACHE_MS) return hit.data;
+      _cntCache.delete(key);
+    }
+    const api = root.lolAPI;
+    if (!pos || !api || typeof api.getOpggCounters !== 'function') return countersOf(id);
+    try {
+      const r = await api.getOpggCounters(id, pos);
+      if (!r || r.__error || !Array.isArray(r.rows)) return countersOf(id);
+      const data = splitCounters(r.rows, id);
+      if (!data) return countersOf(id);
+      data.source = 'full';
+      _cntCache.set(key, { t: Date.now(), data });
+      return data;
+    } catch (e) { return countersOf(id); }
+  }
+
+  // 该英雄在该位置的强度数据（胜率/登场率/禁用率/梯队），来自首页榜 opggPosList。
+  function statsOf(numId, pos) {
+    const list = (typeof opggPosList !== 'undefined' && Array.isArray(opggPosList)) ? opggPosList : null;
+    const id = +numId;
+    if (!list || !id) return null;
+    let first = null;
+    for (const row of list) {
+      if (+row.championId !== id) continue;
+      if (!first) first = row;
+      const k = RAW_TO_KEY[String(row.positionKey || '').toUpperCase()] || '';
+      if (pos && k === pos) return row.stats || null;
+    }
+    return first ? (first.stats || null) : null;
+  }
+
+  // 一格 = 头像 32px + 胜率 + 样本。密度照 League Akari 的 champion-data 网格
+  // （46px 宽、gap 8px），一屏能扫完 40+ 个对位，而不是四列大卡片翻半天。
+  function cntCells(rows) {
     return (rows || []).map(t => {
       const key = champKeyOf(t.id);
       if (!key) return '';
-      return '<div class="bp-cnt-cell" title="' + esc(champName(t.id) + ' · 样本 ' + t.play) + '">'
+      const pct = (t.wr * 100).toFixed(2);
+      return '<div class="cell" title="' + esc(champName(t.id) + ' · 对位 ' + pct + '% · 样本 ' + t.play) + '">'
+        + '<b class="wr ' + (t.wr >= 0.5 ? 'good' : 'bad') + '">' + pct + '%</b>'
         + '<img src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" loading="lazy" alt="">'
-        + '<span class="nm">' + esc(champName(t.id)) + '</span>'
-        + '<span class="w ' + (t.wr >= 0.5 ? 'pos' : 'neg') + '">' + (t.wr * 100).toFixed(1) + '%</span>'
+        + '<span class="p">' + t.play.toLocaleString() + '</span>'
         + '</div>';
     }).join('');
   }
 
-  function counterHtml(counters, myId) {
-    if (!counters) return '';
-    const key = myId ? champKeyOf(myId) : '';
-    const hero = key
-      ? '<div class="bp-cnt-hero">'
-        + '<img src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" alt="">'
-        + '<div><div class="n">' + esc(champName(myId)) + '</div>'
-        + '<div class="t">对位胜率来自 OP.GG 韩服排位 · 样本 &lt;' + MIN_PLAY + ' 场不列</div></div>'
-        + '</div>'
+  function tierOf(stats) {
+    const t = stats && stats.tier_data ? stats.tier_data.tier : null;
+    if (t == null || !Number.isFinite(+t)) return null;
+    if (+t === 0) return { text: 'OP', cls: 't0' };
+    const n = Math.min(5, Math.max(1, Math.round(+t)));
+    return { text: 'T' + n, cls: 't' + n };
+  }
+
+  // 英雄数据页 = 概要条（梯队/位置/胜率/登场率/禁用率）+ 劣势/优势两段密集网格。
+  function dataHtml(counters, myId, pos, stats) {
+    const id = +myId;
+    const key = id ? champKeyOf(id) : '';
+    if (!key) return '';
+    const st = stats || {};
+    const tier = tierOf(st);
+    const statCell = (label, v) => (v == null || !Number.isFinite(+v))
+      ? '' : '<div><i>' + label + '</i><b>' + (+v * 100).toFixed(2) + '%</b></div>';
+    const hero = '<div class="hero">'
+      + '<img class="hero-img" src="' + (typeof champImg === 'function' ? champImg(key) : '') + '" alt="">'
+      + '<div class="hero-main">'
+      + '<div class="hero-name">' + esc(champName(id)) + '</div>'
+      + '<div class="hero-sub">'
+      + (tier ? '<span class="hero-tier ' + tier.cls + '">' + tier.text + '</span>' : '')
+      + (pos ? '<span class="hero-pos">' + esc(KEY_CN[pos] || '') + '</span>' : '')
+      + '</div></div>'
+      + '<div class="hero-stats">'
+      + statCell('胜率', st.win_rate)
+      + statCell('登场率', st.pick_rate)
+      + statCell('禁用率', st.ban_rate)
+      + '</div></div>';
+
+    const c = counters || { good: [], bad: [] };
+    const sec = (title, tag, tagCls, rows, emptyText) => {
+      const cells = cntCells(rows);
+      const count = (rows || []).length;
+      const head = '<div class="sec-head"><span>' + title + '</span>'
+        + (count ? '<em>' + count + ' 个 · 样本 ≥' + CNT_MIN_PLAY + ' 场</em>'
+          + '<em class="sec-tag ' + tagCls + '">' + tag + '</em>'
+          : '<em>' + emptyText + '</em>')
+        + '</div>';
+      return '<div class="sec">' + head + (cells ? '<div class="grid">' + cells + '</div>' : '') + '</div>';
+    };
+
+    const note = (counters && counters.source === 'board')
+      ? '<div class="hero-note">当前只拿到首页榜的稀疏对位（3 条），连上对位接口后会自动补全。</div>'
       : '';
-    const threatCells = counterCells(counters.threats);
-    const preyCells = counterCells(counters.preys);
-    if (!threatCells && !preyCells) return '';
-    return '<div class="bp-cnt">' + hero
-      + (threatCells ? '<div class="bp-cnt-title">被克制（他们打你更好打）</div><div class="bp-cnt-grid">' + threatCells + '</div>' : '')
-      + (preyCells ? '<div class="bp-cnt-title">克制（你打他们更好打）</div><div class="bp-cnt-grid">' + preyCells + '</div>' : '')
-      + '</div>';
+    const foot = '<div class="bp-foot">胜率 = 你拿这个英雄对位他时的胜率（OP.GG 韩服排位，样本 ≥'
+      + CNT_MIN_PLAY + ' 场）· 蓝色 ≥50%，红色 &lt;50% · 只做参考，不替你点</div>';
+    return hero + note
+      + sec('劣势对位', '打不过', 'bad', c.bad, '这一路没有明显打不过的对手')
+      + sec('优势对位', '好打', 'good', c.good, '这一路没有明显优势对位')
+      + foot;
   }
 
 
@@ -521,8 +608,9 @@
   function buildPanels(state, picks, bans, extra) {
     const e = extra || {};
     return {
+      // 两页内容分开产出：html = 选人助手（阵容 BP），cnt = 英雄数据（概要条 + 对位网格）。
       html: buildHtml(state, picks, bans, Object.assign({}, e, { counters: null, counterHeroId: 0 })),
-      cnt: counterHtml(e.counters, e.counterHeroId)
+      cnt: dataHtml(e.counters, e.counterHeroId, e.counterPos, e.counterStats)
     };
   }
 
@@ -705,12 +793,14 @@
           reviewHints = bridge.adopt(bridge.load({ get: k => storeGet(k) }));
         }
       } catch (e) { reviewHints = []; }
-      // 1.6.70: 克制关系跟着我当前选/预选的英雄走。没选人时整块不渲染。
+      // 1.6.71: 对位跟"我当前选/预选的英雄 + 我的分路"走，拉全量（40+ 条）。
       const counterHeroId = state.myChampionId || state.myIntentId || 0;
-      const counters = counterHeroId ? countersOf(counterHeroId) : null;
+      const counterPos = state.myPosition || '';
+      const counters = counterHeroId ? await loadCounters(counterHeroId, counterPos) : null;
+      const counterStats = counterHeroId ? statsOf(counterHeroId, counterPos) : null;
       const panels = buildPanels(state, picks, bans, {
         ally: state.ally, enemy: state.enemy, mode: modeOfSession(), reviewHints, team, posPicks,
-        counters, counterHeroId
+        counters, counterHeroId, counterPos, counterStats
       });
       // 主窗口面板若还在（旧布局/测试用的假 DOM）就照旧填，同时推一份给浮窗 ——
       // 两处用同一份 HTML，不会出现"面板和浮窗结论不一样"。
@@ -735,7 +825,7 @@
 
   root.PoroBPAdvisor = {
     readSession, recommend, recommendFor, recommendBans, teamPicks, poolFor, buildHtml, buildPanels, cardHtml, teamPicksHtml,
-    countersOf, counterHtml, whyText, pushOverlay, subTextOf,
+    countersOf, loadCounters, splitCounters, dataHtml, statsOf, whyText, pushOverlay, subTextOf,
     refresh, clear, reset, showNote,
     MIN_PLAY, SAMPLE_FULL, LANE_WEIGHT, OFF_WEIGHT, BASE_WEIGHT
   };

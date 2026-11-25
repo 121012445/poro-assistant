@@ -2423,12 +2423,12 @@ function updateChampSelectCounterHint(data) {
         return ck ? '<span class="ch-champ">' + escapeHtml(ck.name) + ' <i>' + (t.wr * 100).toFixed(0) + '%</i></span>' : '';
       })
       .filter(Boolean);
-    const threats = pick(cData ? cData.threats : []);
-    const preys = pick(cData ? cData.preys : []);
+    const bad = pick(cData ? cData.bad : []);
+    const good = pick(cData ? cData.good : []);
     const myName = champNumMap?.[String(myChampId)]?.name || '';
-    const html = (threats.length ? '<span class="ch-sec danger">⚠ 克制 ' + escapeHtml(myName) + ':</span>' + threats.join('')
-      + (preys.length ? '<span class="ch-sec sep"></span>' : '') : '')
-      + (preys.length ? '<span class="ch-sec good">✦ 你克制:</span>' + preys.join('') : '');
+    const html = (bad.length ? '<span class="ch-sec danger">⚠ 打不过:</span>' + bad.join('')
+      + (good.length ? '<span class="ch-sec sep"></span>' : '') : '')
+      + (good.length ? '<span class="ch-sec good">✦ ' + escapeHtml(myName) + ' 好打:</span>' + good.join('') : '');
     if (!html) { if (strip) strip.remove(); return; }
     if (!strip) {
       strip = document.createElement('div');

@@ -623,10 +623,12 @@ let bpOverlayWindow = null;
 let bpOverlayPayload = { html: '', cnt: '', sub: '' };
 let bpOverlayVisible = false;
 const BP_OVERLAY_BOUNDS_FILE = () => path.join(USER_DATA, 'bp-overlay.json');
-const BP_OVERLAY_SIZE = { width: 372, height: 560 };
+const BP_OVERLAY_SIZE = { width: 466, height: 700 };
 const BP_HTML_MAX = 60000;         // 推送的 HTML 上限, 防止渲染层失控时把 IPC 撑爆
 let bpProgrammaticMove = false;
 let lastBpClientRect = null;
+// 图钉：是否始终盖在客户端之上。默认钉住（和之前的行为一致），浮窗标题栏可切换。
+let bpOverlayPinned = true;
 
 function loadBpOverlayBounds() {
   try {
@@ -687,7 +689,7 @@ function createBpOverlayWindow() {
     skipTaskbar: true,
     hasShadow: false,
     show: false,
-    alwaysOnTop: true,
+    alwaysOnTop: bpOverlayPinned,
     title: 'Poro 选人助手',
     webPreferences: {
       nodeIntegration: false,
@@ -699,7 +701,7 @@ function createBpOverlayWindow() {
     }
   }));
   // 跟备战区浮窗同一层级: 只有 screen-saver 才稳盖在客户端之上
-  bpOverlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  bpOverlayWindow.setAlwaysOnTop(bpOverlayPinned, 'screen-saver');
   try { bpOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (e) {}
   bpOverlayWindow.loadFile(path.join(__dirname, '..', 'renderer', 'bp-overlay.html'));
   bpOverlayWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -758,9 +760,20 @@ ipcMain.handle('bp-overlay:hide', async (e) => {
   return true;
 });
 
+ipcMain.handle('bp-overlay:pin', async (e, pinned) => {
+  if (!bpOverlayWindow || bpOverlayWindow.isDestroyed() || e.sender.id !== bpOverlayWindow.webContents.id) return false;
+  bpOverlayPinned = !!pinned;
+  try {
+    // 层级跟创建时保持一致：只有 screen-saver 才稳盖在客户端之上
+    bpOverlayWindow.setAlwaysOnTop(bpOverlayPinned, 'screen-saver');
+  } catch (err) {}
+  return bpOverlayPinned;
+});
+
 ipcMain.handle('bp-overlay:status', async () => ({
   visible: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed() && bpOverlayWindow.isVisible()),
   exists: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()),
+  pinned: bpOverlayPinned,
   bounds: (bpOverlayWindow && !bpOverlayWindow.isDestroyed()) ? bpOverlayWindow.getBounds() : null,
   clientRect: lastBpClientRect,
   htmlLength: bpOverlayPayload.html.length,

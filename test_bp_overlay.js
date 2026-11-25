@@ -61,34 +61,45 @@ const session = {
 
 const pushes = [];
 const lolAPI = {
-  getOpggCounters: async (id, pos) => ({ championId: id, position: pos, rows: [{ championId: 1, play: 800, win: 420 }] }),
+  // 全量对位接口：两条样本，一条占优一条劣势
+  getOpggCounters: async (id, pos) => ({ championId: id, position: pos, rows: [
+    { championId: 2, play: 800, win: 460 },
+    { championId: 3, play: 700, win: 300 }
+  ] }),
+  bpOverlayPin: (v) => Promise.resolve(!!v),
   bpOverlayUpdate: (p) => { pushes.push(p); return Promise.resolve(true); }
 };
 
 (async () => {
-  // ---------- 1. 克制清单：方向不能反 ----------
+  // ---------- 1. 对位清单：方向不能反 ----------
+  // 夹具里 map[1].counters = [{2, 60%}, {3, 40%}]，这两个百分比是**安妮自己**的胜率：
+  // 打维克托 60% → 优势，打阿狸 40% → 打不过。反过来标就是 1.6.70 之前那个 bug。
   const { api } = load();
   const c = api.countersOf(1);
-  assert.ok(c && c.threats.length === 2, '英雄 1 应有两个被克制对象');
-  assert.strictEqual(c.threats[0].id, 2, '被克制按胜率降序：维克托 60% 在前');
-  assert.strictEqual(Math.round(c.threats[0].wr * 100), 60, '威胁胜率应换算成 60%');
-  assert.ok(c.preys.some(t => t.id === 2), '英雄 2 的对位表里有 1 → 1 克制 2');
+  assert.ok(c && c.good.length === 1 && c.bad.length === 1, '英雄 1 的对位应分成优势/劣势各一条');
+  assert.strictEqual(c.good[0].id, 2, '60% 是我打维克托的胜率 → 优势对位');
+  assert.strictEqual(Math.round(c.good[0].wr * 100), 60, '优势胜率应换算成 60%');
+  assert.strictEqual(c.bad[0].id, 3, '40% → 打不过阿狸');
+  assert.strictEqual(Math.round(c.bad[0].wr * 100), 40, '劣势胜率应换算成 40%');
   assert.strictEqual(api.countersOf(999), null, '没有 op.gg 数据的英雄应返回 null 而不是空壳');
 
-  // 样本 <50 场的不列（宁可少给，不拿小样本吹克制）
+  // 样本不够的不列（宁可少给，不拿小样本吹对位）
   const tiny = {
     9: { id: 9, positions: [{ name: 'MID', counters: [{ champion_id: 2, play: 10, win: 9 }] }] }
   };
   const tinyApi = load({ opggMap: tiny }).api;
-  assert.deepStrictEqual(tinyApi.countersOf(9).threats, [], '样本 10 场不该进克制清单');
+  assert.strictEqual(tinyApi.countersOf(9), null, '样本 10 场不该进对位清单');
 
-  // ---------- 2. 克制块渲染 ----------
-  const cntHtml = api.counterHtml(c, 1);
-  assert.ok(cntHtml.includes('被克制') && cntHtml.includes('克制（你打他们更好打）'), '两段标题都要在');
-  assert.ok(cntHtml.includes('bp-cnt-cell'), '克制项应是网格单元');
-  assert.ok(cntHtml.includes('60.0%'), '胜率要显示出来');
-  assert.ok(cntHtml.includes('https://ddragon.leagueoflegends.com'), '头像要走 CDN（浮窗 CSP 已放行）');
-  assert.strictEqual(api.counterHtml(null, 0), '', '没有数据时整块不渲染');
+  // ---------- 2. 英雄数据页渲染（概要条 + 密集网格）----------
+  const dataHtml = api.dataHtml(c, 1, 'mid', opggPosList[0].stats);
+  assert.ok(dataHtml.includes('劣势对位') && dataHtml.includes('优势对位'), '两段标题都要在');
+  assert.ok(dataHtml.includes('class="cell"'), '对位项应是密集网格单元');
+  assert.ok(dataHtml.includes('class="grid"'), '单元要放在 flex 网格里');
+  assert.ok(dataHtml.includes('40.00%') && dataHtml.includes('60.00%'), '两边胜率都要显示（两位小数）');
+  assert.ok(dataHtml.includes('wr bad') && dataHtml.includes('wr good'), '颜色要区分优劣势');
+  assert.ok(dataHtml.includes('hero-tier') && dataHtml.includes('hero-stats'), '概要条要有梯队与三项统计');
+  assert.ok(dataHtml.includes('https://ddragon.leagueoflegends.com'), '头像要走 CDN（浮窗 CSP 已放行）');
+  assert.strictEqual(api.dataHtml(null, 0, '', null), '', '没有英雄时整块不渲染');
 
   // ---------- 3. 推送：正常态 ----------
   pushes.length = 0;
@@ -99,8 +110,8 @@ const lolAPI = {
   assert.strictEqual(p0.visible, true, '选人且开关打开时应可见');
   assert.strictEqual(p0.phase, 'ChampSelect', '要带上阶段，主进程用它做兜底门禁');
   assert.ok(p0.html.includes('BP 建议'), '推送内容应包含 BP 面板');
-  assert.ok(p0.cnt.includes('bp-cnt'), '克制关系单独一页推送（浮窗分两个页签）');
-  assert.ok(p0.cnt.includes('60.0%'), '克制页要带上对位胜率');
+  assert.ok(p0.cnt.includes('劣势对位') && p0.cnt.includes('class="cell"'), '数据页应是概要条 + 对位网格');
+  assert.ok(p0.cnt.includes('57.50%') && p0.cnt.includes('42.86%'), '数据页要带上对位胜率');
   assert.ok(p0.sub.includes('中单'), '副标题应写位置');
 
   // 同一会话重复刷新不重复推（去重由 stateKey 保证）
@@ -127,12 +138,17 @@ const lolAPI = {
 
   // ---------- 6. 浮窗页面本体 ----------
   const ovHtml = read('renderer/bp-overlay.html');
-  assert.ok(/id="paneBp"/.test(ovHtml) && /id="paneCnt"/.test(ovHtml), '浮窗要有两个页签容器');
-  assert.ok(/id="tabBp"/.test(ovHtml) && /id="tabCnt"/.test(ovHtml), '浮窗要有页签按钮');
+  assert.ok(/id="paneData"/.test(ovHtml) && /id="paneBp"/.test(ovHtml), '浮窗要有两个页签容器');
+  assert.ok(/id="tabData"/.test(ovHtml) && /id="tabBp"/.test(ovHtml), '浮窗要有页签按钮');
+  assert.ok(/id="pin"/.test(ovHtml), '标题栏要有图钉（切换始终置顶）');
   assert.ok(/id="hide"/.test(ovHtml), '浮窗要能收起');
   assert.ok(/js\/bp-overlay\.js/.test(ovHtml), '浮窗要引入自己的渲染脚本');
   assert.ok(/-webkit-app-region:\s*drag/.test(ovHtml), '标题栏要可拖动');
-  for (const cls of ['.bp-card', '.bp-tp-chip', '.bp-cnt-cell', '.bp-fusion', '.bpt-brief']) {
+  // 密集网格的尺寸规格（照 Akari champion-data：46px 格 / 32px 头像 / 8px 间距）
+  assert.ok(/\.cell\s*\{[^}]*width:\s*46px/.test(ovHtml), '对位格宽应为 46px');
+  assert.ok(/\.cell img\s*\{[^}]*width:\s*32px/.test(ovHtml), '格内头像应为 32px');
+  assert.ok(/\.grid\s*\{[^}]*gap:\s*8px/.test(ovHtml), '网格间距应为 8px');
+  for (const cls of ['.bp-card', '.bp-tp-chip', '.cell', '.hero', '.bp-fusion', '.bpt-brief']) {
     assert.ok(ovHtml.includes(cls), '浮窗缺样式 ' + cls);
   }
   // CSP 必须放行 hero 头像，但不能再放开其它来源
@@ -155,10 +171,11 @@ const lolAPI = {
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:update'"), '主进程要有 bp-overlay:update');
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:status'"), '主进程要有 status');
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:hide'"), '主进程要有 hide');
-  assert.ok(/width:\s*372,\s*height:\s*560/.test(mainSrc), '浮窗尺寸应为 372x560');
+  assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:pin'"), '主进程要有 pin（图钉切换置顶）');
+  assert.ok(/width:\s*466,\s*height:\s*700/.test(mainSrc), '浮窗尺寸应为 466x700（照 Akari champion-data 的窗口比例）');
   assert.ok(/BP_HTML_MAX/.test(mainSrc), '推送内容要有长度上限');
   assert.ok(/win\.showInactive\(\)/.test(mainSrc), '显示浮窗不能抢客户端焦点');
-  assert.ok(/setAlwaysOnTop\(true, 'screen-saver'\)/.test(mainSrc), '要压过客户端 window 层级');
+  assert.ok(/setAlwaysOnTop\(bpOverlayPinned, 'screen-saver'\)/.test(mainSrc), '置顶要跟图钉状态绑定，并压过客户端层级');
   assert.ok(/lastReportedPhase === 'ChampSelect'/.test(mainSrc), '主进程要按阶段兜底门禁');
   assert.ok(/'bp-overlay:data'/.test(mainSrc), '要能把内容推给浮窗');
   assert.ok(/bp-overlay\.json/.test(mainSrc), '拖拽位置要落盘，下次沿用');
