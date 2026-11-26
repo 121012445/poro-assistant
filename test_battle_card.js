@@ -281,6 +281,23 @@ function norm(over) {
     mainSrc.indexOf('// 所有战报卡导出串行排队'));
   assert.ok(!/finally\s*\{[^}]*win\.destroy\(\)/.test(rsc), '渲染完不许销毁窗口 (会踩 ERR_FAILED)');
   assert.ok(!/shareCardDark/.test(mainSrc), '主题切换不许重建窗口 (页面自带背景)');
+
+  // 5g. 1.6.80: 高度上限原来写死 2400, 满量生涯海报 (10 英雄/10 装备/10 海克斯) 实测 2394,
+  //     局数多的账号直接超出去 → 粘出来底部缺一块 (用户那张图正好 680x2400 等比)。
+  assert.ok(/const SHARE_CARD_MAX_H = 6000;/.test(mainSrc), '长图高度上限要抬到 6000');
+  assert.ok(/Math\.min\(SHARE_CARD_MAX_H, rawH\)/.test(rsc), '高度要用 SHARE_CARD_MAX_H 夹, 不能写死 2400');
+  assert.ok(!/Math\.min\(2400,/.test(rsc), '不能再出现写死的 2400 上限');
+  assert.ok(/height clamped/.test(rsc), '被上限夹住时要留日志, 否则永远查不到为什么缺底部');
+  // 图都内联成 dataURL 了, 600ms 是白等: 实测 260ms 与 600ms 出图像素差 0
+  assert.ok(/setTimeout\(resolve, 260\)/.test(rsc), '出图前等待要收到 260ms');
+  assert.ok(!/setTimeout\(resolve, 600\)/.test(rsc), '不能再固定等 600ms');
+
+  // 5h. 1.6.80: 每张外链图必须有超时, 否则网络一卡 fetch 一直挂着 → 「复制要很久」
+  assert.ok(/const IMG_FETCH_TIMEOUT = 2500;/.test(src), '图片 fetch 要有超时常量');
+  const inline = src.slice(src.indexOf('async function inlineImg'), src.indexOf('async function warmImages'));
+  assert.ok(/AbortController/.test(inline) && /signal: ac\.signal/.test(inline),
+    'inlineImg 要用 AbortController 给 fetch 加超时');
+  assert.ok(/clearTimeout\(timer\)/.test(inline), '超时定时器要清掉, 不能被后续请求串用');
 }
 
 console.log('test_battle_card: all assertions passed');

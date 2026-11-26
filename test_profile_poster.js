@@ -300,4 +300,35 @@ games.sort((a, b) => b.time - a.time);
   assert.ok(bc.includes('isRealEquipment') && bc.includes('bc-trinket'), '战报卡装备栏也要区分消耗品/饰品');
 }
 
-console.log('生涯海报: 12 组用例全部通过');
+// 13. 1.6.80: 出图慢/长图被切的两个工程约束
+{
+  const fs = require('fs');
+  const path = require('path');
+  const js = fs.readFileSync(path.join(__dirname, 'renderer/js/profile-poster.js'), 'utf8');
+
+  // 预热整轮要有预算: 图片 fetch 卡住时不能把「复制」拖成十几秒
+  assert.ok(/const WARM_BUDGET = 3000;/.test(js), '图片预热要有 3s 总预算');
+  const warm = js.slice(js.indexOf('async function warmImages'), js.indexOf('// 先塞进隐藏容器量一次真实高度'));
+  assert.ok(/Promise\.race\(\[/.test(warm), '预热要与预算赛跑, 不能纯 await Promise.all');
+  assert.ok(/timedOut/.test(warm), '超时要能回报, 便于排查少图');
+
+  // 同一张海报重复点复制不要重渲染
+  assert.ok(/let lastRender = \{ key: ''/.test(js), '要缓存上一次出图结果');
+  assert.ok(/function htmlKey\(/.test(js), '缓存 key 要由 html/尺寸/主题决定');
+  assert.ok(/lastRender\.key === key && lastRender\.dataUrl/.test(js), 'key 相同要直接复用, 不再进出图流程');
+
+  // 量高与离屏渲染必须用同一套 CSS, 否则"量 2400 渲 2600"还是会缺底部
+  const main = fs.readFileSync(path.join(__dirname, 'main/index.js'), 'utf8');
+  const cardCss = main.slice(main.indexOf('function shareCardCss'), main.indexOf('function shareCardCss') + 700);
+  const files = (cardCss.match(/'([a-z0-9-]+\.css)'/g) || []).map(s => s.replace(/'/g, ''));
+  const html = fs.readFileSync(path.join(__dirname, 'renderer/index.html'), 'utf8');
+  for (const f of files) assert.ok(html.includes('css/' + f), 'shareCardCss 的 ' + f + ' 必须真的是 index.html 引入的');
+  for (const f of ['ui-system-v3.css', 'v4.css', 'poro-1630.css', 'poro-1632.css']) {
+    if (!files.includes(f)) {
+      const css = fs.readFileSync(path.join(__dirname, 'renderer/css', f), 'utf8');
+      assert.ok(!/\.pp-/.test(css), f + ' 里有 .pp- 规则但离屏渲染没加载它 → 量高与出图会不一致');
+    }
+  }
+}
+
+console.log('生涯海报: 13 组用例全部通过');

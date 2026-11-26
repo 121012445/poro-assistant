@@ -2782,6 +2782,9 @@ let SHARE_CARD_CSS = null;
 // 内联图片后的卡片 HTML 上限。旧值 500KB 会被"图多的局"撞破 (实测 520KB),
 // 导致同样操作一半成功一半失败。8MB 足够容纳 60+ 张重编码图。
 const SHARE_CARD_MAX_HTML = 8 * 1024 * 1024;
+// 分享卡最大渲染高度 (逻辑像素)。战报卡约 412, 生涯海报满量约 2700;
+// 实测 4000 高度窗口 capturePage 仍完整 (1020x6000), 这里留到 6000 做硬上限。
+const SHARE_CARD_MAX_H = 6000;
 function shareCardCss() {
   if (SHARE_CARD_CSS !== null) return SHARE_CARD_CSS;
   let out = '';
@@ -2834,7 +2837,16 @@ function acquireShareCardWin(w, h, dark) {
 // 旧实现是渲染完直接 showSaveDialog(默认桌面), 用户看不到要存的是什么, 体感上就是"点一下直接跳文件夹"。
 async function renderShareCardPng(html, width, height, opts) {
   const w = Math.max(200, Math.min(1600, Number(width) || 460));
-  const h = Math.max(200, Math.min(2400, Number(height) || 760));
+  // 1.6.80: 生涯海报是长图, 上限原来写死 2400 —— 满量内容 (10 英雄/10 装备/10 海克斯)
+  // 实测就有 2394, 局数多的账号直接超出去, capturePage 只能截到 2400, 粘出来就是
+  // "底部缺一块" (实测用户那张图正好 680x2400 等比缩放, 就是被这里夹的)。
+  // 实测 4000 高度窗口 setContentSize 正常, capturePage 返回 1020x6000 且底部像素完整,
+  // 所以把上限抬到 6000 (满量海报约 2700, 留足余量)。
+  const rawH = Number(height) || 760;
+  const h = Math.max(200, Math.min(SHARE_CARD_MAX_H, rawH));
+  if (rawH > SHARE_CARD_MAX_H) {
+    logErr('[SHARE CARD] height clamped ' + Math.round(rawH) + ' -> ' + SHARE_CARD_MAX_H);
+  }
   // 上限 8MB: 卡片上的图全部内联成 dataURL 后, 单张 460x412 的战报卡实测约 200~520KB
   // (18 张图), 原来卡在 500KB 会让"图多的局"随机失败 —— 表现为有的局能出图、有的局
   // 直接弹"内容无效"。这里只防呆, 不是安全边界 (html 由本应用渲染层生成)。
@@ -2866,7 +2878,10 @@ async function renderShareCardPng(html, width, height, opts) {
     } else {
       await win.loadURL(url);
     }
-    await new Promise(resolve => setTimeout(resolve, 600)); // 等图片解码
+    // 1.6.80: 图在渲染层已经全部内联成 dataURL, load 完基本就能出图。
+    // 实测同一张满量海报(680x2394) 在 260ms 与 600ms 各截一次, 像素差 0 —— 原 600ms 是白等,
+    // 缩短后每次出图少 340ms。
+    await new Promise(resolve => setTimeout(resolve, 260));
     const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: h });
     return image.toPNG();
   } catch (err) {

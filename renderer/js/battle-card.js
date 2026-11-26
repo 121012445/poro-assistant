@@ -127,10 +127,15 @@
     } catch (e) { return ''; }
   }
 
+  // 1.6.80: 卡图全是 CDN 外链, 网络一卡 fetch 会一直挂着 (没有超时), 用户看到的就是
+  // "复制要很久"。给每张图 2.5s 上限; 超时就放弃内联, 退回外链 (离屏窗口仍会尝试加载)。
+  const IMG_FETCH_TIMEOUT = 2500;
   async function inlineImg(url, opt) {
     if (!url || IMG_CACHE.has(url) || !/^https?:/i.test(url)) return 0;
+    const ac = (typeof AbortController === 'function') ? new AbortController() : null;
+    const timer = ac ? setTimeout(() => { try { ac.abort(); } catch (e) {} }, IMG_FETCH_TIMEOUT) : null;
     try {
-      const r = await fetch(url, { cache: 'force-cache' });
+      const r = await fetch(url, ac ? { cache: 'force-cache', signal: ac.signal } : { cache: 'force-cache' });
       if (!r.ok) return 0;
       const blob = await r.blob();
       // 原画 (138px 宽) / 头像 (17px) / 装备 (26px) 一律按 2 倍采样重编码
@@ -140,7 +145,8 @@
       }
       if (!dataUrl) dataUrl = await readAsDataUrl(blob);
       if (dataUrl) { IMG_CACHE.set(url, dataUrl); return 1; }
-    } catch (e) { /* 取不到就用外链 */ }
+    } catch (e) { /* 取不到 / 超时就用外链 */ }
+    finally { if (timer) clearTimeout(timer); }
     return 0;
   }
 

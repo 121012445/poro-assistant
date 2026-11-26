@@ -683,21 +683,30 @@
     return plan;
   }
 
+  // 1.6.80: 整轮预热最多等 3s。图都进 IMG_CACHE, 第二张起基本 0 等待;
+  // 首次遇上烂网络时不再无限等 —— 超时就用已内联的部分直接出图 (缺几张图标也比卡住好)。
+  const WARM_BUDGET = 3000;
   async function warmImages(s) {
     let done = 0;
-    const plan = imagePlan(s);
-    const jobs = [...plan].map(([url, opt]) => warmSrc(url, opt));
-    const res = await Promise.all(jobs);
-    for (const r of res) done += (r ? 1 : 0);
-    // 强化图标走 battle-card 的那套（先问主进程要包内 png，再回退网络）
-    try {
-      const ids = s.augList.map(a => a.id);
-      if (ids.length && typeof root.PoroBattleCard === 'object' && root.PoroBattleCard
-        && typeof root.PoroBattleCard.warmAugmentIcons === 'function') {
-        await root.PoroBattleCard.warmAugmentIcons({ participants: [{ augmentIds: ids }] });
-      }
-    } catch (e) { /* 图标缺一两个不影响整张图 */ }
-    return done;
+    const run = async () => {
+      const plan = imagePlan(s);
+      const jobs = [...plan].map(([url, opt]) => warmSrc(url, opt));
+      const res = await Promise.all(jobs);
+      for (const r of res) done += (r ? 1 : 0);
+      // 强化图标走 battle-card 的那套（先问主进程要包内 png，再回退网络）
+      try {
+        const ids = s.augList.map(a => a.id);
+        if (ids.length && typeof root.PoroBattleCard === 'object' && root.PoroBattleCard
+          && typeof root.PoroBattleCard.warmAugmentIcons === 'function') {
+          await root.PoroBattleCard.warmAugmentIcons({ participants: [{ augmentIds: ids }] });
+        }
+      } catch (e) { /* 图标缺一两个不影响整张图 */ }
+    };
+    let timer = null;
+    const budget = new Promise(resolve => { timer = setTimeout(() => resolve('timeout'), WARM_BUDGET); });
+    const hit = await Promise.race([run().then(() => 'done', () => 'done'), budget]);
+    if (timer) clearTimeout(timer);
+    return { done, timedOut: hit === 'timeout' };
   }
 
   // 先塞进隐藏容器量一次真实高度：写死 1600 会把最后一段裁掉
@@ -833,6 +842,15 @@
   }
 
   // ---------- 出图 ----------
+  // 1.6.80: 同一张海报重复点「复制/生成」不再重渲染。每次离屏出图约 0.6~1s,
+  // 用户常见的「点了复制没反应又点一次」会白等两遍; html 变了 key 自然就变。
+  let lastRender = { key: '', dataUrl: '', opts: null };
+  function htmlKey(html, size, theme) {
+    let h = 5381;
+    for (let i = 0; i < html.length; i += 7) h = ((h * 33) ^ html.charCodeAt(i)) >>> 0;
+    return html.length + ':' + h + ':' + size.width + 'x' + size.height + ':' + theme;
+  }
+
   // 渲染出 dataUrl（离屏截图），生成预览 / 直接复制共用这一步。
   async function renderDataUrl() {
     const st = state();
@@ -841,7 +859,7 @@
     const sum = collect(filteredGames(games, st.mode), info.puuid);
     if (!sum.n) { showToast('这个模式下没有对局', 'negative'); return null; }
     sum.avatar = info.avatar;
-    // 离屏窗口只等 600ms：外链图必须先落成本地 dataURL，否则导出的图上装备/头像全是空格
+    // 外链图先落成本地 dataURL, 否则导出的图上装备/头像全是空格（整轮最多等 3s, 见 warmImages）
     await warmImages(sum);
     const html = build(sum, {
       name: info.name, tag: info.tag, puuid: info.puuid, level: info.level, avatar: info.avatar,
@@ -852,9 +870,16 @@
     const size = measure(html);
     const theme = document.body.classList.contains('dark') ? 'dark' : 'light';
     const renderOpts = { title: '生涯海报预览', saveTitle: '保存生涯海报', prefix: 'Poro生涯', theme };
+    const key = htmlKey(html, size, theme);
+    if (lastRender.key === key && lastRender.dataUrl) {
+      return { dataUrl: lastRender.dataUrl, opts: lastRender.opts || renderOpts, cached: true };
+    }
     const r = await lolAPI.renderShareCard(html, size.width, size.height, renderOpts)
       .catch(e => ({ __error: (e && e.message) || String(e) }));
-    if (r && r.ok && r.dataUrl) return { dataUrl: r.dataUrl, opts: renderOpts };
+    if (r && r.ok && r.dataUrl) {
+      lastRender = { key, dataUrl: r.dataUrl, opts: renderOpts };
+      return { dataUrl: r.dataUrl, opts: renderOpts };
+    }
     showToast('生成图片失败: ' + ((r && r.__error) || '未知错误'), 'negative');
     return null;
   }
