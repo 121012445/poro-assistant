@@ -368,25 +368,31 @@
   const gameText = g => `${g.win ? '胜' : '负'} ${g.k}/${g.d}/${g.a}`;
   const kdaText = s => (s && s.kda == null ? '-' : s.kda.toFixed(1));
 
-  // 头行: "上等马 风会停 加权KDA 3.5"
-  function lineOf(m) {
+  // 1.6.82: 聊天是纯文本, 改不了字体颜色 —— 用 Unicode 符号把档位拉开层级。
+  // 只加在发到聊天的文案上, 工具箱 UI 里的档位名/徽章一律保持原样, 用户自定义名不受影响。
+  const CHAT_MARK = { top: '★', mid: '◆', low: '▼', ox: '●', zero: '○', unknown: '·' };
+  function chatMark(key) { return CHAT_MARK[key] || '·'; }
+  function chatLabel(tier) { return tier ? (chatMark(tier.key) + tier.label) : ''; }
+
+  // 头行: "★上等马 风会停 加权KDA 3.5"
+  function lineOf(m, chat) {
     const s = m && m.s5;
-    const head = `${m.tier.label} ${m.name}`;
+    const head = chat ? `${chatLabel(m.tier)} ${m.name}` : `${m.tier.label} ${m.name}`;
     if (!s || !s.n) return `${head} 无样本`;
     return `${head} 加权KDA ${kdaText(s)}`;
   }
 
   // 一个玩家可能占 1~2 行: 头行 + 逐场明细
-  function linesOf(m) {
+  function linesOf(m, chat) {
     const s = m && m.s5;
-    if (!s || !s.n) return [lineOf(m)];
-    return [lineOf(m), `· ${s.games.map(gameText).join(' ｜ ')}`];
+    if (!s || !s.n) return [lineOf(m, chat)];
+    return [lineOf(m, chat), `${chat ? '  ' : '· '}${s.games.map(gameText).join(' ｜ ')}`];
   }
 
   // 单行兜底 (LCU 不收换行时用): 档位 名字 加权KDA 逐场, 全压一行
-  function flatLineOf(m) {
+  function flatLineOf(m, chat) {
     const s = m && m.s5;
-    const head = `${m.tier.label} ${m.name}`;
+    const head = chat ? `${chatLabel(m.tier)} ${m.name}` : `${m.tier.label} ${m.name}`;
     if (!s || !s.n) return `${head} 无样本`;
     return `${head} 加权KDA ${kdaText(s)} ${s.games.map(g => `${g.win ? '胜' : '负'}${g.k}/${g.d}/${g.a}`).join(' ')}`;
   }
@@ -397,7 +403,7 @@
     // 五档顺序写死, 从强到弱; 待定只统计不排进这条统计里
     for (const key of ['top', 'mid', 'low', 'ox', 'zero']) {
       if (!c[key]) continue;
-      parts.push(`${labelOf(key)}${c[key]}`);
+      parts.push(`${chatMark(key)}${labelOf(key)}${c[key]}`);
     }
     // 1.6.66: 排序与"最能带/最需照看"都改看近 5 场 KDA —— 分档既然按 KD,
     // 名单却按胜率排, 会出现"上等马排在第四位"的错位观感。
@@ -406,8 +412,8 @@
     const best = rated.slice().sort((a, b) => kdaOf(b) - kdaOf(a))[0];
     const worst = rated.slice().sort((a, b) => kdaOf(a) - kdaOf(b))[0];
     const tail = [];
-    if (best) tail.push(`最能带 ${best.name}`);
-    if (worst && worst !== best) tail.push(`最需照看 ${worst.name}`);
+    if (best) tail.push(`★最能带 ${best.name}`);
+    if (worst && worst !== best) tail.push(`⚠最需照看 ${worst.name}`);
     const cmp = `硬碰硬赢 ${rank.direct.wins}/${rank.direct.n}，错位能赢 ${rank.cross.wins}/${rank.cross.n}（玩梗，非胜率预测）`;
     return {
       head: `【Poro·分工表】我方 ${parts.join(' ')}`,
@@ -421,15 +427,16 @@
     if (!rank || !rank.ready) return [];
     const p = chatParts(rank);
     const rows = [];
-    for (const m of p.mates) rows.push.apply(rows, linesOf(m));
-    return [p.head].concat(rows, p.tail);
+    for (const m of p.mates) rows.push.apply(rows, linesOf(m, true));
+    // 成员名单与总结之间插一条分隔线, 聊天窗里一眼能分清"名单"和"结论"
+    return [p.head].concat(rows, ['━━━━━━━━'], p.tail);
   }
 
   // 单行兜底版 (LCU 万一不收换行): 每个人压成一行, 逐场用 胜9/2/7 这种紧凑写法
   function chatFlatOf(rank) {
     if (!rank || !rank.ready) return '';
     const p = chatParts(rank);
-    return [p.head].concat(p.mates.map(flatLineOf), p.tail).join(' ｜ ');
+    return [p.head].concat(p.mates.map(m => flatLineOf(m, true)), p.tail).join(' ｜ ');
   }
 
   // 多行是首选 (聊天窗口里一人一行最像 Sona 那套), 但 LCU 万一不收换行,
@@ -534,7 +541,7 @@
   return {
     build, html, tierOf, copyOf, pairDirect, pairCross, summaryOf, chatTextOf, chatLinesOf, lineOf, recent5Of,
     previewHtml, legendHtml, RECENT_N,
-    labelOf, setLabels, getLabels, resetLabels, labelsAreDefault,
+    labelOf, setLabels, getLabels, resetLabels, labelsAreDefault, chatMark,
     TIERS, UNKNOWN_TIER, DEFAULT_LABELS, LABEL_KEYS, LABEL_MAX, EDGE, ASSIST_WEIGHT, TIER_HINT
   };
 });

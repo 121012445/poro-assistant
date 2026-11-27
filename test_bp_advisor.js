@@ -290,6 +290,16 @@ const num = (v, d) => Number(v.toFixed(d == null ? 2 : d));
       assert.ok(mainSrc.includes("ipcMain.handle('opgg:counters'"), '主进程应有 opgg:counters handler');
       assert.ok(/counters'\)/.test(mainSrc) || mainSrc.includes('/counters'), '主进程应请求对位接口');
       assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:update'"), '主进程应有浮窗推送 handler');
+
+      // ---------- 13. 1.6.82: 海斗/大乱斗不能 clear 掉整窗 ----------
+      const advSrc = read('renderer/js/bp-advisor.js');
+      assert.ok(!/mode === 'aram' \|\| mode === 'mayhem'\) \{ clear\(\); return; \}/.test(advSrc),
+        '模式回填到 mayhem 时不能 clear 整窗');
+      assert.ok(/const noLane = mode === 'aram' \|\| mode === 'mayhem' \|\|/.test(advSrc),
+        '无分路模式必须走 noLane 分支保留英雄数据页');
+      assert.ok(/bpAvailable: !noLane/.test(advSrc), '无分路模式的 BP 页签要隐藏');
+      assert.ok(/_lastMode/.test(advSrc) && /!modeChanged/.test(advSrc),
+        '模式回填必须强制重推, 否则浮窗停在旧帧');
       console.log('BP 对位建议测试通过');
     })
     .catch(e => { console.error(e); process.exitCode = 1; });

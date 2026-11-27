@@ -185,26 +185,27 @@ function recentOf(wr, n, k, d, a) {
   const rank = M.build(players, { selfPuuid: 'me', champName: () => '', evalPlayer });
 
   const lines = rank.chatLines;
-  // 表头 1 + 4 人各 2 行 + 无样本 1 行 + 脚注 1 = 11
-  eq(lines.length, 11, '表头 + 4 人各 2 行 + 无样本 1 行 + 脚注 = 11 行');
+  // 表头 1 + 4 人各 2 行 + 无样本 1 行 + 分隔线 1 + 脚注 1 = 12
+  eq(lines.length, 12, '表头 + 4 人各 2 行 + 无样本 1 行 + 分隔线 + 脚注 = 12 行');
   ok(lines[0].startsWith('【Poro·分工表】我方'), '第一行是表头统计');
-  ok(lines[0].includes('上等马1') && lines[0].includes('牛马1') && !lines[0].includes('待定'), '表头按五档统计, 待定不进统计');
-  eq(rank.chatText.split('\n').length, 11, 'chatText 就是这 11 行');
+  ok(lines[0].includes('★上等马1') && lines[0].includes('●牛马1') && !lines[0].includes('待定'), '表头用符号标档位, 待定不进统计');
+  eq(rank.chatText.split('\n').length, 12, 'chatText 就是这 12 行');
   eq(rank.chatFlat.indexOf('\n'), -1, '单行兜底版没有换行');
   ok(rank.chatFlat.includes(' ｜ '), '单行兜底版用竖线分隔');
 
-  eq(lines[1], '上等马 我 加权KDA 4.3', '头行: 档位 + 名字 + 加权 KDA');
-  eq(lines[2], '· 胜 10/3/6 ｜ 胜 10/3/6 ｜ 胜 10/3/6 ｜ 胜 10/3/6 ｜ 负 10/3/6',
+  eq(lines[1], '★上等马 我 加权KDA 4.3', '头行: 符号 + 档位 + 名字 + 加权 KDA');
+  eq(lines[2], '  胜 10/3/6 ｜ 胜 10/3/6 ｜ 胜 10/3/6 ｜ 胜 10/3/6 ｜ 负 10/3/6',
     '次行把 5 把逐场列出来 (每场 K/D/A + 胜负)');
   eq((lines[2].match(/胜/g) || []).length, 5 - 1, '5 场里 4 胜逐场标出');
   eq((lines[2].match(/负/g) || []).length, 1, '5 场里 1 负逐场标出');
   eq(lines[2].split('｜').length, 5, '次行固定 5 段, 一场一段');
-  ok(lines[3].startsWith('中等马 队友A'), '排序: 4.3 / 2.8 / 1.8 / 1.0 / 无样本');
-  ok(lines[5].startsWith('下等马 队友B'), '第三位是下等马');
-  ok(lines[7].startsWith('牛马 队友C'), '第四位是牛马');
-  ok(lines[9].includes('无样本') && lines[9].startsWith('待定'), '没有任何近期记录的人写无样本、档位待定');
-  eq(lines[9].indexOf('·'), -1, '无样本不占第二行');
-  ok(lines[10].includes('硬碰硬赢') && lines[10].includes('非胜率预测'), '脚注保留沙盘与免责');
+  ok(lines[3].startsWith('◆中等马 队友A'), '排序: 4.3 / 2.8 / 1.8 / 1.0 / 无样本');
+  ok(lines[5].startsWith('▼下等马 队友B'), '第三位是下等马');
+  ok(lines[7].startsWith('●牛马 队友C'), '第四位是牛马');
+  ok(lines[9].includes('无样本') && lines[9].startsWith('·待定'), '没有任何近期记录的人写无样本、档位待定');
+  eq(lines[10], '━━━━━━━━', '名单与结论之间有分隔线');
+  ok(lines[11].includes('★最能带') && lines[11].includes('⚠最需照看'), '重点人用符号标出');
+  ok(lines[11].includes('硬碰硬赢') && lines[11].includes('非胜率预测'), '脚注保留沙盘与免责');
 
   // 单行兜底: 一场一个 胜10/3/6, 不能把明细丢掉
   ok(rank.chatFlat.includes('胜10/3/6'), '单行兜底版也保留逐场明细');
@@ -230,7 +231,7 @@ function recentOf(wr, n, k, d, a) {
     { name: 'E', puuid: 'e1', team: 200, championId: 1, recent: recentOf(50, 5, 4, 6, 4) }
   ], { selfPuuid: 'me', evalPlayer });
   ok(thin.ready, '3 场样本也能出表');
-  ok(thin.chatLines[1].startsWith('待定 我'), '样本不足 4 场进待定');
+  ok(thin.chatLines[1].startsWith('·待定 我'), '样本不足 4 场进待定(待定用 · 标记)');
   eq(thin.chatLines[2].split('｜').length, 3, '只有 3 场就只列 3 段, 不补假数据');
 
   // 预览必须和聊天消息同源, 否则"预览看到的"和"发出去的"对不上

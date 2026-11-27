@@ -6,7 +6,18 @@
 let _store = {};
 let _storeTimer = null;
 let _storeWriteFailedNotified = false;
+// 1.6.82: 配置损坏且无有效备份时冻结自动写入 —— 宁可这次会话的设置不落盘,
+// 也不能用一份只剩 localStorage 老键的空配置覆盖掉磁盘上的原始现场。
+let _storeWriteFrozen = false;
 function storePath() { return (window._userDataPath || '') + '/poro-config.json'; }
+// 从字符串解析出合法配置对象; 失败返回 null。供主文件与 .bak 共用同一判据。
+function parseStoreContent(content) {
+  if (!content || typeof content !== 'string') return null;
+  try {
+    const parsed = JSON.parse(content);
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+  } catch (e) { return null; }
+}
 
 // ---- 按账号隔离成长类数据的存储键 ----
 // 背景: gameLedger / aiReview / 玩家记忆等原本是全局单键, 切到日服账号后仍读到国服积累的
@@ -46,18 +57,35 @@ function accountScopeChanged() {
 async function loadStore() {
   let content = null;
   try { content = await lolAPI.readFile(storePath()); } catch (e) {}
-  if (content) {
-    let parsed = null;
-    try { parsed = JSON.parse(content); } catch (e) {}
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) { _store = parsed; return; }
-    // 解析失败/结构不对: 先把原始内容备份, 再降级为空 —— 否则随后的任何一次
-    // 保存都会把用户的黑名单、玩家档案、符文记忆整体覆盖掉且不可恢复。
-    try { await lolAPI.writeFile(storePath() + '.bak', content); } catch (e) {}
+  const parsed = parseStoreContent(content);
+  if (parsed) { _store = parsed; return; }
+
+  // 1.6.82: 主文件损坏/为空 —— 先看 .bak。旧实现把损坏原文写进 .bak,
+  // 等于把唯一的恢复副本也毁掉, 然后走迁移写回空配置, 用户设置被整体清空。
+  let bak = null;
+  try { bak = await lolAPI.readFile(storePath() + '.bak'); } catch (e) {}
+  const fromBak = parseStoreContent(bak);
+  if (fromBak) {
+    _store = fromBak;
+    // 不立刻写回: 损坏的主文件留在原地当现场, 下次正常保存时自然覆盖。
     if (typeof toolMsg === 'function') {
-      toolMsg('<span style="color:var(--warning)">配置文件损坏，已备份为 poro-config.json.bak 并重置。</span>');
+      toolMsg('<span style="color:var(--warning)">配置读取失败，已从 poro-config.json.bak 恢复。</span>');
+    }
+    return;
+  }
+
+  // 主文件与备份都不可用: 只有"确实读到内容但解析失败"才算损坏。
+  // content 为空是首次安装, 必须照常走迁移并落盘, 不能误冻结。
+  if (content) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    try { await lolAPI.writeFile(storePath() + '.corrupt-' + stamp, content); } catch (e) {}
+    _storeWriteFrozen = true;
+    if (typeof toolMsg === 'function') {
+      toolMsg('<span style="color:var(--negative)">配置损坏且备份不可用，已保留原始现场（poro-config.json.corrupt-*）；本次会话的设置不会保存，请勿关闭后指望恢复。</span>');
     }
   }
-  // 迁移: 读取 localStorage 旧数据
+
+  // 迁移: 读取 localStorage 旧数据 (损坏时仅用于让本次会话能跑起来, 不写回磁盘)
   try {
     const keys = ['autoAccept', 'autoBPEnabled', 'autoBPHeroes', 'autoBPRules', 'autoRune', 'blacklist', 'encounters', 'playerMarks', 'gsLockOn', 'premadeNotify', 'theme', 'spellLockOn', 'spellLockIds'];
     for (const k of keys) {
@@ -78,6 +106,7 @@ function showStoreWriteError() {
 }
 function scheduleStoreSave() {
   clearTimeout(_storeTimer);
+  if (_storeWriteFrozen) return;
   _storeTimer = setTimeout(async () => {
     try { await lolAPI.writeFile(storePath(), JSON.stringify(_store)); }
     catch (e) { showStoreWriteError(); }
@@ -86,13 +115,14 @@ function scheduleStoreSave() {
 
 async function flushStoreSave() {
   clearTimeout(_storeTimer);
+  if (_storeWriteFrozen) return false;
   try { return await lolAPI.writeFile(storePath(), JSON.stringify(_store)); }
   catch (e) { showStoreWriteError(); return false; }
 }
 
 // 关窗前若还有未落盘的防抖保存, 立即补发一次 (fire-and-forget, 不阻塞卸载)。
 window.addEventListener('beforeunload', () => {
-  if (!_storeTimer) return;
+  if (!_storeTimer || _storeWriteFrozen) return;
   clearTimeout(_storeTimer);
   try { lolAPI.writeFile(storePath(), JSON.stringify(_store)); } catch (e) {}
 });

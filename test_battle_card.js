@@ -288,9 +288,18 @@ function norm(over) {
   assert.ok(/Math\.min\(SHARE_CARD_MAX_H, rawH\)/.test(rsc), '高度要用 SHARE_CARD_MAX_H 夹, 不能写死 2400');
   assert.ok(!/Math\.min\(2400,/.test(rsc), '不能再出现写死的 2400 上限');
   assert.ok(/height clamped/.test(rsc), '被上限夹住时要留日志, 否则永远查不到为什么缺底部');
-  // 图都内联成 dataURL 了, 600ms 是白等: 实测 260ms 与 600ms 出图像素差 0
-  assert.ok(/setTimeout\(resolve, 260\)/.test(rsc), '出图前等待要收到 260ms');
-  assert.ok(!/setTimeout\(resolve, 600\)/.test(rsc), '不能再固定等 600ms');
+  // 1.6.81: 固定等待不可靠 —— 满量海报 (80 多张内联图 / 1MB HTML) 260ms 时还没排完版,
+  //     capturePage 拿到半张: 上半截正常、下半截是窗口底色 → "海报底部一片空白"。
+  //     现在必须等页面自报 ready + 实测高度, 再按实测高度截图。
+  assert.ok(/function waitShareCardReady/.test(mainSrc), '出图前要等页面真正排完版, 不能用固定时长');
+  assert.ok(/await waitShareCardReady\(win\)/.test(rsc), 'renderShareCardPng 里必须在截图前 await ready');
+  assert.ok(/function shareCardHeightInPage/.test(mainSrc), '要问页面实际内容高度');
+  assert.ok(/const realH = await shareCardHeightInPage\(win\)/.test(rsc), '截图高度要以页面实测为准');
+  assert.ok(/win\.setContentSize\(w, targetH\)/.test(rsc), '实测高度与估计不一致时要重设窗口高度');
+  assert.ok(/webContents\.invalidate\(\)/.test(rsc), '改完尺寸要强制重绘, 否则会拿到改尺寸前那一帧');
+  assert.ok(/height: capH/.test(rsc), 'capturePage 只能按窗口内可用高度截, 不能超出窗口 (超出的部分会被填成底色)');
+  assert.ok(!/setTimeout\(resolve, 260\)/.test(rsc), '不再用固定 260ms 等待 (会截到半张图)');
+  assert.ok(/javascript: true/.test(acquire), '离屏窗口要开 JS 才能问页面排完没 (页面 CSP 仍禁止文档脚本)');
 
   // 5h. 1.6.80: 每张外链图必须有超时, 否则网络一卡 fetch 一直挂着 → 「复制要很久」
   assert.ok(/const IMG_FETCH_TIMEOUT = 2500;/.test(src), '图片 fetch 要有超时常量');

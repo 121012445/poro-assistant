@@ -779,6 +779,10 @@
   let _lastState = null;
   let _csLive = false;
   let _lastLive = false;
+  // 1.6.82: 海斗/大乱斗的模式识别来自异步 gameflow 查询, 首帧还是 rift、几秒后才回填。
+  // 记下上一次的模式族, 回填时强制重推一帧 —— 否则去重键相同会让浮窗停在旧内容,
+  // 更糟的是旧实现在回填那一帧直接 clear() 把整个浮窗关掉。
+  let _lastMode = '';
 
   function el(id) { return document.getElementById(id); }
 
@@ -835,6 +839,7 @@
     _lastState = null;
     _csLive = false;
     _lastLive = false;
+    _lastMode = '';
     pushOverlay('', null);
   }
 
@@ -920,13 +925,16 @@
     _lastState = state;
     _csLive = !!live;
     if (!state.inChampSelect) { clear(); return; }
-    // 大乱斗/海斗没有选位环节，克制与阵容建议都不成立；那两个模式有自己的备战区浮窗，
-    // 这里再弹一个"没有分路分配"的空窗只是噪声。
+    // 1.6.82: 大乱斗/海斗没有选位环节, BP 页不成立 —— 但英雄数据页仍然有用。
+    // 旧实现在这里直接 clear() 关掉整个浮窗: 模式是异步识别的, 首帧 rift 出了数据页,
+    // 几秒后回填 mayhem 就把窗关了, 用户看到的是"选人还没结束浮窗就没了"。
+    // 现在按无分路处理: 只让 BP 页签消失, 数据页照常显示。
     const mode = modeOfSession();
-    if (mode === 'aram' || mode === 'mayhem') { clear(); return; }
+    const modeChanged = mode !== _lastMode;
+    if (modeChanged) _lastMode = mode;
     // 1.6.68: 自己那路没有候选池时不一定要收面板 —— 只要己方还有空位，阵容建议仍然有用
     // (例如数据里我这路刚好没条目，但队友三路都空着)。
-    const noLane = !state.myPosition && !state.openPositions.length;
+    const noLane = mode === 'aram' || mode === 'mayhem' || (!state.myPosition && !state.openPositions.length);
     // 1.6.76: BP 页只属于有选位环节的排位；无分路模式整页不出，说明归英雄数据页。
     // 没有英雄可分析时仍只给一句说明；有英雄就按其主玩位置推断一张对位表喂数据页。
     const dataHeroId = state.myChampionId || state.myIntentId || 0;
@@ -939,7 +947,8 @@
     const key = stateKey(state);
     // 1.6.75: 同一会话从"缓存 tick"变成"实时事件"时必须重推一次，
     // 否则训练模式第一次由 tick 推出去的不可见帧会把后续实时帧饿死。
-    if (key === _lastKey && !!live === _lastLive) return;
+    // 1.6.82: 模式回填(rift→mayhem)也要重推, 否则 BP 页签不会及时藏起来。
+    if (key === _lastKey && !!live === _lastLive && !modeChanged) return;
     // 拉对位表是异步的。旧版遇到"刷新中又来新事件"直接 return，那一步状态就丢了 ——
     // 浮窗成了唯一出口后，丢一步就等于选人末尾停在上一版阵容。这里记下来，本轮结束后补跑。
     if (_refreshing) { _pendingSession = session; return; }

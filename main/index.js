@@ -2822,7 +2822,10 @@ function acquireShareCardWin(w, h, dark) {
     // 底色只是窗口创建时的空白填充。明暗主题完全由页面里的 reset 背景决定,
     // 所以深色卡片不需要重建窗口 —— 之前"主题变了就重建"正好踩回 ERR_FAILED 那个坑。
     backgroundColor: dark ? '#14151a' : '#fafafa', resizable: false, skipTaskbar: true,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: false }
+    // 1.6.81: javascript 打开只是为了「问一句排完版没有 / 内容到底多高」(见 waitShareCardReady)。
+    // 卡片的 CSP 是 default-src 'none', 文档里的脚本照样跑不起来, 注入走的 executeJavaScript
+    // 不受页面 CSP 限制 —— 安全性没有变化。
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, javascript: true }
   });
   // 1.6.79: BrowserWindow 构造时的 height 会被主屏 workArea 高度夹住 (本机 920 逻辑像素,
   // 用户 DPI 1.5 时 1784px 的生涯海报被压到 857 → capturePage 只截到上半截, 复制出来只剩一部分)。
@@ -2835,6 +2838,54 @@ function acquireShareCardWin(w, h, dark) {
 
 // 战报/周报卡: 只做离屏渲染成 PNG, 不弹保存框 —— 先把图给渲染层预览, 用户点「保存到…」再落盘。
 // 旧实现是渲染完直接 showSaveDialog(默认桌面), 用户看不到要存的是什么, 体感上就是"点一下直接跳文件夹"。
+//
+// 1.6.81: 「海报底部一片空白」的根因 —— 截图截早了。
+// 1.6.80 为了提速把固定等待从 600ms 压到 260ms, 但卡片上的图全是内联 dataURL (满量海报 80 多张、
+// HTML 约 1MB), 260ms 时页面经常还没排完版: capturePage 拿到的是半张画面, 上半截正常、下半截
+// 直接是窗口底色 (#fafafa/浅色主题), 粘出来就是底部一大片空白。
+// 现在改成问页面「排完没有」(waitShareCardReady), 再问一句「实际多高」(shareCardHeightInPage),
+// 按实测高度重设窗口后截图 —— 既不会截早留白, 也不会像 1.6.80 之前那样把长图截掉一块。
+// 页面自己报「排完了没有」: readyState 完成 + 所有 <img> 落地 + 两帧 rAF。
+// 预算 1.2s —— 卡片上的图都是内联 dataURL, 正常几十毫秒就齐; 真遇上挂住的图宁可少两个
+// 图标先出图, 也不能让「复制」卡两秒多 (1.6.80 的固定 260ms 就是太短, 才有半张图)。
+const SHARE_CARD_READY_BUDGET = 1200;
+const SHARE_CARD_READY_JS = '(function(){return new Promise(function(resolve){'
+  + 'var t0=Date.now(),budget=' + SHARE_CARD_READY_BUDGET + ';'
+  + 'function tick(){'
+  + 'var imgs=document.images||[],pending=0,i;'
+  + 'for(i=0;i<imgs.length;i++){if(!imgs[i].complete)pending++;}'
+  + 'var ready=document.readyState==="complete"&&pending===0;'
+  + 'if(ready||Date.now()-t0>budget){'
+  + 'requestAnimationFrame(function(){requestAnimationFrame(function(){resolve(true);});});return;}'
+  + 'setTimeout(tick,25);'
+  + '}'
+  + 'tick();'
+  + '});})()';
+
+async function waitShareCardReady(win) {
+  const budget = new Promise(resolve => setTimeout(() => resolve('timeout'), SHARE_CARD_READY_BUDGET + 600));
+  const hit = await Promise.race([
+    win.webContents.executeJavaScript(SHARE_CARD_READY_JS, true).then(() => 'ready', () => 'ready'),
+    budget
+  ]).catch(() => 'timeout');
+  if (hit !== 'ready') logErr('[SHARE CARD] ready timeout');
+  return hit === 'ready';
+}
+
+// 页面自己报内容高度: 海报取 .pp-wrap 的盒子 (渲染层量的是同一个), 其余卡片取滚动高度。
+// 返回 0 表示问不出来 (页面没排完 / 注入失败), 调用方退回渲染层给的估计值。
+async function shareCardHeightInPage(win) {
+  try {
+    const v = await win.webContents.executeJavaScript(
+      '(function(){var wrap=document.querySelector(".pp-wrap");'
+      + 'if(wrap){return Math.ceil(wrap.getBoundingClientRect().height);}'
+      + 'var d=document.documentElement,b=document.body;'
+      + 'return Math.ceil(Math.max(d?d.scrollHeight:0,b?b.scrollHeight:0));})()', true);
+    const n = Math.ceil(Number(v) || 0);
+    return n > 0 ? n : 0;
+  } catch (e) { return 0; }
+}
+
 async function renderShareCardPng(html, width, height, opts) {
   const w = Math.max(200, Math.min(1600, Number(width) || 460));
   // 1.6.80: 生涯海报是长图, 上限原来写死 2400 —— 满量内容 (10 英雄/10 装备/10 海克斯)
@@ -2878,11 +2929,28 @@ async function renderShareCardPng(html, width, height, opts) {
     } else {
       await win.loadURL(url);
     }
-    // 1.6.80: 图在渲染层已经全部内联成 dataURL, load 完基本就能出图。
-    // 实测同一张满量海报(680x2394) 在 260ms 与 600ms 各截一次, 像素差 0 —— 原 600ms 是白等,
-    // 缩短后每次出图少 340ms。
-    await new Promise(resolve => setTimeout(resolve, 260));
-    const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: h });
+    // 1.6.81: 等页面真正排完版再截 (原来是固定 260ms, 满量海报常常来不及)。
+    await waitShareCardReady(win);
+    // 以页面实测高度为准: 渲染层量的是应用窗口里的高度, 离屏窗口的排版可能略有出入,
+    // 偏小会把长图截掉一块, 偏大就在底部留一片底色 —— 只有页面自己报的数是对的。
+    let targetH = h;
+    const realH = await shareCardHeightInPage(win);
+    if (realH && Math.abs(realH - targetH) > 2) {
+      targetH = Math.max(200, Math.min(SHARE_CARD_MAX_H, realH));
+      logErr('[SHARE CARD] height fix ' + h + ' -> ' + targetH);
+      try { win.setContentSize(w, targetH); } catch (e) { logErr('[SHARE CARD] resize failed: ' + e.message); }
+      // 改完窗口尺寸必须给合成器一拍, 否则会拿到改尺寸之前那一帧 (又是半张图)。
+      await new Promise(resolve => setTimeout(resolve, 120));
+      try { win.webContents.invalidate(); } catch (e) {}
+      await new Promise(resolve => setTimeout(resolve, 60));
+    }
+    // 系统没给到这个高度 (屏幕限制 / 被夹住) 时, 只截窗口内那一段 —— 宁可少 1~2px 底边,
+    // 也不能再让下面整片填底色。
+    let winH = targetH;
+    try { winH = win.getContentSize()[1] || targetH; } catch (e) {}
+    const capH = Math.max(200, Math.min(targetH, winH));
+    if (capH + 4 < targetH) logErr('[SHARE CARD] window too short ' + winH + ' < ' + targetH);
+    const image = await win.webContents.capturePage({ x: 0, y: 0, width: w, height: capH });
     return image.toPNG();
   } catch (err) {
     // 窗口已经不可用 (渲染进程崩过 / 被系统回收): 丢掉它, 下次重建。
