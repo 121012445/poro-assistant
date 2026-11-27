@@ -329,6 +329,11 @@ function toggleBpOverlay(on) {
   bpOverlayOn = !!on;
   storeSet('bpOverlay', on ? '1' : '0');
   _bpOverlayStateText();
+  // 1.6.82: 用户主动再开开关 = 明确要浮窗回来，立刻清掉「× 收起本局」状态，
+  // 不必等候选条件连续 2.5s 不成立才自动解除。
+  if (on && window.lolAPI && typeof lolAPI.bpOverlayReopen === 'function') {
+    try { Promise.resolve(lolAPI.bpOverlayReopen()).catch(() => {}); } catch (e) {}
+  }
   // 立刻推一帧，不用等下一次选人事件
   const bp = window.PoroBPAdvisor;
   if (bp) {

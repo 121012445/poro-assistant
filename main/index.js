@@ -626,6 +626,12 @@ ipcMain.handle('overlay:status', async () => ({
 let bpOverlayWindow = null;
 let bpOverlayPayload = { html: '', cnt: '', sub: '', bpAvailable: true, filters: { region: 'kr', tier: 'all', position: 'auto', version: 'auto' }, version: '' };
 let bpOverlayVisible = false;
+// 1.6.82: 标题栏 × 只收本局。点 × 后本局内即使候选条件仍成立也不再自动弹回；
+// 只有候选条件连续 BP_DISMISS_AWAY_MS 都不成立（真的离开选人）才解除，下一局重新出现。
+// 不能用单帧空内容判定：csLive 异步回填会出现单帧 false，会误判成离开选人。
+let bpOverlayDismissed = false;
+let bpOverlayAwaySince = 0;
+const BP_DISMISS_AWAY_MS = 2500;
 const BP_OVERLAY_BOUNDS_FILE = () => path.join(USER_DATA, 'bp-overlay.json');
 const BP_OVERLAY_SIZE = { width: 466, height: 700 };
 const BP_HTML_MAX = 60000;         // 推送的 HTML 上限, 防止渲染层失控时把 IPC 撑爆
@@ -767,12 +773,25 @@ ipcMain.handle('bp-overlay:update', async (e, payload) => {
   // 1.5s tick 拿缓存会话重算时 csLive=false，不会让大厅里的旧会话把浮窗叫醒。
   const csLive = p.csLive === true;
   const hasContent = !!(bpOverlayPayload.html || bpOverlayPayload.cnt);
-  const want = !!p.visible && hasContent
+  const candidate = !!p.visible && hasContent
     && (lastReportedPhase === 'ChampSelect' || payloadPhase === 'ChampSelect' || csLive);
+  // 1.6.82: 「× 只收本局」—— 用户主动收起后, 本局内后续每帧都压住, 不再弹回。
+  // 候选条件连续 2.5s 不成立 = 真的离开了选人(进游戏/结算/大厅), 此时解除,
+  // 下一局再进选人就能正常出现。单帧抖动(csLive 异步回填的那一帧)不会清零计时。
+  const now = Date.now();
+  if (candidate) bpOverlayAwaySince = 0;
+  else if (!bpOverlayAwaySince) bpOverlayAwaySince = now;
+  if (bpOverlayAwaySince && now - bpOverlayAwaySince >= BP_DISMISS_AWAY_MS) {
+    if (bpOverlayDismissed) logErr('[BP-OVERLAY] 本局收起已解除，下一局可再弹');
+    bpOverlayDismissed = false;
+    bpOverlayAwaySince = 0;
+  }
+  const want = candidate && !bpOverlayDismissed;
   try {
     logErr('[BP-OVERLAY] want=' + want + ' visible=' + !!p.visible
       + ' reportPhase=' + lastReportedPhase + ' payloadPhase=' + payloadPhase
       + ' inCs=' + (p.inCs === true) + ' csLive=' + csLive
+      + ' dismissed=' + bpOverlayDismissed
       + ' html=' + bpOverlayPayload.html.length + ' cnt=' + bpOverlayPayload.cnt.length
       + ' win=' + !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()));
   } catch (e2) {}
@@ -793,8 +812,20 @@ ipcMain.handle('bp-overlay:update', async (e, payload) => {
 
 ipcMain.handle('bp-overlay:hide', async (e) => {
   if (!bpOverlayWindow || bpOverlayWindow.isDestroyed() || e.sender.id !== bpOverlayWindow.webContents.id) return false;
+  // 1.6.82: 记住"本局已收起", 否则下一次 update 推 want=true 会立刻把窗口 show 回来。
+  bpOverlayDismissed = true;
+  bpOverlayAwaySince = 0;
   bpOverlayWindow.hide();
   bpOverlayVisible = false;
+  try { logErr('[BP-OVERLAY] 用户收起本局浮窗 (dismissed=true)'); } catch (e2) {}
+  return true;
+});
+
+// 1.6.82: 工具箱开关重新打开时主动召回 —— 立刻清掉"本局已收起", 不必等 2.5s 冷却。
+ipcMain.handle('bp-overlay:reopen', async (e) => {
+  if (!mainWindow || mainWindow.isDestroyed() || e.sender.id !== mainWindow.webContents.id) return false;
+  bpOverlayDismissed = false;
+  bpOverlayAwaySince = 0;
   return true;
 });
 
@@ -827,6 +858,7 @@ ipcMain.handle('bp-overlay:status', async () => ({
   visible: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed() && bpOverlayWindow.isVisible()),
   exists: !!(bpOverlayWindow && !bpOverlayWindow.isDestroyed()),
   pinned: bpOverlayPinned,
+  dismissed: bpOverlayDismissed,
   bounds: (bpOverlayWindow && !bpOverlayWindow.isDestroyed()) ? bpOverlayWindow.getBounds() : null,
   clientRect: lastBpClientRect,
   htmlLength: bpOverlayPayload.html.length,

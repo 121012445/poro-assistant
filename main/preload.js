@@ -140,6 +140,7 @@ contextBridge.exposeInMainWorld('lolAPI', {
   bpOverlayUpdate: (payload) => ipcRenderer.invoke('bp-overlay:update', payload),
   bpOverlayStatus: () => ipcRenderer.invoke('bp-overlay:status'),
   bpOverlayHide: () => ipcRenderer.invoke('bp-overlay:hide'),
+  bpOverlayReopen: () => ipcRenderer.invoke('bp-overlay:reopen'),
   bpOverlayPin: (pinned) => ipcRenderer.invoke('bp-overlay:pin', !!pinned),
   onBpOverlayData: (cb) => { ipcRenderer.on('bp-overlay:data', (e, d) => cb(d)); },
   // 1.6.72 筛选条：浮窗提交 → 主进程落盘；主窗口收到变更 → 重算并推回

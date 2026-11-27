@@ -273,7 +273,23 @@ const lolAPI = {
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:update'"), '主进程要有 bp-overlay:update');
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:status'"), '主进程要有 status');
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:hide'"), '主进程要有 hide');
+  assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:reopen'"), '主进程要有 reopen（工具箱开关召回）');
   assert.ok(mainSrc.includes("ipcMain.handle('bp-overlay:pin'"), '主进程要有 pin（图钉切换置顶）');
+
+  // 1.6.82: × 只收本局 —— hide 记住 dismissed, want 压住, 候选连续离开才解除
+  assert.ok(/let bpOverlayDismissed = false/.test(mainSrc), '要有「本局已收起」状态');
+  assert.ok(/const BP_DISMISS_AWAY_MS = 2500/.test(mainSrc), '离开选人的确认窗口应为 2.5s（抗单帧抖动）');
+  assert.ok(/bpOverlayDismissed = true;[\s\S]{0,120}bpOverlayWindow\.hide\(\)/.test(mainSrc),
+    '点 × 时必须在 hide 之前记下 dismissed，否则下一帧立刻弹回');
+  assert.ok(/const want = candidate && !bpOverlayDismissed/.test(mainSrc), '收起后主进程要压住 want');
+  assert.ok(/if \(candidate\) bpOverlayAwaySince = 0;[\s\S]{0,200}now - bpOverlayAwaySince >= BP_DISMISS_AWAY_MS/
+    .test(mainSrc), '候选连续不成立超过冷却才解除，不能单帧误判');
+  assert.ok(/dismissed: bpOverlayDismissed/.test(mainSrc), 'status 要暴露 dismissed 供诊断');
+  const preloadSrc = read('main/preload.js');
+  assert.ok(preloadSrc.includes("bpOverlayReopen: () => ipcRenderer.invoke('bp-overlay:reopen')"),
+    'preload 要暴露 reopen 给工具箱开关');
+  assert.ok(/typeof lolAPI\.bpOverlayReopen === 'function'/.test(read('renderer/js/bench.js')),
+    '重新打开开关要主动召回浮窗，不必等冷却');
   assert.ok(/width:\s*466,\s*height:\s*700/.test(mainSrc), '浮窗尺寸应为 466x700（照 Akari champion-data 的窗口比例）');
   assert.ok(/BP_HTML_MAX/.test(mainSrc), '推送内容要有长度上限');
   assert.ok(/win\.showInactive\(\)/.test(mainSrc), '显示浮窗不能抢客户端焦点');
